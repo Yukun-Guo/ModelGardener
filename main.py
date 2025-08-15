@@ -41,6 +41,125 @@ from official.core import config_definitions as cfg_def  # for constructing base
 # Helper function to convert config dict to ParameterTree structure
 # ---------------------------
 
+def create_comprehensive_config():
+    """Create a comprehensive configuration structure with Basic and Advanced sections."""
+    
+    # Basic Configuration - Most commonly used parameters
+    basic_config = {
+        'data': {
+            'train_dir': '',
+            'val_dir': '',
+            'image_size': [224, 224],
+            'batch_size': 32,
+            'num_classes': 1000,
+            'shuffle': True
+        },
+        'model': {
+            'backbone_type': 'resnet',
+            'model_id': 50,
+            'dropout_rate': 0.0,
+            'activation': 'relu'
+        },
+        'training': {
+            'epochs': 100,
+            'learning_rate_type': 'exponential',
+            'initial_learning_rate': 0.1,
+            'momentum': 0.9,
+            'weight_decay': 1e-4,
+            'label_smoothing': 0.0
+        },
+        'runtime': {
+            'model_dir': './model_dir',
+            'distribution_strategy': 'mirrored',
+            'mixed_precision': None,
+            'num_gpus': 0
+        }
+    }
+    
+    # Advanced Configuration - Expert-level parameters
+    advanced_config = {
+        'model_advanced': {
+            'depth_multiplier': 1.0,
+            'stem_type': 'v0',
+            'se_ratio': 0.0,
+            'stochastic_depth_drop_rate': 0.0,
+            'scale_stem': True,
+            'resnetd_shortcut': False,
+            'replace_stem_max_pool': False,
+            'bn_trainable': True,
+            'use_sync_bn': False,
+            'norm_momentum': 0.99,
+            'norm_epsilon': 0.001,
+            'add_head_batch_norm': False,
+            'kernel_initializer': 'random_uniform',
+            'output_softmax': False
+        },
+        'data_advanced': {
+            'tfds_name': '',
+            'tfds_split': '',
+            'cache': False,
+            'shuffle_buffer_size': 10000,
+            'cycle_length': 10,
+            'block_length': 1,
+            'drop_remainder': True,
+            'sharding': True,
+            'prefetch_buffer_size': None,
+            'dtype': 'float32',
+            'file_type': 'tfrecord',
+            'image_field_key': 'image/encoded',
+            'label_field_key': 'image/class/label',
+            'decode_jpeg_only': True
+        },
+        'augmentation': {
+            'aug_rand_hflip': True,
+            'aug_crop': True,
+            'crop_area_range': [0.08, 1.0],
+            'center_crop_fraction': 0.875,
+            'color_jitter': 0.0,
+            'randaug_magnitude': 10,
+            'tf_resize_method': 'bilinear',
+            'three_augment': False,
+            'is_multilabel': False
+        },
+        'training_advanced': {
+            'train_tf_while_loop': True,
+            'train_tf_function': True,
+            'eval_tf_function': True,
+            'steps_per_loop': 1000,
+            'summary_interval': 1000,
+            'checkpoint_interval': 1000,
+            'max_to_keep': 5,
+            'validation_interval': 1000,
+            'validation_steps': -1,
+            'loss_upper_bound': 1000000.0,
+            'one_hot_labels': True,
+            'use_binary_cross_entropy': False,
+            'soft_labels': False
+        },
+        'evaluation': {
+            'top_k': 5,
+            'report_per_class_metrics': False,
+            'best_checkpoint_metric': '',
+            'best_checkpoint_export_subdir': '',
+            'best_checkpoint_metric_comp': 'higher'
+        },
+        'runtime_advanced': {
+            'enable_xla': False,
+            'run_eagerly': False,
+            'per_gpu_thread_count': 0,
+            'num_packs': 1,
+            'loss_scale': None,
+            'batchnorm_spatial_persistent': False,
+            'tpu_settings': None,
+            'all_reduce_alg': None
+        }
+    }
+    
+    return {
+        'basic': basic_config,
+        'advanced': advanced_config
+    }
+
 # Custom widget for directory-only browsing (no file button)
 class DirectoryOnlyBrowseWidget(QWidget):
     def __init__(self, param):
@@ -242,43 +361,222 @@ pTypes.registerParameterType('directory', DirectoryParameter, override=True)
 pTypes.registerParameterType('directory_only', DirectoryOnlyParameter, override=True)
 
 def dict_to_params(data, name="Config"):
-    """Convert a nested dictionary to Parameter tree structure."""
+    """Convert a nested dictionary to Parameter tree structure with enhanced parameter types."""
     if isinstance(data, dict):
         children = []
         for key, value in data.items():
             if isinstance(value, dict):
                 # Nested dictionary - create a group
                 children.append(dict_to_params(value, key))
+            elif isinstance(value, list):
+                # Handle list values
+                if len(value) == 2 and all(isinstance(x, int) for x in value):
+                    # Image size or similar pair - create group with two int parameters
+                    if key == 'image_size':
+                        children.append({
+                            'name': key,
+                            'type': 'group',
+                            'children': [
+                                {'name': 'width', 'type': 'int', 'value': value[0], 'limits': [1, 2048]},
+                                {'name': 'height', 'type': 'int', 'value': value[1], 'limits': [1, 2048]}
+                            ]
+                        })
+                    elif key == 'crop_area_range':
+                        children.append({
+                            'name': key,
+                            'type': 'group',
+                            'children': [
+                                {'name': 'min', 'type': 'float', 'value': value[0], 'limits': [0.0, 1.0], 'step': 0.01},
+                                {'name': 'max', 'type': 'float', 'value': value[1], 'limits': [0.0, 1.0], 'step': 0.01}
+                            ]
+                        })
+                    else:
+                        # Generic two-element list
+                        children.append({
+                            'name': key,
+                            'type': 'str',
+                            'value': str(value)
+                        })
+                else:
+                    # Other lists - convert to string representation
+                    children.append({
+                        'name': key,
+                        'type': 'str',
+                        'value': str(value)
+                    })
             else:
-                # Check for special directory parameters
+                # Handle special directory/file parameters
                 if key in ['train_dir', 'val_dir'] and isinstance(value, str):
-                    # Create directory/file browser parameter with both buttons
                     children.append({
                         'name': key,
                         'type': 'directory',
                         'value': value
                     })
                 elif key in ['model_dir'] and isinstance(value, str):
-                    # Create directory-only browser parameter (no file button)
                     children.append({
                         'name': key,
                         'type': 'directory_only',
                         'value': value
                     })
-                else:
-                    # Leaf value - determine type and create parameter
-                    param_type = 'str'  # default
-                    if isinstance(value, bool):
-                        param_type = 'bool'
-                    elif isinstance(value, int):
-                        param_type = 'int'
-                    elif isinstance(value, float):
-                        param_type = 'float'
+                # Handle choice parameters
+                elif key == 'backbone_type':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet'],
+                        'value': value
+                    })
+                elif key == 'activation':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['relu', 'swish', 'gelu', 'leaky_relu', 'tanh'],
+                        'value': value
+                    })
+                elif key == 'distribution_strategy':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['mirrored', 'multi_worker_mirrored', 'tpu', 'parameter_server'],
+                        'value': value
+                    })
+                elif key == 'learning_rate_type':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['exponential', 'polynomial', 'cosine', 'constant', 'piecewise_constant'],
+                        'value': value
+                    })
+                elif key == 'mixed_precision':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': [None, 'float16', 'bfloat16'],
+                        'value': value
+                    })
+                elif key == 'optimizer_type':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['sgd', 'adam', 'adamw', 'rmsprop', 'lars'],
+                        'value': value
+                    })
+                elif key == 'file_type':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['tfrecord', 'sstable', 'recordio'],
+                        'value': value
+                    })
+                elif key == 'tf_resize_method':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['bilinear', 'nearest', 'bicubic', 'area'],
+                        'value': value
+                    })
+                elif key == 'kernel_initializer':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['random_uniform', 'random_normal', 'glorot_uniform', 'glorot_normal', 'he_uniform', 'he_normal'],
+                        'value': value
+                    })
+                elif key == 'stem_type':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['v0', 'v1', 'v2'],
+                        'value': value
+                    })
+                elif key == 'dtype':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['float32', 'float16', 'bfloat16'],
+                        'value': value
+                    })
+                elif key == 'best_checkpoint_metric_comp':
+                    children.append({
+                        'name': key,
+                        'type': 'list',
+                        'values': ['higher', 'lower'],
+                        'value': value
+                    })
+                # Handle numeric parameters with appropriate ranges
+                elif key in ['batch_size', 'num_classes', 'epochs', 'model_id']:
+                    limits = {
+                        'batch_size': [1, 1024],
+                        'num_classes': [1, 100000],
+                        'epochs': [1, 1000],
+                        'model_id': [18, 152]
+                    }
+                    children.append({
+                        'name': key,
+                        'type': 'int',
+                        'value': int(value) if value else 0,
+                        'limits': limits.get(key, [0, 1000000])
+                    })
+                elif key in ['dropout_rate', 'learning_rate', 'initial_learning_rate', 'momentum', 'weight_decay', 'label_smoothing', 
+                            'depth_multiplier', 'se_ratio', 'stochastic_depth_drop_rate', 'norm_momentum', 'norm_epsilon',
+                            'color_jitter', 'center_crop_fraction']:
+                    step = 0.01 if 'rate' in key or 'momentum' in key else 0.001
+                    limits = [0.0, 1.0] if 'rate' in key or 'momentum' in key else [0.0, 10.0]
+                    if key == 'initial_learning_rate':
+                        limits = [1e-6, 1.0]
+                        step = 0.001
+                    elif key == 'norm_epsilon':
+                        limits = [1e-8, 1e-3]
+                        step = 1e-6
+                    elif key == 'weight_decay':
+                        limits = [0.0, 0.01]
+                        step = 1e-5
                     
                     children.append({
                         'name': key,
-                        'type': param_type,
+                        'type': 'float',
+                        'value': float(value) if value else 0.0,
+                        'limits': limits,
+                        'step': step
+                    })
+                elif key in ['steps_per_loop', 'summary_interval', 'checkpoint_interval', 'validation_interval',
+                            'shuffle_buffer_size', 'cycle_length', 'block_length', 'max_to_keep', 'validation_steps',
+                            'top_k', 'randaug_magnitude', 'per_gpu_thread_count', 'num_packs', 'num_gpus']:
+                    limits = {
+                        'steps_per_loop': [1, 10000],
+                        'summary_interval': [1, 10000],
+                        'checkpoint_interval': [1, 10000],
+                        'validation_interval': [1, 10000],
+                        'shuffle_buffer_size': [1, 100000],
+                        'cycle_length': [1, 100],
+                        'block_length': [1, 100],
+                        'max_to_keep': [1, 50],
+                        'validation_steps': [-1, 10000],
+                        'top_k': [1, 10],
+                        'randaug_magnitude': [0, 30],
+                        'per_gpu_thread_count': [0, 16],
+                        'num_packs': [1, 8],
+                        'num_gpus': [0, 8]
+                    }
+                    children.append({
+                        'name': key,
+                        'type': 'int',
+                        'value': int(value) if value is not None else -1,
+                        'limits': limits.get(key, [0, 100000])
+                    })
+                # Handle boolean parameters
+                elif isinstance(value, bool):
+                    children.append({
+                        'name': key,
+                        'type': 'bool',
                         'value': value
+                    })
+                else:
+                    # Default string parameter
+                    children.append({
+                        'name': key,
+                        'type': 'str',
+                        'value': str(value) if value is not None else ''
                     })
         
         return {
@@ -303,12 +601,42 @@ def dict_to_params(data, name="Config"):
         }
 
 def params_to_dict(param):
-    """Convert Parameter tree back to dictionary."""
+    """Convert Parameter tree back to dictionary with proper handling of special cases."""
     if param.hasChildren():
         result = {}
         for child in param.children():
             child_name = child.name()
-            result[child_name] = params_to_dict(child)
+            if child.hasChildren():
+                # Handle special group parameters like image_size or crop_area_range
+                if child_name == 'image_size' and len(child.children()) == 2:
+                    width_child = next((c for c in child.children() if c.name() == 'width'), None)
+                    height_child = next((c for c in child.children() if c.name() == 'height'), None)
+                    if width_child and height_child:
+                        result[child_name] = [width_child.value(), height_child.value()]
+                    else:
+                        result[child_name] = params_to_dict(child)
+                elif child_name == 'crop_area_range' and len(child.children()) == 2:
+                    min_child = next((c for c in child.children() if c.name() == 'min'), None)
+                    max_child = next((c for c in child.children() if c.name() == 'max'), None)
+                    if min_child and max_child:
+                        result[child_name] = [min_child.value(), max_child.value()]
+                    else:
+                        result[child_name] = params_to_dict(child)
+                else:
+                    # Regular nested group
+                    result[child_name] = params_to_dict(child)
+            else:
+                # Leaf parameter
+                value = child.value()
+                # Handle None values properly
+                if value == 'None' or value == '':
+                    # Check if this parameter should be None vs empty string
+                    if child_name in ['mixed_precision', 'prefetch_buffer_size', 'tpu_settings', 'all_reduce_alg', 'loss_scale']:
+                        result[child_name] = None
+                    else:
+                        result[child_name] = value
+                else:
+                    result[child_name] = value
         return result
     else:
         return param.value()
@@ -372,106 +700,146 @@ class QtBridgeCallback(tf.keras.callbacks.Callback):
 def map_gui_to_expconfig(gui_cfg: Dict[str, Any], exp_name: str):
     """
     Returns a ConfigDict from exp_factory.get_exp_config(exp_name) with fields
-    updated from gui_cfg where sensible.
+    updated from comprehensive gui_cfg structure.
     """
     if not TF_AVAILABLE:
         raise RuntimeError("TensorFlow / tf-models-official not available")
 
     exp_cfg = exp_factory.get_exp_config(exp_name)  # ConfigDict
 
-    # Basic mapping examples (for image classification experiments)
-    # Set model_dir / runtime
-    model_dir = gui_cfg.get("train", {}).get("model_dir") or gui_cfg.get("train", {}).get("model_dir", "./model_dir")
+    # Map basic configuration
     try:
-        exp_cfg.runtime.model_dir = model_dir
+        # Runtime settings
+        if 'runtime' in gui_cfg:
+            runtime = gui_cfg['runtime']
+            exp_cfg.runtime.model_dir = runtime.get('model_dir', './model_dir')
+            if runtime.get('distribution_strategy'):
+                exp_cfg.runtime.distribution_strategy = runtime['distribution_strategy']
+            if runtime.get('mixed_precision'):
+                exp_cfg.runtime.mixed_precision_dtype = runtime['mixed_precision']
+            if runtime.get('num_gpus'):
+                exp_cfg.runtime.num_gpus = runtime['num_gpus']
     except Exception:
-        # If runtime or model_dir not present, create
-        try:
-            exp_cfg.runtime = exp_cfg.get("runtime", {})
-            exp_cfg.runtime.model_dir = model_dir
-        except Exception:
-            pass
+        pass
 
-    # Data paths: many official configs expect TFRecord input_path; we set whatever available
-    train_dir = gui_cfg.get("data", {}).get("train_dir", "")
-    val_dir = gui_cfg.get("data", {}).get("val_dir", "")
-
-    # We will put the GUI paths into config.task.train_data.input_path and validation_data.input_path
+    # Map data configuration
     try:
-        exp_cfg.task.train_data.input_path = train_dir
-    except Exception:
-        try:
-            exp_cfg.task.train_data = exp_cfg.task.get("train_data", {})
-            exp_cfg.task.train_data.input_path = train_dir
-        except Exception:
-            pass
+        if 'data' in gui_cfg:
+            data = gui_cfg['data']
+            
+            # Training data
+            if data.get('train_dir'):
+                exp_cfg.task.train_data.input_path = data['train_dir']
+            if data.get('batch_size'):
+                exp_cfg.task.train_data.global_batch_size = int(data['batch_size'])
+            if data.get('image_size') and isinstance(data['image_size'], list) and len(data['image_size']) >= 2:
+                exp_cfg.task.model.input_size = data['image_size'][:2]
+            elif data.get('image_size'):
+                size = int(data['image_size']) if isinstance(data['image_size'], (int, str)) else 224
+                exp_cfg.task.model.input_size = [size, size]
+                
+            # Validation data
+            if data.get('val_dir'):
+                exp_cfg.task.validation_data.input_path = data['val_dir']
+                exp_cfg.task.validation_data.global_batch_size = int(data.get('batch_size', 32))
+            
+            # Number of classes
+            if data.get('num_classes'):
+                exp_cfg.task.model.num_classes = int(data['num_classes'])
+    except Exception as e:
+        print(f"Error mapping data config: {e}")
+
+    # Map model configuration
     try:
-        exp_cfg.task.validation_data.input_path = val_dir
-    except Exception:
-        try:
-            exp_cfg.task.validation_data = exp_cfg.task.get("validation_data", {})
-            exp_cfg.task.validation_data.input_path = val_dir
-        except Exception:
-            pass
+        if 'model' in gui_cfg:
+            model = gui_cfg['model']
+            
+            if model.get('backbone_type'):
+                exp_cfg.task.model.backbone.type = model['backbone_type']
+            if model.get('model_id'):
+                if model['backbone_type'] == 'resnet':
+                    exp_cfg.task.model.backbone.resnet.model_id = int(model['model_id'])
+            if model.get('dropout_rate') is not None:
+                exp_cfg.task.model.dropout_rate = float(model['dropout_rate'])
+            if model.get('activation'):
+                exp_cfg.task.model.norm_activation.activation = model['activation']
+    except Exception as e:
+        print(f"Error mapping model config: {e}")
 
-    # batch size / image size mapping
-    bs = gui_cfg.get("input", {}).get("batch_size")
-    if bs is not None:
-        try:
-            exp_cfg.task.train_data.global_batch_size = int(bs)
-        except Exception:
-            try:
-                exp_cfg.task.train_data.batch_size = int(bs)
-            except Exception:
-                pass
-
-    image_size = gui_cfg.get("input", {}).get("image_size")
-    if image_size is not None:
-        try:
-            exp_cfg.task.model.input_size = int(image_size)
-        except Exception:
-            # fallback: many configs have task.input_size / model.input_size etc.
-            try:
-                exp_cfg.task.input_size = int(image_size)
-            except Exception:
-                pass
-
-    # training params
-    epochs = gui_cfg.get("train", {}).get("epochs")
-    if epochs is not None:
-        try:
-            exp_cfg.trainer.train_steps = int(epochs)  # may not be semantically correct for all experiments
-        except Exception:
-            # some configs use trainer.epochs
-            try:
-                exp_cfg.trainer.epochs = int(epochs)
-            except Exception:
-                pass
-
-    lr = gui_cfg.get("train", {}).get("learning_rate")
-    if lr is not None:
-        try:
-            # Many configs use trainer.optimizer_config.learning_rate.* structure; we set a simple value
-            exp_cfg.trainer.optimizer_config.learning_rate.constant = float(lr)
-        except Exception:
-            try:
-                exp_cfg.task.optimizer.learning_rate = float(lr)
-            except Exception:
-                pass
-
-    # augmentation: place into task.train_data.augmentation (user pipeline will need to read and apply)
-    aug = gui_cfg.get("augment", {})
+    # Map training configuration
     try:
-        exp_cfg.task.train_data.augmentation = aug
-    except Exception:
-        try:
-            exp_cfg.task.train_data = exp_cfg.task.get("train_data", {})
-            exp_cfg.task.train_data.augmentation = aug
-        except Exception:
-            pass
+        if 'training' in gui_cfg:
+            training = gui_cfg['training']
+            
+            if training.get('epochs'):
+                exp_cfg.trainer.train_steps = int(training['epochs']) * 1000  # Approximate
+            
+            # Learning rate setup
+            if training.get('initial_learning_rate'):
+                lr_type = training.get('learning_rate_type', 'exponential')
+                if lr_type == 'exponential':
+                    exp_cfg.trainer.optimizer_config.learning_rate = {
+                        'type': 'exponential',
+                        'exponential': {
+                            'initial_learning_rate': float(training['initial_learning_rate']),
+                            'decay_steps': 10000,
+                            'decay_rate': 0.96
+                        }
+                    }
+                elif lr_type == 'constant':
+                    exp_cfg.trainer.optimizer_config.learning_rate = {
+                        'type': 'constant',
+                        'constant': {
+                            'learning_rate': float(training['initial_learning_rate'])
+                        }
+                    }
+            
+            # Optimizer settings
+            if training.get('momentum') and training.get('weight_decay'):
+                exp_cfg.trainer.optimizer_config.optimizer = {
+                    'type': 'sgd',
+                    'sgd': {
+                        'momentum': float(training['momentum']),
+                        'weight_decay': float(training['weight_decay'])
+                    }
+                }
+            
+            # Loss configuration
+            if training.get('label_smoothing') is not None:
+                exp_cfg.task.losses.label_smoothing = float(training['label_smoothing'])
+    except Exception as e:
+        print(f"Error mapping training config: {e}")
 
-    # callbacks: ensure QtBridgeCallback is present (we'll add it later before training)
-    # set checkpoint resume path placeholder (init_checkpoint)
+    # Map augmentation configuration
+    try:
+        if 'augmentation' in gui_cfg:
+            aug = gui_cfg['augmentation']
+            exp_cfg.task.train_data.aug_rand_hflip = bool(aug.get('aug_rand_hflip', True))
+            exp_cfg.task.train_data.aug_crop = bool(aug.get('aug_crop', True))
+            if aug.get('crop_area_range'):
+                exp_cfg.task.train_data.crop_area_range = aug['crop_area_range']
+            if aug.get('color_jitter') is not None:
+                exp_cfg.task.train_data.color_jitter = float(aug['color_jitter'])
+            if aug.get('randaug_magnitude') is not None:
+                exp_cfg.task.train_data.randaug_magnitude = int(aug['randaug_magnitude'])
+    except Exception as e:
+        print(f"Error mapping augmentation config: {e}")
+
+    # Map training advanced settings
+    try:
+        if 'training_advanced' in gui_cfg:
+            adv = gui_cfg['training_advanced']
+            if adv.get('steps_per_loop'):
+                exp_cfg.trainer.steps_per_loop = int(adv['steps_per_loop'])
+            if adv.get('checkpoint_interval'):
+                exp_cfg.trainer.checkpoint_interval = int(adv['checkpoint_interval'])
+            if adv.get('validation_interval'):
+                exp_cfg.trainer.validation_interval = int(adv['validation_interval'])
+            if adv.get('max_to_keep'):
+                exp_cfg.trainer.max_to_keep = int(adv['max_to_keep'])
+    except Exception as e:
+        print(f"Error mapping advanced training config: {e}")
+
     return exp_cfg
 
 # ---------------------------
@@ -502,8 +870,9 @@ class TFModelsTrainerThread(threading.Thread):
                 except Exception:
                     pass
 
-            # ensure model_dir
-            model_dir = self.gui_cfg.get("train", {}).get("model_dir", "./model_dir")
+            # ensure model_dir using new config structure
+            runtime_cfg = self.gui_cfg.get("runtime", {})
+            model_dir = runtime_cfg.get("model_dir", "./model_dir")
             try:
                 exp_cfg.runtime.model_dir = model_dir
             except Exception:
@@ -514,8 +883,9 @@ class TFModelsTrainerThread(threading.Thread):
                     pass
             os.makedirs(model_dir, exist_ok=True)
 
-            # Add our QtBridgeCallback into exp_cfg.callbacks (avoid duplicates)
-            total_steps = int(self.gui_cfg.get("train", {}).get("epochs", 1))
+            # Add our QtBridgeCallback - get epochs from training config
+            training_cfg = self.gui_cfg.get("training", {})
+            total_steps = int(training_cfg.get("epochs", 1))
             cb = {"type": "QtBridgeCallback", "total_train_steps": total_steps, "log_every_n": 1}
             # ensure callbacks list exists
             try:
@@ -562,14 +932,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TF-Models-Official GUI Trainer")
         self.resize(1600, 1000)
 
-        # initialize GUI config (this is the smaller GUI-level config)
+        # initialize GUI config (comprehensive TensorFlow Models config)
+        comprehensive_config = create_comprehensive_config()
         self.gui_cfg = {
-            "data": {"train_dir": "", "val_dir": ""},
-            "input": {"image_size": 224, "batch_size": 16, "shuffle": True},
-            "train": {"epochs": 5, "learning_rate": 1e-3, "model_dir": "./model_dir"},
-            "augment": {"flip_horizontal": True, "flip_vertical": False, "rotate_limit": 15, "random_crop_pct": 0.1,
-                        "brightness_limit": 0.2, "contrast_limit": 0.2}
+            **comprehensive_config['basic'],
+            **comprehensive_config['advanced']
         }
+        
+        # Also maintain the comprehensive structure for the parameter tree
+        self.comprehensive_cfg = comprehensive_config
         self.experiment_name = experiment_name
         self.trainer_thread: TFModelsTrainerThread = None
         self.resume_ckpt_path = None
@@ -593,8 +964,8 @@ class MainWindow(QMainWindow):
         # left layout: config tree + augment controls + controls
         left_layout = QVBoxLayout()
         
-        # Create ParameterTree with config data
-        self.params = Parameter.create(**dict_to_params(self.gui_cfg, "Configuration"))
+        # Create ParameterTree with comprehensive config data organized in Basic/Advanced sections
+        self.params = Parameter.create(**dict_to_params(self.comprehensive_cfg, "Configuration"))
         self.tree = ParameterTree()
         self.tree.setParameters(self.params, showTop=False)
         
@@ -606,20 +977,24 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(QLabel("Config")); left_layout.addWidget(self.tree, stretch=3)
 
-        # augmentation panel
+        # augmentation panel - using new configuration structure
         aug_form = QFormLayout()
-        self.chk_flip_h = QCheckBox(); self.chk_flip_h.setChecked(self.gui_cfg["augment"]["flip_horizontal"])
+        aug_cfg = self.gui_cfg.get("augmentation", {})
+        
+        self.chk_flip_h = QCheckBox(); self.chk_flip_h.setChecked(aug_cfg.get("aug_rand_hflip", True))
         aug_form.addRow("Flip H", self.chk_flip_h)
-        self.chk_flip_v = QCheckBox(); self.chk_flip_v.setChecked(self.gui_cfg["augment"]["flip_vertical"])
+        self.chk_flip_v = QCheckBox(); self.chk_flip_v.setChecked(False)  # Not in standard config
         aug_form.addRow("Flip V", self.chk_flip_v)
-        self.spin_rotate = QSpinBox(); self.spin_rotate.setRange(0,90); self.spin_rotate.setValue(self.gui_cfg["augment"]["rotate_limit"])
-        aug_form.addRow("Rotate limit", self.spin_rotate)
-        self.spin_crop = QDoubleSpinBox(); self.spin_crop.setRange(0.0,0.5); self.spin_crop.setSingleStep(0.01)
-        self.spin_crop.setValue(self.gui_cfg["augment"]["random_crop_pct"]); aug_form.addRow("Random crop pct", self.spin_crop)
+        self.spin_rotate = QSpinBox(); self.spin_rotate.setRange(0,30); self.spin_rotate.setValue(aug_cfg.get("randaug_magnitude", 10))
+        aug_form.addRow("RandAug Magnitude", self.spin_rotate)
+        self.spin_crop = QDoubleSpinBox(); self.spin_crop.setRange(0.0,1.0); self.spin_crop.setSingleStep(0.01)
+        crop_range = aug_cfg.get("crop_area_range", [0.08, 1.0])
+        self.spin_crop.setValue(crop_range[0] if isinstance(crop_range, list) else 0.08)
+        aug_form.addRow("Crop Area Min", self.spin_crop)
         self.spin_bright = QDoubleSpinBox(); self.spin_bright.setRange(0.0,1.0); self.spin_bright.setSingleStep(0.01)
-        self.spin_bright.setValue(self.gui_cfg["augment"]["brightness_limit"]); aug_form.addRow("Brightness limit", self.spin_bright)
+        self.spin_bright.setValue(aug_cfg.get("color_jitter", 0.0)); aug_form.addRow("Color Jitter", self.spin_bright)
         self.spin_contrast = QDoubleSpinBox(); self.spin_contrast.setRange(0.0,1.0); self.spin_contrast.setSingleStep(0.01)
-        self.spin_contrast.setValue(self.gui_cfg["augment"]["contrast_limit"]); aug_form.addRow("Contrast limit", self.spin_contrast)
+        self.spin_contrast.setValue(aug_cfg.get("center_crop_fraction", 0.875)); aug_form.addRow("Center Crop Fraction", self.spin_contrast)
 
         btn_preview = QPushButton("Preview Aug"); btn_preview.clicked.connect(self.preview_augmentation)
         aug_form.addRow(btn_preview)
@@ -693,10 +1068,13 @@ class MainWindow(QMainWindow):
             self.append_log(f"Error updating config from parameters: {e}")
     
     def refresh_tree(self):
-        """Update the ParameterTree with current config data."""
+        """Update the ParameterTree with current comprehensive config data."""
         try:
+            # Update comprehensive config from current gui_cfg
+            self.sync_gui_to_comprehensive()
+            
             # Recreate the parameter structure
-            new_params = Parameter.create(**dict_to_params(self.gui_cfg, "Configuration"))
+            new_params = Parameter.create(**dict_to_params(self.comprehensive_cfg, "Configuration"))
             
             # Disconnect old signals
             if hasattr(self, 'params'):
@@ -715,10 +1093,46 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.append_log(f"Error refreshing tree: {e}")
     
-    def write_back_tree(self):
-        """Extract data from the parameter tree back to gui_cfg."""
+    def sync_gui_to_comprehensive(self):
+        """Sync the flat gui_cfg back to the comprehensive config structure."""
         try:
-            self.gui_cfg = params_to_dict(self.params)
+            # Update basic configuration
+            if 'data' in self.gui_cfg:
+                self.comprehensive_cfg['basic']['data'].update(self.gui_cfg['data'])
+            if 'model' in self.gui_cfg:
+                self.comprehensive_cfg['basic']['model'].update(self.gui_cfg['model'])
+            if 'training' in self.gui_cfg:
+                self.comprehensive_cfg['basic']['training'].update(self.gui_cfg['training'])
+            if 'runtime' in self.gui_cfg:
+                self.comprehensive_cfg['basic']['runtime'].update(self.gui_cfg['runtime'])
+                
+            # Update advanced configuration sections as needed
+            for section in ['model_advanced', 'data_advanced', 'augmentation', 'training_advanced', 'evaluation', 'runtime_advanced']:
+                if section in self.gui_cfg:
+                    self.comprehensive_cfg['advanced'][section].update(self.gui_cfg[section])
+                    
+        except Exception as e:
+            self.append_log(f"Error syncing to comprehensive config: {e}")
+    
+    def write_back_tree(self):
+        """Extract data from the parameter tree back to both comprehensive and flat gui_cfg."""
+        try:
+            # Extract data from parameter tree
+            tree_data = params_to_dict(self.params)
+            
+            # Update comprehensive config
+            if 'basic' in tree_data:
+                self.comprehensive_cfg['basic'] = tree_data['basic']
+            if 'advanced' in tree_data:
+                self.comprehensive_cfg['advanced'] = tree_data['advanced']
+            
+            # Flatten to gui_cfg for backward compatibility
+            self.gui_cfg = {}
+            if 'basic' in tree_data:
+                self.gui_cfg.update(tree_data['basic'])
+            if 'advanced' in tree_data:
+                self.gui_cfg.update(tree_data['advanced'])
+                
             self.append_log("Config updated from parameter tree")
         except Exception as e:
             self.append_log(f"Could not write back tree data: {e}")
@@ -771,28 +1185,43 @@ class MainWindow(QMainWindow):
     def choose_model_dir(self):
         d = QFileDialog.getExistingDirectory(self, "Choose model_dir")
         if d:
-            self.gui_cfg["train"]["model_dir"] = d
+            if "runtime" not in self.gui_cfg:
+                self.gui_cfg["runtime"] = {}
+            self.gui_cfg["runtime"]["model_dir"] = d
             self.refresh_tree()
 
     # augment panel sync
     def apply_cfg_to_widgets(self):
-        aug = self.gui_cfg.get("augment", {})
-        self.chk_flip_h.setChecked(bool(aug.get("flip_horizontal", False)))
-        self.chk_flip_v.setChecked(bool(aug.get("flip_vertical", False)))
-        self.spin_rotate.setValue(int(aug.get("rotate_limit", 0)))
-        self.spin_crop.setValue(float(aug.get("random_crop_pct", 0.0)))
-        self.spin_bright.setValue(float(aug.get("brightness_limit", 0.0)))
-        self.spin_contrast.setValue(float(aug.get("contrast_limit", 0.0)))
+        """Apply configuration to augmentation widgets using new structure."""
+        aug = self.gui_cfg.get("augmentation", {})
+        self.chk_flip_h.setChecked(bool(aug.get("aug_rand_hflip", True)))
+        self.chk_flip_v.setChecked(False)  # Not in standard config
+        self.spin_rotate.setValue(int(aug.get("randaug_magnitude", 10)))
+        
+        crop_range = aug.get("crop_area_range", [0.08, 1.0])
+        self.spin_crop.setValue(crop_range[0] if isinstance(crop_range, list) else 0.08)
+        
+        self.spin_bright.setValue(float(aug.get("color_jitter", 0.0)))
+        self.spin_contrast.setValue(float(aug.get("center_crop_fraction", 0.875)))
 
     def sync_aug_to_cfg(self):
-        self.gui_cfg.setdefault("augment", {})
-        self.gui_cfg["augment"].update({
-            "flip_horizontal": bool(self.chk_flip_h.isChecked()),
-            "flip_vertical": bool(self.chk_flip_v.isChecked()),
-            "rotate_limit": int(self.spin_rotate.value()),
-            "random_crop_pct": float(self.spin_crop.value()),
-            "brightness_limit": float(self.spin_bright.value()),
-            "contrast_limit": float(self.spin_contrast.value()),
+        """Sync augmentation widgets to configuration using new structure."""
+        self.gui_cfg.setdefault("augmentation", {})
+        
+        # Get current crop range
+        current_crop = self.gui_cfg["augmentation"].get("crop_area_range", [0.08, 1.0])
+        if isinstance(current_crop, list) and len(current_crop) >= 2:
+            new_crop_range = [float(self.spin_crop.value()), current_crop[1]]
+        else:
+            new_crop_range = [float(self.spin_crop.value()), 1.0]
+        
+        self.gui_cfg["augmentation"].update({
+            "aug_rand_hflip": bool(self.chk_flip_h.isChecked()),
+            "three_augment": bool(self.chk_flip_v.isChecked()),  # Map flip_v to three_augment
+            "randaug_magnitude": int(self.spin_rotate.value()),
+            "crop_area_range": new_crop_range,
+            "color_jitter": float(self.spin_bright.value()),
+            "center_crop_fraction": float(self.spin_contrast.value()),
         })
         self.refresh_tree()
     
@@ -825,8 +1254,18 @@ class MainWindow(QMainWindow):
             return
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         self.sync_aug_to_cfg()
-        size = int(self.gui_cfg["input"].get("image_size", 224))
-        pipe = build_albu_pipeline(self.gui_cfg["augment"], size, size)
+        
+        # Get image size from new config structure
+        data_cfg = self.gui_cfg.get("data", {})
+        image_size = data_cfg.get("image_size", [224, 224])
+        if isinstance(image_size, list) and len(image_size) >= 2:
+            size = int(image_size[0])
+        else:
+            size = 224
+            
+        # Use new augmentation config
+        aug_cfg = self.gui_cfg.get("augmentation", {})
+        pipe = build_albu_pipeline(aug_cfg, size, size)
         samples = []
         for _ in range(4):
             try:
@@ -881,7 +1320,11 @@ class MainWindow(QMainWindow):
         # sync GUI config
         self.sync_aug_to_cfg()
         self.write_back_tree()
-        model_dir = self.gui_cfg["train"].get("model_dir", "./model_dir")
+        
+        # Get model_dir from new config structure
+        runtime_cfg = self.gui_cfg.get("runtime", {})
+        model_dir = runtime_cfg.get("model_dir", "./model_dir")
+        
         os.makedirs(model_dir, exist_ok=True)
         self.start_tensorboard(model_dir)
         # start trainer thread that runs train_lib.run_experiment
@@ -923,19 +1366,26 @@ def build_albu_pipeline(aug_cfg: Dict[str,Any], target_h:int, target_w:int):
     if not ALBU_AVAILABLE:
         raise RuntimeError("albumentations / cv2 missing")
     transforms = []
-    if aug_cfg.get("flip_horizontal"):
+    if aug_cfg.get("aug_rand_hflip"):
         transforms.append(A.HorizontalFlip(p=0.5))
-    if aug_cfg.get("flip_vertical"):
+    if aug_cfg.get("three_augment"):
         transforms.append(A.VerticalFlip(p=0.5))
-    rot = aug_cfg.get("rotate_limit", 0)
-    if rot and rot > 0:
-        transforms.append(A.Rotate(limit=rot, border_mode=cv2.BORDER_REFLECT_101, p=0.6))
-    crop = aug_cfg.get("random_crop_pct", 0.0)
-    if crop and 0.0 < crop <= 0.5:
-        transforms.append(A.RandomResizedCrop(height=target_h, width=target_w, scale=(1.0-crop, 1.0), ratio=(0.9,1.1), p=0.6))
-    bl = aug_cfg.get("brightness_limit", 0.0); cl = aug_cfg.get("contrast_limit", 0.0)
-    if (bl and bl>0) or (cl and cl>0):
-        transforms.append(A.RandomBrightnessContrast(brightness_limit=bl, contrast_limit=cl, p=0.6))
+    
+    # Use RandAugment magnitude instead of rotation limit
+    randaug_mag = aug_cfg.get("randaug_magnitude", 0)
+    if randaug_mag and randaug_mag > 0:
+        transforms.append(A.Rotate(limit=min(randaug_mag, 30), border_mode=cv2.BORDER_REFLECT_101, p=0.6))
+    
+    # Use crop area range
+    crop_range = aug_cfg.get("crop_area_range", [0.08, 1.0])
+    if isinstance(crop_range, list) and len(crop_range) >= 2:
+        transforms.append(A.RandomResizedCrop(height=target_h, width=target_w, scale=(crop_range[0], crop_range[1]), ratio=(0.9,1.1), p=0.6))
+    
+    # Color jitter
+    color_jitter = aug_cfg.get("color_jitter", 0.0)
+    if color_jitter and color_jitter > 0:
+        transforms.append(A.RandomBrightnessContrast(brightness_limit=color_jitter, contrast_limit=color_jitter, p=0.6))
+    
     transforms.append(A.Resize(target_h, target_w))
     transforms.append(A.Normalize())
     return A.Compose(transforms)
