@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QPlainTextEdit, QLabel, QMessageBox, 
     QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QDialog, 
-    QGridLayout, QProgressBar, QToolBar, QLineEdit,QSizePolicy
+    QGridLayout, QProgressBar, QToolBar, QLineEdit,QSizePolicy,
+    QTreeWidget
 )
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QPixmap, QImage, QAction
@@ -360,14 +361,153 @@ class DirectoryParameter(pTypes.SimpleParameter):
 pTypes.registerParameterType('directory', DirectoryParameter, override=True)
 pTypes.registerParameterType('directory_only', DirectoryOnlyParameter, override=True)
 
+def get_parameter_tooltip(param_name, section_name=None):
+    """Get tooltip text for a parameter based on its name and section."""
+    tooltips = {
+        # Data section tooltips
+        'train_dir': 'Path to the directory containing training data files (images, TFRecords, etc.)',
+        'val_dir': 'Path to the directory containing validation/test data files',
+        'image_size': 'Input image dimensions [width, height] - images will be resized to this size',
+        'batch_size': 'Number of samples processed together in each training step. Larger values use more memory but may train faster',
+        'num_classes': 'Number of different classes/categories in your dataset (e.g., 1000 for ImageNet)',
+        'shuffle': 'Whether to randomly shuffle the training data order for each epoch',
+        
+        # Model section tooltips
+        'backbone_type': 'The neural network architecture to use as the feature extractor (ResNet, EfficientNet, etc.)',
+        'model_id': 'Specific variant of the backbone architecture (e.g., 50 for ResNet-50, 18 for ResNet-18)',
+        'dropout_rate': 'Probability of randomly setting input units to 0 during training to prevent overfitting (0.0-1.0)',
+        'activation': 'Activation function used in the neural network layers (ReLU, Swish, GELU, etc.)',
+        
+        # Training section tooltips
+        'epochs': 'Number of complete passes through the entire training dataset',
+        'learning_rate_type': 'Strategy for adjusting the learning rate during training (exponential decay, cosine annealing, etc.)',
+        'initial_learning_rate': 'Starting learning rate value - how quickly the model learns from data',
+        'momentum': 'SGD momentum factor - helps accelerate gradients in relevant directions (typically 0.9)',
+        'weight_decay': 'L2 regularization strength to prevent overfitting by penalizing large weights',
+        'label_smoothing': 'Technique to prevent overconfident predictions by softening target labels (0.0-0.3)',
+        
+        # Runtime section tooltips
+        'model_dir': 'Directory where model checkpoints and training outputs will be saved',
+        'distribution_strategy': 'Strategy for distributed training across multiple GPUs or machines',
+        'mixed_precision': 'Use lower precision (float16/bfloat16) to speed up training and reduce memory usage',
+        'num_gpus': 'Number of GPUs to use for training (0 for CPU-only)',
+        
+        # Model Advanced tooltips
+        'depth_multiplier': 'Multiplier for the number of layers in the backbone network',
+        'stem_type': 'Type of initial stem layers in the network architecture',
+        'se_ratio': 'Squeeze-and-Excitation ratio for channel attention mechanisms',
+        'stochastic_depth_drop_rate': 'Probability of dropping entire layers during training for regularization',
+        'scale_stem': 'Whether to scale the stem layers in the network',
+        'resnetd_shortcut': 'Use ResNet-D style shortcut connections for improved accuracy',
+        'replace_stem_max_pool': 'Replace max pooling in stem with strided convolution',
+        'bn_trainable': 'Whether batch normalization layers are trainable during fine-tuning',
+        'use_sync_bn': 'Use synchronized batch normalization across multiple GPUs',
+        'norm_momentum': 'Momentum for batch normalization moving average (typically 0.99)',
+        'norm_epsilon': 'Small constant for numerical stability in batch normalization',
+        'add_head_batch_norm': 'Add batch normalization before the final classification layer',
+        'kernel_initializer': 'Method for initializing convolutional layer weights',
+        'output_softmax': 'Apply softmax activation to final output (usually False for training)',
+        
+        # Data Advanced tooltips
+        'tfds_name': 'TensorFlow Datasets name if using TFDS instead of custom data',
+        'tfds_split': 'Which split of TFDS to use (train, validation, test)',
+        'cache': 'Cache dataset in memory for faster access (requires sufficient RAM)',
+        'shuffle_buffer_size': 'Size of buffer for shuffling data - larger values provide better randomness',
+        'cycle_length': 'Number of input elements to process concurrently in parallel',
+        'block_length': 'Number of consecutive elements from each input to read',
+        'drop_remainder': 'Drop the last batch if it has fewer samples than batch_size',
+        'sharding': 'Enable data sharding for distributed training',
+        'prefetch_buffer_size': 'Number of batches to prefetch for pipeline optimization',
+        'dtype': 'Data type for input tensors (float32 recommended for most cases)',
+        'file_type': 'Format of input data files (TFRecord, SSTable, RecordIO)',
+        'image_field_key': 'Key name for image data in TFRecord files',
+        'label_field_key': 'Key name for label data in TFRecord files',
+        'decode_jpeg_only': 'Only decode JPEG images, skip other formats for speed',
+        
+        # Augmentation tooltips
+        'aug_rand_hflip': 'Randomly flip images horizontally during training',
+        'aug_crop': 'Apply random cropping augmentation during training',
+        'crop_area_range': 'Range of crop area as fraction of original image [min, max]',
+        'center_crop_fraction': 'Fraction of image to keep when center cropping (for validation)',
+        'color_jitter': 'Amount of random color variation (brightness, contrast, etc.)',
+        'randaug_magnitude': 'Magnitude of RandAugment transformations (0-30)',
+        'tf_resize_method': 'Method for resizing images (bilinear, nearest, bicubic, area)',
+        'three_augment': 'Apply Three-Augment policy for advanced data augmentation',
+        'is_multilabel': 'Whether this is a multi-label classification task',
+        
+        # Training Advanced tooltips
+        'train_tf_while_loop': 'Use TensorFlow while loops for training (usually faster)',
+        'train_tf_function': 'Use tf.function compilation for training loops',
+        'eval_tf_function': 'Use tf.function compilation for evaluation loops',
+        'steps_per_loop': 'Number of training steps per loop iteration',
+        'summary_interval': 'How often to write training summaries (in steps)',
+        'checkpoint_interval': 'How often to save model checkpoints (in steps)',
+        'max_to_keep': 'Maximum number of recent checkpoints to keep',
+        'validation_interval': 'How often to run validation evaluation (in steps)',
+        'validation_steps': 'Number of validation steps per evaluation (-1 for full dataset)',
+        'loss_upper_bound': 'Upper bound for loss values - training stops if exceeded',
+        'one_hot_labels': 'Use one-hot encoded labels instead of sparse labels',
+        'use_binary_cross_entropy': 'Use binary cross-entropy loss for binary classification',
+        'soft_labels': 'Use soft labels instead of hard labels for training',
+        
+        # Evaluation tooltips
+        'top_k': 'Compute top-K accuracy (e.g., top-5 accuracy for ImageNet)',
+        'report_per_class_metrics': 'Report precision, recall, F1 for each class separately',
+        'best_checkpoint_metric': 'Metric to use for selecting the best checkpoint',
+        'best_checkpoint_export_subdir': 'Subdirectory to export the best checkpoint',
+        'best_checkpoint_metric_comp': 'Whether higher or lower metric values are better',
+        
+        # Runtime Advanced tooltips
+        'enable_xla': 'Enable XLA (Accelerated Linear Algebra) compilation for faster execution',
+        'run_eagerly': 'Run in eager mode for debugging (disables optimizations)',
+        'per_gpu_thread_count': 'Number of threads per GPU for data processing',
+        'num_packs': 'Number of gradient packs for gradient compression',
+        'loss_scale': 'Loss scaling factor for mixed precision training',
+        'batchnorm_spatial_persistent': 'Use persistent batch normalization for spatial data',
+        'tpu_settings': 'Special settings for TPU training',
+        'all_reduce_alg': 'Algorithm for all-reduce operations in distributed training',
+        
+        # Special group parameter tooltips
+        'width': 'Image width in pixels',
+        'height': 'Image height in pixels',
+        'min': 'Minimum value for the range',
+        'max': 'Maximum value for the range',
+    }
+    
+    # Section-specific tooltips for groups
+    section_tooltips = {
+        'basic': 'Essential parameters that most users need to configure',
+        'advanced': 'Advanced parameters for expert users and fine-tuning',
+        'data': 'Dataset and data loading configuration',
+        'model': 'Neural network architecture settings',
+        'training': 'Training process configuration',
+        'runtime': 'Runtime and system configuration',
+        'model_advanced': 'Advanced model architecture parameters',
+        'data_advanced': 'Advanced data pipeline configuration',
+        'augmentation': 'Data augmentation and preprocessing settings',
+        'training_advanced': 'Advanced training loop and optimization settings',
+        'evaluation': 'Model evaluation and metrics configuration',
+        'runtime_advanced': 'Advanced runtime and performance settings',
+    }
+    
+    # Return tooltip based on parameter name or section
+    if param_name in tooltips:
+        return tooltips[param_name]
+    elif param_name in section_tooltips:
+        return section_tooltips[param_name]
+    else:
+        return f'Configuration parameter: {param_name}'
+
 def dict_to_params(data, name="Config"):
-    """Convert a nested dictionary to Parameter tree structure with enhanced parameter types."""
+    """Convert a nested dictionary to Parameter tree structure with enhanced parameter types and tooltips."""
     if isinstance(data, dict):
         children = []
         for key, value in data.items():
             if isinstance(value, dict):
                 # Nested dictionary - create a group
-                children.append(dict_to_params(value, key))
+                group_param = dict_to_params(value, key)
+                group_param['tip'] = get_parameter_tooltip(key)
+                children.append(group_param)
             elif isinstance(value, list):
                 # Handle list values
                 if len(value) == 2 and all(isinstance(x, int) for x in value):
@@ -376,18 +516,20 @@ def dict_to_params(data, name="Config"):
                         children.append({
                             'name': key,
                             'type': 'group',
+                            'tip': get_parameter_tooltip(key),
                             'children': [
-                                {'name': 'width', 'type': 'int', 'value': value[0], 'limits': [1, 2048]},
-                                {'name': 'height', 'type': 'int', 'value': value[1], 'limits': [1, 2048]}
+                                {'name': 'width', 'type': 'int', 'value': value[0], 'limits': [1, 2048], 'tip': get_parameter_tooltip('width')},
+                                {'name': 'height', 'type': 'int', 'value': value[1], 'limits': [1, 2048], 'tip': get_parameter_tooltip('height')}
                             ]
                         })
                     elif key == 'crop_area_range':
                         children.append({
                             'name': key,
                             'type': 'group',
+                            'tip': get_parameter_tooltip(key),
                             'children': [
-                                {'name': 'min', 'type': 'float', 'value': value[0], 'limits': [0.0, 1.0], 'step': 0.01},
-                                {'name': 'max', 'type': 'float', 'value': value[1], 'limits': [0.0, 1.0], 'step': 0.01}
+                                {'name': 'min', 'type': 'float', 'value': value[0], 'limits': [0.0, 1.0], 'step': 0.01, 'tip': get_parameter_tooltip('min')},
+                                {'name': 'max', 'type': 'float', 'value': value[1], 'limits': [0.0, 1.0], 'step': 0.01, 'tip': get_parameter_tooltip('max')}
                             ]
                         })
                     else:
@@ -395,14 +537,16 @@ def dict_to_params(data, name="Config"):
                         children.append({
                             'name': key,
                             'type': 'str',
-                            'value': str(value)
+                            'value': str(value),
+                            'tip': get_parameter_tooltip(key)
                         })
                 else:
                     # Other lists - convert to string representation
                     children.append({
                         'name': key,
                         'type': 'str',
-                        'value': str(value)
+                        'value': str(value),
+                        'tip': get_parameter_tooltip(key)
                     })
             else:
                 # Handle special directory/file parameters
@@ -410,13 +554,15 @@ def dict_to_params(data, name="Config"):
                     children.append({
                         'name': key,
                         'type': 'directory',
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key in ['model_dir'] and isinstance(value, str):
                     children.append({
                         'name': key,
                         'type': 'directory_only',
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 # Handle choice parameters
                 elif key == 'backbone_type':
@@ -424,84 +570,96 @@ def dict_to_params(data, name="Config"):
                         'name': key,
                         'type': 'list',
                         'values': ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'activation':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['relu', 'swish', 'gelu', 'leaky_relu', 'tanh'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'distribution_strategy':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['mirrored', 'multi_worker_mirrored', 'tpu', 'parameter_server'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'learning_rate_type':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['exponential', 'polynomial', 'cosine', 'constant', 'piecewise_constant'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'mixed_precision':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': [None, 'float16', 'bfloat16'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'optimizer_type':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['sgd', 'adam', 'adamw', 'rmsprop', 'lars'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'file_type':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['tfrecord', 'sstable', 'recordio'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'tf_resize_method':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['bilinear', 'nearest', 'bicubic', 'area'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'kernel_initializer':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['random_uniform', 'random_normal', 'glorot_uniform', 'glorot_normal', 'he_uniform', 'he_normal'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'stem_type':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['v0', 'v1', 'v2'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'dtype':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['float32', 'float16', 'bfloat16'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'best_checkpoint_metric_comp':
                     children.append({
                         'name': key,
                         'type': 'list',
                         'values': ['higher', 'lower'],
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 # Handle numeric parameters with appropriate ranges
                 elif key in ['batch_size', 'num_classes', 'epochs', 'model_id']:
@@ -515,7 +673,8 @@ def dict_to_params(data, name="Config"):
                         'name': key,
                         'type': 'int',
                         'value': int(value) if value else 0,
-                        'limits': limits.get(key, [0, 1000000])
+                        'limits': limits.get(key, [0, 1000000]),
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key in ['dropout_rate', 'learning_rate', 'initial_learning_rate', 'momentum', 'weight_decay', 'label_smoothing', 
                             'depth_multiplier', 'se_ratio', 'stochastic_depth_drop_rate', 'norm_momentum', 'norm_epsilon',
@@ -537,7 +696,8 @@ def dict_to_params(data, name="Config"):
                         'type': 'float',
                         'value': float(value) if value else 0.0,
                         'limits': limits,
-                        'step': step
+                        'step': step,
+                        'tip': get_parameter_tooltip(key)
                     })
                 elif key in ['steps_per_loop', 'summary_interval', 'checkpoint_interval', 'validation_interval',
                             'shuffle_buffer_size', 'cycle_length', 'block_length', 'max_to_keep', 'validation_steps',
@@ -562,27 +722,31 @@ def dict_to_params(data, name="Config"):
                         'name': key,
                         'type': 'int',
                         'value': int(value) if value is not None else -1,
-                        'limits': limits.get(key, [0, 100000])
+                        'limits': limits.get(key, [0, 100000]),
+                        'tip': get_parameter_tooltip(key)
                     })
                 # Handle boolean parameters
                 elif isinstance(value, bool):
                     children.append({
                         'name': key,
                         'type': 'bool',
-                        'value': value
+                        'value': value,
+                        'tip': get_parameter_tooltip(key)
                     })
                 else:
                     # Default string parameter
                     children.append({
                         'name': key,
                         'type': 'str',
-                        'value': str(value) if value is not None else ''
+                        'value': str(value) if value is not None else '',
+                        'tip': get_parameter_tooltip(key)
                     })
         
         return {
             'name': name,
             'type': 'group',
-            'children': children
+            'children': children,
+            'tip': get_parameter_tooltip(name)
         }
     else:
         # Single value
@@ -597,7 +761,8 @@ def dict_to_params(data, name="Config"):
         return {
             'name': name,
             'type': param_type,
-            'value': data
+            'value': data,
+            'tip': get_parameter_tooltip(name)
         }
 
 def params_to_dict(param):
@@ -975,7 +1140,41 @@ class MainWindow(QMainWindow):
         # Connect to parameter change signals
         self.params.sigTreeStateChanged.connect(self._on_param_changed)
         
-        left_layout.addWidget(QLabel("Config")); left_layout.addWidget(self.tree, stretch=3)
+        # Add tooltip handling using a simple approach
+        try:
+            # Install event filter on the parameter tree to catch mouse events
+            self.tree.installEventFilter(self)
+            print("Installed event filter on ParameterTree")
+            
+        except Exception as e:
+            print(f"Could not install event filter: {e}")
+            
+        # Add a test for tooltip display using button clicks
+        self.last_clicked_param = None
+        
+        # Add tooltip label at bottom of tree
+        self.tooltip_label = QLabel("Click on a parameter to see its description...")
+        self.tooltip_label.setWordWrap(True)
+        self.tooltip_label.setStyleSheet("""
+            QLabel { 
+                background-color: transparent; 
+                border: 1px solid #ccc; 
+                padding: 8px; 
+                border-radius: 4px;
+                font-size: 11px;
+            }
+        """)
+        self.tooltip_label.setMinimumHeight(60)
+        self.tooltip_label.setMaximumHeight(80)
+        
+        # Add a test button to verify tooltip functionality
+        test_btn = QPushButton("Test Tooltip")
+        test_btn.clicked.connect(self._test_tooltip)
+        
+        left_layout.addWidget(QLabel("Config"))
+        left_layout.addWidget(self.tree, stretch=3)
+        left_layout.addWidget(self.tooltip_label)
+        left_layout.addWidget(test_btn)
 
         # augmentation panel - using new configuration structure
         aug_form = QFormLayout()
@@ -1064,8 +1263,191 @@ class MainWindow(QMainWindow):
             self.append_log("Config updated from parameter tree")
             # Update other UI elements if needed
             self.apply_cfg_to_widgets()
+            
+            # Also try to show tooltip for the changed parameter
+            for change in changes:
+                param_obj, change_type, data = change
+                if change_type in ['value', 'expanded']:
+                    param_name = param_obj.name()
+                    self.last_clicked_param = param_name
+                    self._show_param_tooltip_simple(param_name)
+                    print(f"Parameter changed: {param_name} ({change_type})")
+                    
         except Exception as e:
             self.append_log(f"Error updating config from parameters: {e}")
+    
+    def _show_param_tooltip_simple(self, param_name):
+        """Simple tooltip display method."""
+        try:
+            tooltip_text = get_parameter_tooltip(param_name)
+            self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+            print(f"Showing tooltip for: {param_name}")
+        except Exception as e:
+            print(f"Error showing tooltip: {e}")
+    
+    def _on_tree_item_clicked(self, param, changes):
+        """Handle tree item clicks to show tooltips in the label."""
+        try:
+            for change in changes:
+                param_obj, change_type, data = change
+                if change_type == 'selected':
+                    # Get the parameter name and find its tooltip
+                    param_name = param_obj.name()
+                    tooltip_text = get_parameter_tooltip(param_name)
+                    
+                    # Update the tooltip label
+                    self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+                    break
+        except Exception as e:
+            print(f"Error showing tooltip: {e}")
+    
+    def _on_tree_item_clicked_direct(self, item, column):
+        """Handle direct tree widget item clicks to show tooltips."""
+        try:
+            # Try multiple ways to get parameter name from tree item
+            param_name = None
+            
+            # Method 1: Try to get from itemMap
+            if hasattr(self.tree, 'itemMap') and item in self.tree.itemMap:
+                param_item = self.tree.itemMap[item]
+                if hasattr(param_item, 'param'):
+                    param_name = param_item.param.name()
+            
+            # Method 2: Try to get from item text
+            if not param_name and item:
+                param_name = item.text(0)  # Get text from first column
+                
+            # Method 3: Try to get from item data
+            if not param_name and item:
+                param_data = item.data(0, Qt.UserRole)
+                if param_data:
+                    param_name = str(param_data)
+            
+            if param_name:
+                tooltip_text = get_parameter_tooltip(param_name)
+                self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+                print(f"Showing tooltip for: {param_name}")  # Debug print
+            else:
+                print(f"Could not determine parameter name for item: {item}")  # Debug print
+                
+        except Exception as e:
+            print(f"Error showing tooltip: {e}")
+    
+    def _on_tree_selection_changed(self):
+        """Handle tree selection changes to show tooltips."""
+        try:
+            # Find selected items in the parameter tree
+            tree_widgets = self.tree.findChildren(QTreeWidget)
+            if tree_widgets:
+                tree_widget = tree_widgets[0]
+                current_item = tree_widget.currentItem()
+                if current_item:
+                    # Use the same logic as click handler
+                    self._on_tree_item_clicked_direct(current_item, 0)
+        except Exception as e:
+            print(f"Error in selection changed: {e}")  # Debug print
+    
+    def _connect_parameter_signals(self, param):
+        """Connect signals for parameter clicks recursively."""
+        try:
+            # Connect to parameter change signals that might indicate selection
+            if hasattr(param, 'sigClicked'):
+                param.sigClicked.connect(lambda p: self._show_param_tooltip(p.name()))
+            elif hasattr(param, 'sigActivated'):
+                param.sigActivated.connect(lambda p: self._show_param_tooltip(p.name()))
+            
+            # Recursively connect child parameters
+            if hasattr(param, 'children'):
+                for child in param.children():
+                    self._connect_parameter_signals(child)
+                    
+        except Exception as e:
+            print(f"Error connecting parameter signals: {e}")
+    
+    def _show_param_tooltip(self, param_name):
+        """Show tooltip for a parameter name."""
+        try:
+            tooltip_text = get_parameter_tooltip(param_name)
+            self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+            print(f"Showing tooltip for parameter: {param_name}")  # Debug print
+        except Exception as e:
+            print(f"Error showing parameter tooltip: {e}")
+    
+    def _on_param_selected(self, param):
+        """Handle parameter selection from ParameterTree."""
+        try:
+            if param:
+                param_name = param.name()
+                self._show_param_tooltip(param_name)
+        except Exception as e:
+            print(f"Error in parameter selection: {e}")
+    
+    def _on_current_item_changed(self, current, previous):
+        """Handle current item changes in tree widget."""
+        try:
+            if current:
+                param_name = current.text(0)
+                if param_name:
+                    self._show_param_tooltip(param_name)
+        except Exception as e:
+            print(f"Error in current item changed: {e}")
+    
+    def _refresh_tooltip_from_tree(self):
+        """Periodically check the tree for selected items and show tooltips."""
+        try:
+            # Try to get the currently selected parameter from the tree
+            selected_items = self.tree.selectedItems()
+            if selected_items and hasattr(selected_items[0], 'param'):
+                param_name = selected_items[0].param.name()
+                current_text = self.tooltip_label.text()
+                if param_name not in current_text:  # Only update if different
+                    self._show_param_tooltip(param_name)
+        except Exception as e:
+            # Fail silently for timer-based updates
+            pass
+    
+    def _test_tooltip(self):
+        """Test method to verify tooltip functionality."""
+        test_params = ['batch_size', 'learning_rate', 'model_dir', 'train_dir', 'epochs']
+        import random
+        param_name = random.choice(test_params)
+        self._show_param_tooltip(param_name)
+        print(f"Test: showing tooltip for {param_name}")
+    
+    def eventFilter(self, obj, event):
+        """Event filter to catch mouse clicks on the parameter tree."""
+        if obj == self.tree and event.type() == event.Type.MouseButtonPress:
+            try:
+                # Get the position and try to find what was clicked
+                pos = event.position().toPoint()
+                print(f"Mouse clicked on ParameterTree at position: {pos}")
+                
+                # Try to use a timer to check selection after click
+                QTimer.singleShot(100, self._delayed_tooltip_update)
+                
+            except Exception as e:
+                print(f"Error in event filter: {e}")
+        
+        return super().eventFilter(obj, event)
+    
+    def _delayed_tooltip_update(self):
+        """Update tooltip after a brief delay to allow selection to update."""
+        try:
+            self._refresh_tooltip_from_tree()
+        except Exception as e:
+            print(f"Error in delayed tooltip update: {e}")
+    
+    def _on_tree_view_clicked(self, index):
+        """Handle QTreeView clicks."""
+        try:
+            if index.isValid():
+                # Try to get parameter name from the index
+                param_name = index.data()
+                if param_name:
+                    self._show_param_tooltip(param_name)
+                    print(f"TreeView clicked: {param_name}")
+        except Exception as e:
+            print(f"Error in tree view clicked: {e}")
     
     def refresh_tree(self):
         """Update the ParameterTree with current comprehensive config data."""
