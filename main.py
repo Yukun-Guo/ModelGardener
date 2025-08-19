@@ -566,99 +566,128 @@ def dict_to_params(data, name="Config"):
                     })
                 # Handle choice parameters
                 elif key == 'backbone_type':
+                    values = ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet']
+                    # Ensure current value is valid, default to first item if not
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'activation':
+                    values = ['relu', 'swish', 'gelu', 'leaky_relu', 'tanh']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['relu', 'swish', 'gelu', 'leaky_relu', 'tanh'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'distribution_strategy':
+                    values = ['mirrored', 'multi_worker_mirrored', 'tpu', 'parameter_server']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['mirrored', 'multi_worker_mirrored', 'tpu', 'parameter_server'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'learning_rate_type':
+                    values = ['exponential', 'polynomial', 'cosine', 'constant', 'piecewise_constant']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['exponential', 'polynomial', 'cosine', 'constant', 'piecewise_constant'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'mixed_precision':
+                    values = ['None', 'float16', 'bfloat16']  # Convert None to 'None' string for dropdown
+                    # Handle None value properly
+                    if value is None:
+                        current_value = 'None'
+                    else:
+                        current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': [None, 'float16', 'bfloat16'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'optimizer_type':
+                    values = ['sgd', 'adam', 'adamw', 'rmsprop', 'lars']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['sgd', 'adam', 'adamw', 'rmsprop', 'lars'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'file_type':
+                    values = ['tfrecord', 'sstable', 'recordio']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['tfrecord', 'sstable', 'recordio'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'tf_resize_method':
+                    values = ['bilinear', 'nearest', 'bicubic', 'area']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['bilinear', 'nearest', 'bicubic', 'area'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'kernel_initializer':
+                    values = ['random_uniform', 'random_normal', 'glorot_uniform', 'glorot_normal', 'he_uniform', 'he_normal']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['random_uniform', 'random_normal', 'glorot_uniform', 'glorot_normal', 'he_uniform', 'he_normal'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'stem_type':
+                    values = ['v0', 'v1', 'v2']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['v0', 'v1', 'v2'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'dtype':
+                    values = ['float32', 'float16', 'bfloat16']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['float32', 'float16', 'bfloat16'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 elif key == 'best_checkpoint_metric_comp':
+                    values = ['higher', 'lower']
+                    current_value = value if value in values else values[0]
                     children.append({
                         'name': key,
                         'type': 'list',
-                        'values': ['higher', 'lower'],
-                        'value': value,
+                        'limits': values,
+                        'value': current_value,
                         'tip': get_parameter_tooltip(key)
                     })
                 # Handle numeric parameters with appropriate ranges
@@ -1152,53 +1181,13 @@ class MainWindow(QMainWindow):
         # Add a test for tooltip display using button clicks
         self.last_clicked_param = None
         
-        # Add tooltip label at bottom of tree
-        self.tooltip_label = QLabel("Click on a parameter to see its description...")
-        self.tooltip_label.setWordWrap(True)
-        self.tooltip_label.setStyleSheet("""
-            QLabel { 
-                background-color: transparent; 
-                border: 1px solid #ccc; 
-                padding: 8px; 
-                border-radius: 4px;
-                font-size: 11px;
-            }
-        """)
-        self.tooltip_label.setMinimumHeight(60)
-        self.tooltip_label.setMaximumHeight(80)
-        
-        # Add a test button to verify tooltip functionality
-        test_btn = QPushButton("Test Tooltip")
-        test_btn.clicked.connect(self._test_tooltip)
-        
         left_layout.addWidget(QLabel("Config"))
         left_layout.addWidget(self.tree, stretch=3)
-        left_layout.addWidget(self.tooltip_label)
-        left_layout.addWidget(test_btn)
 
-        # augmentation panel - using new configuration structure
-        aug_form = QFormLayout()
-        aug_cfg = self.gui_cfg.get("augmentation", {})
-        
-        self.chk_flip_h = QCheckBox(); self.chk_flip_h.setChecked(aug_cfg.get("aug_rand_hflip", True))
-        aug_form.addRow("Flip H", self.chk_flip_h)
-        self.chk_flip_v = QCheckBox(); self.chk_flip_v.setChecked(False)  # Not in standard config
-        aug_form.addRow("Flip V", self.chk_flip_v)
-        self.spin_rotate = QSpinBox(); self.spin_rotate.setRange(0,30); self.spin_rotate.setValue(aug_cfg.get("randaug_magnitude", 10))
-        aug_form.addRow("RandAug Magnitude", self.spin_rotate)
-        self.spin_crop = QDoubleSpinBox(); self.spin_crop.setRange(0.0,1.0); self.spin_crop.setSingleStep(0.01)
-        crop_range = aug_cfg.get("crop_area_range", [0.08, 1.0])
-        self.spin_crop.setValue(crop_range[0] if isinstance(crop_range, list) else 0.08)
-        aug_form.addRow("Crop Area Min", self.spin_crop)
-        self.spin_bright = QDoubleSpinBox(); self.spin_bright.setRange(0.0,1.0); self.spin_bright.setSingleStep(0.01)
-        self.spin_bright.setValue(aug_cfg.get("color_jitter", 0.0)); aug_form.addRow("Color Jitter", self.spin_bright)
-        self.spin_contrast = QDoubleSpinBox(); self.spin_contrast.setRange(0.0,1.0); self.spin_contrast.setSingleStep(0.01)
-        self.spin_contrast.setValue(aug_cfg.get("center_crop_fraction", 0.875)); aug_form.addRow("Center Crop Fraction", self.spin_contrast)
-
-        btn_preview = QPushButton("Preview Aug"); btn_preview.clicked.connect(self.preview_augmentation)
-        aug_form.addRow(btn_preview)
-
-        left_layout.addLayout(aug_form)
+        # Preview Data button
+        btn_preview = QPushButton("Preview Data")
+        btn_preview.clicked.connect(self.preview_augmentation)
+        left_layout.addWidget(btn_preview)
 
         # training controls (directory selection is now integrated in parameter tree)
         self.btn_start = QPushButton("Start Training"); self.btn_start.clicked.connect(self.start_training); left_layout.addWidget(self.btn_start)
@@ -1265,41 +1254,42 @@ class MainWindow(QMainWindow):
             self.apply_cfg_to_widgets()
             
             # Also try to show tooltip for the changed parameter
-            for change in changes:
-                param_obj, change_type, data = change
-                if change_type in ['value', 'expanded']:
-                    param_name = param_obj.name()
-                    self.last_clicked_param = param_name
-                    self._show_param_tooltip_simple(param_name)
-                    print(f"Parameter changed: {param_name} ({change_type})")
+            # for change in changes:
+            #     param_obj, change_type, data = change
+            #     if change_type in ['value', 'expanded']:
+            #         param_name = param_obj.name()
+            #         self.last_clicked_param = param_name
+                    # self._show_param_tooltip_simple(param_name)
+                    # print(f"Parameter changed: {param_name} ({change_type})")
                     
         except Exception as e:
             self.append_log(f"Error updating config from parameters: {e}")
+            self.append_log(f"Error updating config from parameters: {e}")
     
-    def _show_param_tooltip_simple(self, param_name):
-        """Simple tooltip display method."""
-        try:
-            tooltip_text = get_parameter_tooltip(param_name)
-            self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
-            print(f"Showing tooltip for: {param_name}")
-        except Exception as e:
-            print(f"Error showing tooltip: {e}")
+    # def _show_param_tooltip_simple(self, param_name):
+    #     """Simple tooltip display method."""
+    #     try:
+    #         tooltip_text = get_parameter_tooltip(param_name)
+    #         # self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+    #         print(f"Showing tooltip for: {param_name}")
+    #     except Exception as e:
+    #         print(f"Error showing tooltip: {e}")
     
-    def _on_tree_item_clicked(self, param, changes):
-        """Handle tree item clicks to show tooltips in the label."""
-        try:
-            for change in changes:
-                param_obj, change_type, data = change
-                if change_type == 'selected':
-                    # Get the parameter name and find its tooltip
-                    param_name = param_obj.name()
-                    tooltip_text = get_parameter_tooltip(param_name)
+    # def _on_tree_item_clicked(self, param, changes):
+    #     """Handle tree item clicks to show tooltips in the label."""
+    #     try:
+    #         for change in changes:
+    #             param_obj, change_type, data = change
+    #             if change_type == 'selected':
+    #                 # Get the parameter name and find its tooltip
+    #                 param_name = param_obj.name()
+    #                 # tooltip_text = get_parameter_tooltip(param_name)
                     
-                    # Update the tooltip label
-                    self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
-                    break
-        except Exception as e:
-            print(f"Error showing tooltip: {e}")
+    #                 # Update the tooltip label
+    #                 # self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+    #                 break
+    #     except Exception as e:
+    #         print(f"Error showing tooltip: {e}")
     
     def _on_tree_item_clicked_direct(self, item, column):
         """Handle direct tree widget item clicks to show tooltips."""
@@ -1323,12 +1313,12 @@ class MainWindow(QMainWindow):
                 if param_data:
                     param_name = str(param_data)
             
-            if param_name:
-                tooltip_text = get_parameter_tooltip(param_name)
-                self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
-                print(f"Showing tooltip for: {param_name}")  # Debug print
-            else:
-                print(f"Could not determine parameter name for item: {item}")  # Debug print
+            # if param_name:
+            #     tooltip_text = get_parameter_tooltip(param_name)
+            #     # self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+            #     print(f"Showing tooltip for: {param_name}")  # Debug print
+            # else:
+            #     print(f"Could not determine parameter name for item: {item}")  # Debug print
                 
         except Exception as e:
             print(f"Error showing tooltip: {e}")
@@ -1347,72 +1337,72 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error in selection changed: {e}")  # Debug print
     
-    def _connect_parameter_signals(self, param):
-        """Connect signals for parameter clicks recursively."""
-        try:
-            # Connect to parameter change signals that might indicate selection
-            if hasattr(param, 'sigClicked'):
-                param.sigClicked.connect(lambda p: self._show_param_tooltip(p.name()))
-            elif hasattr(param, 'sigActivated'):
-                param.sigActivated.connect(lambda p: self._show_param_tooltip(p.name()))
+    # def _connect_parameter_signals(self, param):
+    #     """Connect signals for parameter clicks recursively."""
+    #     try:
+    #         # Connect to parameter change signals that might indicate selection
+    #         if hasattr(param, 'sigClicked'):
+    #             param.sigClicked.connect(lambda p: self._show_param_tooltip(p.name()))
+    #         elif hasattr(param, 'sigActivated'):
+    #             param.sigActivated.connect(lambda p: self._show_param_tooltip(p.name()))
             
-            # Recursively connect child parameters
-            if hasattr(param, 'children'):
-                for child in param.children():
-                    self._connect_parameter_signals(child)
+    #         # Recursively connect child parameters
+    #         if hasattr(param, 'children'):
+    #             for child in param.children():
+    #                 self._connect_parameter_signals(child)
                     
-        except Exception as e:
-            print(f"Error connecting parameter signals: {e}")
+    #     except Exception as e:
+    #         print(f"Error connecting parameter signals: {e}")
     
-    def _show_param_tooltip(self, param_name):
-        """Show tooltip for a parameter name."""
-        try:
-            tooltip_text = get_parameter_tooltip(param_name)
-            self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
-            print(f"Showing tooltip for parameter: {param_name}")  # Debug print
-        except Exception as e:
-            print(f"Error showing parameter tooltip: {e}")
+    # def _show_param_tooltip(self, param_name):
+    #     """Show tooltip for a parameter name."""
+    #     try:
+    #         tooltip_text = get_parameter_tooltip(param_name)
+    #         self.tooltip_label.setText(f"<b>{param_name}:</b> {tooltip_text}")
+    #         print(f"Showing tooltip for parameter: {param_name}")  # Debug print
+    #     except Exception as e:
+            # print(f"Error showing parameter tooltip: {e}")
     
-    def _on_param_selected(self, param):
-        """Handle parameter selection from ParameterTree."""
-        try:
-            if param:
-                param_name = param.name()
-                self._show_param_tooltip(param_name)
-        except Exception as e:
-            print(f"Error in parameter selection: {e}")
+    # def _on_param_selected(self, param):
+    #     """Handle parameter selection from ParameterTree."""
+    #     try:
+    #         if param:
+    #             param_name = param.name()
+    #             self._show_param_tooltip(param_name)
+    #     except Exception as e:
+    #         print(f"Error in parameter selection: {e}")
     
-    def _on_current_item_changed(self, current, previous):
-        """Handle current item changes in tree widget."""
-        try:
-            if current:
-                param_name = current.text(0)
-                if param_name:
-                    self._show_param_tooltip(param_name)
-        except Exception as e:
-            print(f"Error in current item changed: {e}")
+    # def _on_current_item_changed(self, current, previous):
+    #     """Handle current item changes in tree widget."""
+    #     try:
+    #         if current:
+    #             param_name = current.text(0)
+    #             if param_name:
+    #                 self._show_param_tooltip(param_name)
+    #     except Exception as e:
+    #         print(f"Error in current item changed: {e}")
     
-    def _refresh_tooltip_from_tree(self):
-        """Periodically check the tree for selected items and show tooltips."""
-        try:
-            # Try to get the currently selected parameter from the tree
-            selected_items = self.tree.selectedItems()
-            if selected_items and hasattr(selected_items[0], 'param'):
-                param_name = selected_items[0].param.name()
-                current_text = self.tooltip_label.text()
-                if param_name not in current_text:  # Only update if different
-                    self._show_param_tooltip(param_name)
-        except Exception as e:
-            # Fail silently for timer-based updates
-            pass
+    # def _refresh_tooltip_from_tree(self):
+    #     """Periodically check the tree for selected items and show tooltips."""
+    #     try:
+    #         # Try to get the currently selected parameter from the tree
+    #         selected_items = self.tree.selectedItems()
+    #         if selected_items and hasattr(selected_items[0], 'param'):
+    #             param_name = selected_items[0].param.name()
+    #             current_text = self.tooltip_label.text()
+    #             if param_name not in current_text:  # Only update if different
+    #                 self._show_param_tooltip(param_name)
+    #     except Exception as e:
+    #         # Fail silently for timer-based updates
+    #         pass
     
-    def _test_tooltip(self):
-        """Test method to verify tooltip functionality."""
-        test_params = ['batch_size', 'learning_rate', 'model_dir', 'train_dir', 'epochs']
-        import random
-        param_name = random.choice(test_params)
-        self._show_param_tooltip(param_name)
-        print(f"Test: showing tooltip for {param_name}")
+    # def _test_tooltip(self):
+    #     """Test method to verify tooltip functionality."""
+    #     test_params = ['batch_size', 'learning_rate', 'model_dir', 'train_dir', 'epochs']
+    #     import random
+    #     param_name = random.choice(test_params)
+    #     self._show_param_tooltip(param_name)
+    #     print(f"Test: showing tooltip for {param_name}")
     
     def eventFilter(self, obj, event):
         """Event filter to catch mouse clicks on the parameter tree."""
@@ -1574,38 +1564,15 @@ class MainWindow(QMainWindow):
 
     # augment panel sync
     def apply_cfg_to_widgets(self):
-        """Apply configuration to augmentation widgets using new structure."""
-        aug = self.gui_cfg.get("augmentation", {})
-        self.chk_flip_h.setChecked(bool(aug.get("aug_rand_hflip", True)))
-        self.chk_flip_v.setChecked(False)  # Not in standard config
-        self.spin_rotate.setValue(int(aug.get("randaug_magnitude", 10)))
-        
-        crop_range = aug.get("crop_area_range", [0.08, 1.0])
-        self.spin_crop.setValue(crop_range[0] if isinstance(crop_range, list) else 0.08)
-        
-        self.spin_bright.setValue(float(aug.get("color_jitter", 0.0)))
-        self.spin_contrast.setValue(float(aug.get("center_crop_fraction", 0.875)))
+        """Apply configuration to widgets (augmentation panel removed)."""
+        # Note: Augmentation widgets have been removed from UI
+        pass
 
     def sync_aug_to_cfg(self):
-        """Sync augmentation widgets to configuration using new structure."""
-        self.gui_cfg.setdefault("augmentation", {})
-        
-        # Get current crop range
-        current_crop = self.gui_cfg["augmentation"].get("crop_area_range", [0.08, 1.0])
-        if isinstance(current_crop, list) and len(current_crop) >= 2:
-            new_crop_range = [float(self.spin_crop.value()), current_crop[1]]
-        else:
-            new_crop_range = [float(self.spin_crop.value()), 1.0]
-        
-        self.gui_cfg["augmentation"].update({
-            "aug_rand_hflip": bool(self.chk_flip_h.isChecked()),
-            "three_augment": bool(self.chk_flip_v.isChecked()),  # Map flip_v to three_augment
-            "randaug_magnitude": int(self.spin_rotate.value()),
-            "crop_area_range": new_crop_range,
-            "color_jitter": float(self.spin_bright.value()),
-            "center_crop_fraction": float(self.spin_contrast.value()),
-        })
-        self.refresh_tree()
+        """Sync augmentation configuration (widgets removed from UI)."""
+        # Note: Augmentation widgets have been removed from UI
+        # Configuration is now managed through the parameter tree
+        pass
     
     def update_config_value(self, path_str, value):
         """Update a config value by dot-separated path string."""
@@ -1635,7 +1602,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Read failed", "Cannot read image.")
             return
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        self.sync_aug_to_cfg()
+        
+        # Get configuration from parameter tree instead of widgets
+        self.write_back_tree()
         
         # Get image size from new config structure
         data_cfg = self.gui_cfg.get("data", {})
@@ -1645,7 +1614,7 @@ class MainWindow(QMainWindow):
         else:
             size = 224
             
-        # Use new augmentation config
+        # Use augmentation config from parameter tree
         aug_cfg = self.gui_cfg.get("augmentation", {})
         pipe = build_albu_pipeline(aug_cfg, size, size)
         samples = []
@@ -1658,7 +1627,7 @@ class MainWindow(QMainWindow):
                 aug = cv2.resize(img_rgb, (size, size))
             samples.append(aug)
         dlg = QDialog(self)
-        dlg.setWindowTitle("Aug Preview")
+        dlg.setWindowTitle("Data Preview")
         layout = QGridLayout(dlg)
         pix = np_to_qpixmap(img_rgb)
         w0 = QLabel(); w0.setPixmap(pix.scaled(300,300, Qt.KeepAspectRatio)); layout.addWidget(QLabel("Original"),0,0); layout.addWidget(w0,1,0)
@@ -1699,8 +1668,7 @@ class MainWindow(QMainWindow):
         if not TF_AVAILABLE:
             QMessageBox.critical(self, "TF missing", "TensorFlow or tf-models-official not available.")
             return
-        # sync GUI config
-        self.sync_aug_to_cfg()
+        # sync GUI config from parameter tree
         self.write_back_tree()
         
         # Get model_dir from new config structure
@@ -1733,15 +1701,15 @@ def np_to_qpixmap(img: np.ndarray) -> QPixmap:
         return QPixmap()
     if img.ndim == 2:
         h,w = img.shape
-        qimg = QImage(img.data, w, h, w, QImage.Format_Grayscale8)
+        qimg = QImage(img.data, w, h, w, QImage.Format.Format_Grayscale8)
     else:
         h,w,c = img.shape
         if c == 3:
-            qimg = QImage(img.data, w, h, w*3, QImage.Format_RGB888)
+            qimg = QImage(img.data, w, h, w*3, QImage.Format.Format_RGB888)
         else:
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if 'cv2' in globals() else img[:,:,0]
             h,w = gray.shape
-            qimg = QImage(gray.data, w, h, w, QImage.Format_Grayscale8)
+            qimg = QImage(gray.data, w, h, w, QImage.Format.Format_Grayscale8)
     return QPixmap.fromImage(qimg.copy())
 
 def build_albu_pipeline(aug_cfg: Dict[str,Any], target_h:int, target_w:int):
