@@ -53,8 +53,78 @@ class MainWindow(QMainWindow):
     
     def __init__(self, experiment_name: str = "image_classification_imagenet"):
         super().__init__()
-        self.setWindowTitle("TF-Models-Official GUI Trainer")
+        self.setWindowTitle("🤖 ModelGardener - TensorFlow Training GUI")
         self.resize(1600, 1000)
+        
+        # Set comprehensive professional styling with consistent color scheme
+        self.setStyleSheet("""
+            /* Main window and base widget styling */
+            QMainWindow {
+                background-color: #f7f8fc;
+            }
+            QWidget {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                color: #2c3e50;
+            }
+            
+            /* Tab widget styling */
+            QTabWidget::pane {
+                border: 1px solid #bdc3c7;
+                background-color: white;
+                border-radius: 4px;
+            }
+            QTabWidget::tab-bar {
+                alignment: left;
+            }
+            QTabBar::tab {
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                border: 1px solid #bdc3c7;
+                border-bottom-color: transparent;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-radius: 4px 4px 0px 0px;
+                font-weight: 500;
+            }
+            QTabBar::tab:selected {
+                background-color: white;
+                color: #2c3e50;
+                border-bottom-color: white;
+                font-weight: 600;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #d5dbdb;
+                color: #2c3e50;
+            }
+            
+            /* Text edit and plain text edit styling */
+            QPlainTextEdit, QTextEdit {
+                background-color: white;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 11pt;
+                color: #2c3e50;
+                selection-background-color: #3498db;
+                selection-color: white;
+            }
+            QPlainTextEdit:focus, QTextEdit:focus {
+                border-color: #3498db;
+            }
+            
+            /* Label styling */
+            QLabel {
+                color: #2c3e50;
+                font-weight: 500;
+            }
+            
+            /* Scroll area styling */
+            QScrollArea {
+                background-color: white;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+            }
+        """)
 
         # initialize GUI config (comprehensive TensorFlow Models config)
         comprehensive_config = self.create_comprehensive_config()
@@ -82,6 +152,30 @@ class MainWindow(QMainWindow):
         btn_save_yaml = QPushButton("Save YAML")
         btn_save_yaml.clicked.connect(lambda: self.save_config("yaml"))
         
+        # Apply consistent styling to config buttons
+        button_style = """
+            QPushButton {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 11pt;
+                font-weight: 500;
+                padding: 8px 16px;
+                background-color: #7f8c8d;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #6c7b7c;
+            }
+            QPushButton:pressed {
+                background-color: #5d6a6b;
+            }
+        """
+        btn_load_config.setStyleSheet(button_style)
+        btn_save_json.setStyleSheet(button_style)
+        btn_save_yaml.setStyleSheet(button_style)
+        
         config_buttons_layout.addWidget(btn_load_config)
         config_buttons_layout.addWidget(btn_save_json)
         config_buttons_layout.addWidget(btn_save_yaml)
@@ -92,6 +186,9 @@ class MainWindow(QMainWindow):
         self.params = Parameter.create(**self.dict_to_params(self.comprehensive_cfg, "Configuration"))
         self.tree = ParameterTree()
         self.tree.setParameters(self.params, showTop=False)
+        
+        # Apply professional styling to the parameter tree
+        self._apply_parameter_tree_styling()
         
         # Set up directory parameter callbacks
         self._setup_directory_callbacks()
@@ -111,7 +208,20 @@ class MainWindow(QMainWindow):
         # Add a test for tooltip display using button clicks
         self.last_clicked_param = None
         
-        left_layout.addWidget(QLabel("Configuration"))
+        # Create a styled configuration label
+        config_label = QLabel("Configuration")
+        config_label.setStyleSheet("""
+            QLabel {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 14pt;
+                font-weight: 600;
+                color: #34495e;
+                padding: 8px 0px;
+                background-color: transparent;
+            }
+        """)
+        
+        left_layout.addWidget(config_label)
         left_layout.addWidget(self.tree, stretch=3)
 
         # Control panel below the tree
@@ -120,14 +230,81 @@ class MainWindow(QMainWindow):
         # Data preview button
         btn_preview = QPushButton("Preview Data")
         btn_preview.clicked.connect(self.preview_augmentation)
+        
+        # Apply consistent styling to control buttons
+        control_button_style = """
+            QPushButton {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 12pt;
+                font-weight: 600;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                min-height: 35px;
+            }
+        """
+        
+        # Preview button with subtle accent
+        preview_button_style = control_button_style + """
+            QPushButton {
+                background-color: #5d6d7e;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #4a5a6b;
+            }
+            QPushButton:pressed {
+                background-color: #3e4a57;
+            }
+        """
+        btn_preview.setStyleSheet(preview_button_style)
         control_panel_layout.addWidget(btn_preview)
         
         # Training control buttons
         training_buttons_layout = QHBoxLayout()
-        self.btn_start = QPushButton("Start Training")
+        self.btn_start = QPushButton("▶ Start Training")
         self.btn_start.clicked.connect(self.start_training)
-        self.btn_stop = QPushButton("Stop Training")
+        self.btn_stop = QPushButton("⏹ Stop Training")
         self.btn_stop.clicked.connect(self.stop_training)
+        
+        # Style start button with subtle success accent
+        start_button_style = control_button_style + """
+            QPushButton {
+                background-color: #52c41a;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #46b317;
+            }
+            QPushButton:pressed {
+                background-color: #3a9614;
+            }
+            QPushButton:disabled {
+                background-color: #95a5a6;
+                color: #bdc3c7;
+            }
+        """
+        
+        # Style stop button with subtle warning accent
+        stop_button_style = control_button_style + """
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:pressed {
+                background-color: #a93226;
+            }
+            QPushButton:disabled {
+                background-color: #95a5a6;
+                color: #bdc3c7;
+            }
+        """
+        
+        self.btn_start.setStyleSheet(start_button_style)
+        self.btn_stop.setStyleSheet(stop_button_style)
         
         training_buttons_layout.addWidget(self.btn_start)
         training_buttons_layout.addWidget(self.btn_stop)
@@ -135,17 +312,53 @@ class MainWindow(QMainWindow):
         
         # Checkpoint and model directory buttons
         path_buttons_layout = QHBoxLayout()
-        btn_ckpt = QPushButton("Choose Checkpoint")
+        btn_ckpt = QPushButton("📁 Choose Checkpoint")
         btn_ckpt.clicked.connect(self.choose_checkpoint)
-        btn_model_dir = QPushButton("Choose Model Dir")
+        btn_model_dir = QPushButton("📂 Choose Model Dir")
         btn_model_dir.clicked.connect(self.choose_model_dir)
+        
+        # Style path buttons with consistent neutral design
+        path_button_style = control_button_style + """
+            QPushButton {
+                background-color: #7f8c8d;
+                color: white;
+                font-size: 11pt;
+                padding: 8px 16px;
+                min-height: 30px;
+            }
+            QPushButton:hover {
+                background-color: #6c7b7c;
+            }
+            QPushButton:pressed {
+                background-color: #5d6a6b;
+            }
+        """
+        btn_ckpt.setStyleSheet(path_button_style)
+        btn_model_dir.setStyleSheet(path_button_style)
         
         path_buttons_layout.addWidget(btn_ckpt)
         path_buttons_layout.addWidget(btn_model_dir)
         control_panel_layout.addLayout(path_buttons_layout)
         
-        # Progress bar
+        # Progress bar with consistent styling
         self.progress = QProgressBar()
+        progress_style = """
+            QProgressBar {
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                text-align: center;
+                font-size: 10pt;
+                font-weight: 600;
+                color: #2c3e50;
+                background-color: #ecf0f1;
+                min-height: 25px;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 4px;
+            }
+        """
+        self.progress.setStyleSheet(progress_style)
         control_panel_layout.addWidget(self.progress)
         
         left_layout.addLayout(control_panel_layout)
@@ -335,6 +548,165 @@ class MainWindow(QMainWindow):
         # special callback setup here anymore
         pass
     
+    def _apply_parameter_tree_styling(self):
+        """Apply professional styling to the parameter tree with consistent color scheme."""
+        try:
+            # Set custom stylesheet for the parameter tree
+            style_sheet = """
+            QTreeWidget {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 12pt;
+                background-color: #f7f8fc;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                selection-background-color: #3498db;
+                selection-color: white;
+                outline: none;
+            }
+            
+            QTreeWidget::item {
+                padding: 6px;
+                margin: 2px;
+                border-bottom: 1px solid #ecf0f1;
+                color: #2c3e50;
+                font-weight: 500;
+            }
+            
+            QTreeWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+                border: none;
+            }
+            
+            QTreeWidget::item:hover {
+                background-color: #ebf3fd;
+                color: #2980b9;
+            }
+            
+            QTreeWidget::item:has-children {
+                font-weight: 600;
+                color: #34495e;
+                background-color: #eaebec;
+            }
+            
+            QTreeWidget::item:has-children:selected {
+                background-color: #2980b9;
+                color: white;
+                font-weight: 600;
+            }
+            
+            QTreeWidget::branch:has-siblings:!adjoins-item {
+                border-image: none;
+                image: none;
+            }
+            
+            QTreeWidget::branch:has-siblings:adjoins-item {
+                border-image: none;
+                image: none;
+            }
+            
+            QTreeWidget::branch:!has-children:!has-siblings:adjoins-item {
+                border-image: none;
+                image: none;
+            }
+            
+            QTreeWidget::branch:has-children:!has-siblings:closed,
+            QTreeWidget::branch:closed:has-children:has-siblings {
+                border-image: none;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTYgNEwxMCA4TDYgMTJWNFoiIGZpbGw9IiM3Zjhj8WQiLz4KPHN2Zz4K);
+            }
+            
+            QTreeWidget::branch:open:has-children:!has-siblings,
+            QTreeWidget::branch:open:has-children:has-siblings {
+                border-image: none;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQgNkw4IDEwTDEyIDZINFoiIGZpbGw9IiM3Zjhj8WQiLz4KPHN2Zz4K);
+            }
+            
+            /* Style for parameter value editors */
+            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+                font-size: 11pt;
+                padding: 4px 8px;
+                border: 1px solid #bdc3c7;
+                border-radius: 4px;
+                background-color: white;
+                selection-background-color: #3498db;
+            }
+            
+            QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {
+                border-color: #3498db;
+                outline: none;
+                box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+            }
+            
+            QCheckBox {
+                font-size: 11pt;
+                spacing: 8px;
+            }
+            
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 2px solid #bdc3c7;
+                border-radius: 3px;
+                background-color: white;
+            }
+            
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border-color: #3498db;
+                image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEzLjg1NCAzLjY0NkwxNC44NTQgNC42NDZMMTQuMTQ2IDUuMzU0TDYuNSAxMy4wVjEzSDZMMi44NTQgOS44NTRMMC44NTQgMTEuODU0TDcuNSA0LjVMMTMuODU0IDMuNjQ2WiIgZmlsbD0id2hpdGUiLz4KPHN2Zz4K);
+            }
+            
+            QCheckBox::indicator:hover {
+                border-color: #3498db;
+            }
+            
+            QPushButton {
+                font-size: 11pt;
+                padding: 6px 12px;
+                background-color: #7f8c8d;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #6c7b7c;
+            }
+            
+            QPushButton:pressed {
+                background-color: #5d6a6b;
+            }
+            """
+            
+            self.tree.setStyleSheet(style_sheet)
+            
+            # Set additional properties for better appearance
+            self.tree.setAlternatingRowColors(False)
+            self.tree.setRootIsDecorated(True)
+            self.tree.setIndentation(20)
+            self.tree.setHeaderHidden(False)
+            
+            # Set header styling
+            header = self.tree.header()
+            if header:
+                header.setStyleSheet("""
+                    QHeaderView::section {
+                        background-color: #34495e;
+                        color: white;
+                        padding: 8px;
+                        border: none;
+                        font-size: 12pt;
+                        font-weight: 600;
+                    }
+                """)
+                header.setDefaultSectionSize(200)
+                header.setStretchLastSection(True)
+            
+        except Exception as e:
+            print(f"Error applying parameter tree styling: {e}")
+    
     def _on_param_changed(self, param, changes):
         """Handle parameter changes from the ParameterTree."""
         try:
@@ -439,7 +811,7 @@ class MainWindow(QMainWindow):
             self.sync_gui_to_comprehensive()
             
             # Recreate the parameter structure
-            new_params = Parameter.create(**dict_to_params(self.comprehensive_cfg, "Configuration"))
+            new_params = Parameter.create(**self.dict_to_params(self.comprehensive_cfg, "Configuration"))
             
             # Disconnect old signals
             if hasattr(self, 'params'):
@@ -483,7 +855,7 @@ class MainWindow(QMainWindow):
         """Extract data from the parameter tree back to both comprehensive and flat gui_cfg."""
         try:
             # Extract data from parameter tree
-            tree_data = params_to_dict(self.params)
+            tree_data = self.params_to_dict(self.params)
             
             # Update comprehensive config
             if 'basic' in tree_data:
