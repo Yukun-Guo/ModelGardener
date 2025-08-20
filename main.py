@@ -2399,127 +2399,127 @@ class MetricsGroup(pTypes.GroupParameter):
         for method in preset_methods:
             self.addChild(method)
     
-    def _add_custom_button(self):
-        """Add a button parameter for loading custom augmentation functions from files."""
-        self.addChild({
-            'name': 'Load Custom Augmentations',
-            'type': 'action',
-            'tip': 'Click to load custom augmentation functions from a Python file'
-        })
+    # def _add_custom_button(self):
+    #     """Add a button parameter for loading custom augmentation functions from files."""
+    #     self.addChild({
+    #         'name': 'Load Custom Augmentations',
+    #         'type': 'action',
+    #         'tip': 'Click to load custom augmentation functions from a Python file'
+    #     })
         
-        # Connect the action to the file loading function
-        custom_button = self.child('Load Custom Augmentations')
-        custom_button.sigActivated.connect(self._load_custom_augmentations)
+    #     # Connect the action to the file loading function
+    #     custom_button = self.child('Load Custom Augmentations')
+    #     custom_button.sigActivated.connect(self._load_custom_augmentations)
     
-    def _load_custom_augmentations(self):
-        """Load custom augmentation functions from a selected Python file."""
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+    # def _load_custom_augmentations(self):
+    #     """Load custom augmentation functions from a selected Python file."""
+    #     from PySide6.QtWidgets import QFileDialog, QMessageBox
         
-        # Open file dialog to select Python file
-        file_path, _ = QFileDialog.getOpenFileName(
-            None,
-            "Select Python file with custom augmentation functions",
-            "",
-            "Python Files (*.py)"
-        )
+    #     # Open file dialog to select Python file
+    #     file_path, _ = QFileDialog.getOpenFileName(
+    #         None,
+    #         "Select Python file with custom augmentation functions",
+    #         "",
+    #         "Python Files (*.py)"
+    #     )
         
-        if not file_path:
-            return
+    #     if not file_path:
+    #         return
         
-        try:
-            # Load and parse the Python file
-            custom_functions = self._extract_augmentation_functions(file_path)
+    #     try:
+    #         # Load and parse the Python file
+    #         custom_functions = self._extract_augmentation_functions(file_path)
             
-            if not custom_functions:
-                QMessageBox.warning(
-                    None,
-                    "No Functions Found",
-                    "No valid augmentation functions found in the selected file.\n\n"
-                    "Functions should accept 'image' parameter and return modified image."
-                )
-                return
+    #         if not custom_functions:
+    #             QMessageBox.warning(
+    #                 None,
+    #                 "No Functions Found",
+    #                 "No valid augmentation functions found in the selected file.\n\n"
+    #                 "Functions should accept 'image' parameter and return modified image."
+    #             )
+    #             return
             
-            # Add each found function as a custom augmentation
-            added_count = 0
-            for func_name, func_info in custom_functions.items():
-                if self._add_custom_function(func_name, func_info):
-                    added_count += 1
+    #         # Add each found function as a custom augmentation
+    #         added_count = 0
+    #         for func_name, func_info in custom_functions.items():
+    #             if self._add_custom_function(func_name, func_info):
+    #                 added_count += 1
             
-            if added_count > 0:
-                QMessageBox.information(
-                    None,
-                    "Functions Loaded",
-                    f"Successfully loaded {added_count} custom augmentation function(s):\n" +
-                    "\n".join(custom_functions.keys())
-                )
-            else:
-                QMessageBox.warning(
-                    None,
-                    "No New Functions",
-                    "All functions from the file are already loaded or invalid."
-                )
+    #         if added_count > 0:
+    #             QMessageBox.information(
+    #                 None,
+    #                 "Functions Loaded",
+    #                 f"Successfully loaded {added_count} custom augmentation function(s):\n" +
+    #                 "\n".join(custom_functions.keys())
+    #             )
+    #         else:
+    #             QMessageBox.warning(
+    #                 None,
+    #                 "No New Functions",
+    #                 "All functions from the file are already loaded or invalid."
+    #             )
                 
-        except Exception as e:
-            QMessageBox.critical(
-                None,
-                "Error Loading File",
-                f"Failed to load custom augmentations from file:\n{str(e)}"
-            )
+    #     except Exception as e:
+    #         QMessageBox.critical(
+    #             None,
+    #             "Error Loading File",
+    #             f"Failed to load custom augmentations from file:\n{str(e)}"
+    #         )
     
-    def _extract_augmentation_functions(self, file_path):
-        """Extract valid augmentation functions from a Python file."""
-        custom_functions = {}
+    # def _extract_augmentation_functions(self, file_path):
+    #     """Extract valid augmentation functions from a Python file."""
+    #     custom_functions = {}
         
-        try:
-            # Read and parse the file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+    #     try:
+    #         # Read and parse the file
+    #         with open(file_path, 'r', encoding='utf-8') as f:
+    #             content = f.read()
             
-            # Parse the AST
-            tree = ast.parse(content)
+    #         # Parse the AST
+    #         tree = ast.parse(content)
             
-            # Find function definitions
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    func_name = node.name
+    #         # Find function definitions
+    #         for node in ast.walk(tree):
+    #             if isinstance(node, ast.FunctionDef):
+    #                 func_name = node.name
                     
-                    # Check if it's a valid augmentation function
-                    if self._is_valid_augmentation_function(node):
-                        # Extract function parameters
-                        params = self._extract_function_parameters(node)
+    #                 # Check if it's a valid augmentation function
+    #                 if self._is_valid_augmentation_function(node):
+    #                     # Extract function parameters
+    #                     params = self._extract_function_parameters(node)
                         
-                        # Extract docstring if available
-                        docstring = ast.get_docstring(node) or f"Custom augmentation function: {func_name}"
+    #                     # Extract docstring if available
+    #                     docstring = ast.get_docstring(node) or f"Custom augmentation function: {func_name}"
                         
-                        custom_functions[func_name] = {
-                            'parameters': params,
-                            'docstring': docstring,
-                            'file_path': file_path,
-                            'function_name': func_name
-                        }
+    #                     custom_functions[func_name] = {
+    #                         'parameters': params,
+    #                         'docstring': docstring,
+    #                         'file_path': file_path,
+    #                         'function_name': func_name
+    #                     }
             
-        except Exception as e:
-            print(f"Error parsing file {file_path}: {e}")
+    #     except Exception as e:
+    #         print(f"Error parsing file {file_path}: {e}")
         
-        return custom_functions
+    #     return custom_functions
     
-    def _is_valid_augmentation_function(self, func_node):
-        """Check if a function is a valid augmentation function."""
-        # Check if function has at least one parameter (should be 'image')
-        if not func_node.args.args:
-            return False
+    # def _is_valid_augmentation_function(self, func_node):
+    #     """Check if a function is a valid augmentation function."""
+    #     # Check if function has at least one parameter (should be 'image')
+    #     if not func_node.args.args:
+    #         return False
         
-        # Check if first parameter is likely an image parameter
-        first_param = func_node.args.args[0].arg
-        if first_param not in ['image', 'img', 'x', 'data']:
-            return False
+    #     # Check if first parameter is likely an image parameter
+    #     first_param = func_node.args.args[0].arg
+    #     if first_param not in ['image', 'img', 'x', 'data']:
+    #         return False
         
-        # Function should return something (basic check)
-        has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
-        if not has_return:
-            return False
+    #     # Function should return something (basic check)
+    #     has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
+    #     if not has_return:
+    #         return False
         
-        return True
+    #     return True
     
     def _extract_function_parameters(self, func_node):
         """Extract parameters from function definition (excluding 'image' parameter)."""
@@ -2570,68 +2570,68 @@ class MetricsGroup(pTypes.GroupParameter):
         
         return params
     
-    def _add_custom_function(self, func_name, func_info):
-        """Add a custom function as an augmentation method."""
-        # Add (custom) suffix to distinguish from presets
-        display_name = f"{func_name} (custom)"
+    # def _add_custom_function(self, func_name, func_info):
+    #     """Add a custom function as an augmentation method."""
+    #     # Add (custom) suffix to distinguish from presets
+    #     display_name = f"{func_name} (custom)"
         
-        # Check if function already exists (check both original and display names)
-        existing_names = [child.name() for child in self.children()]
-        if func_name in existing_names or display_name in existing_names:
-            return False
+    #     # Check if function already exists (check both original and display names)
+    #     existing_names = [child.name() for child in self.children()]
+    #     if func_name in existing_names or display_name in existing_names:
+    #         return False
         
-        # Create parameters list
-        children = [
-            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} augmentation'}
-        ]
+    #     # Create parameters list
+    #     children = [
+    #         {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} augmentation'}
+    #     ]
         
-        # Add function-specific parameters
-        for param_info in func_info['parameters']:
-            children.append({
-                'name': param_info['name'],
-                'type': param_info['type'],
-                'value': param_info['default'],
-                'limits': param_info.get('limits'),
-                'suffix': param_info.get('suffix', ''),
-                'tip': param_info['tip']
-            })
+    #     # Add function-specific parameters
+    #     for param_info in func_info['parameters']:
+    #         children.append({
+    #             'name': param_info['name'],
+    #             'type': param_info['type'],
+    #             'value': param_info['default'],
+    #             'limits': param_info.get('limits'),
+    #             'suffix': param_info.get('suffix', ''),
+    #             'tip': param_info['tip']
+    #         })
         
-        # Add metadata parameters
-        children.extend([
-            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
-            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function name in source file'}
-        ])
+    #     # Add metadata parameters
+    #     children.extend([
+    #         {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+    #         {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function name in source file'}
+    #     ])
         
-        # Create the augmentation method
-        method_config = {
-            'name': display_name,
-            'type': 'group',
-            'children': children,
-            'removable': True,
-            'renamable': False,  # Keep original function name
-            'tip': func_info['docstring']
-        }
+    #     # Create the augmentation method
+    #     method_config = {
+    #         'name': display_name,
+    #         'type': 'group',
+    #         'children': children,
+    #         'removable': True,
+    #         'renamable': False,  # Keep original function name
+    #         'tip': func_info['docstring']
+    #     }
         
-        # Insert before the "Load Custom Augmentations" button
-        # Find the button's index and insert before it
-        button_index = None
-        for i, child in enumerate(self.children()):
-            if child.name() == 'Load Custom Augmentations':
-                button_index = i
-                break
+    #     # Insert before the "Load Custom Augmentations" button
+    #     # Find the button's index and insert before it
+    #     button_index = None
+    #     for i, child in enumerate(self.children()):
+    #         if child.name() == 'Load Custom Augmentations':
+    #             button_index = i
+    #             break
         
-        if button_index is not None:
-            self.insertChild(button_index, method_config)
-        else:
-            # Fallback: add at the end if button not found
-            self.addChild(method_config)
+    #     if button_index is not None:
+    #         self.insertChild(button_index, method_config)
+    #     else:
+    #         # Fallback: add at the end if button not found
+    #         self.addChild(method_config)
         
-        return True
+    #     return True
     
-    def addNew(self, typ=None):
-        """Legacy method - no longer used since we load from files."""
-        # This method is called by the parameter tree system but we use the button instead
-        pass
+    # def addNew(self, typ=None):
+    #     """Legacy method - no longer used since we load from files."""
+    #     # This method is called by the parameter tree system but we use the button instead
+    #     pass
 
 # Register the custom parameter types
 pTypes.registerParameterType('directory', DirectoryParameter, override=True)
