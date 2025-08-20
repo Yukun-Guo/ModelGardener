@@ -10,6 +10,9 @@ import threading
 import subprocess
 import time
 import copy
+import importlib.util
+import inspect
+import ast
 from typing import Dict, Any, List
 
 from PySide6.QtWidgets import (
@@ -112,15 +115,16 @@ def create_comprehensive_config():
             'decode_jpeg_only': True
         },
         'augmentation': {
-            'aug_rand_hflip': True,
-            'aug_crop': True,
-            'crop_area_range': [0.08, 1.0],
-            'center_crop_fraction': 0.875,
-            'color_jitter': 0.0,
-            'randaug_magnitude': 10,
-            'tf_resize_method': 'bilinear',
-            'three_augment': False,
-            'is_multilabel': False
+            'type': 'augmentation_group',
+            'name': 'augmentation'
+        },
+        'preprocessing': {
+            'type': 'preprocessing_group', 
+            'name': 'preprocessing'
+        },
+        'callbacks': {
+            'type': 'callbacks_group',
+            'name': 'callbacks'
         },
         'training_advanced': {
             'train_tf_while_loop': True,
@@ -357,9 +361,1009 @@ class DirectoryParameterItem(pTypes.WidgetParameterItem):
 class DirectoryParameter(pTypes.SimpleParameter):
     itemClass = DirectoryParameterItem
 
+# Custom augmentation group that includes preset methods and allows adding custom methods from files
+class AugmentationGroup(pTypes.GroupParameter):
+    def __init__(self, **opts):
+        opts['type'] = 'group'
+        pTypes.GroupParameter.__init__(self, **opts)
+        
+        # Add preset augmentation methods
+        self._add_preset_augmentations()
+        
+        # Add custom augmentation button
+        self._add_custom_button()
+
+# Custom preprocessing group that includes preset methods and allows adding custom methods from files
+class PreprocessingGroup(pTypes.GroupParameter):
+    def __init__(self, **opts):
+        opts['type'] = 'group'
+        pTypes.GroupParameter.__init__(self, **opts)
+        
+        # Add preset preprocessing methods
+        self._add_preset_preprocessing()
+        
+        # Add custom preprocessing button
+        self._add_custom_button()
+    
+    def _add_preset_preprocessing(self):
+        """Add preset preprocessing methods with their parameters."""
+        preset_methods = [
+            {
+                'name': 'Resizing',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable image resizing'},
+                    {'name': 'target_size', 'type': 'group', 'children': [
+                        {'name': 'width', 'type': 'int', 'value': 224, 'limits': (1, 2048), 'tip': 'Target width in pixels'},
+                        {'name': 'height', 'type': 'int', 'value': 224, 'limits': (1, 2048), 'tip': 'Target height in pixels'},
+                        {'name': 'depth', 'type': 'int', 'value': 1, 'limits': (1, 512), 'tip': 'Target depth for 3D data (1 for 2D)'}
+                    ], 'tip': 'Target dimensions for resizing'},
+                    {'name': 'interpolation', 'type': 'list', 'limits': ['bilinear', 'nearest', 'bicubic', 'area'], 'value': 'bilinear', 'tip': 'Interpolation method for resizing'},
+                    {'name': 'preserve_aspect_ratio', 'type': 'bool', 'value': True, 'tip': 'Whether to preserve aspect ratio during resize'},
+                    {'name': 'data_format', 'type': 'list', 'limits': ['2D', '3D'], 'value': '2D', 'tip': 'Data format (2D for images, 3D for volumes)'}
+                ],
+                'tip': 'Resize images to target dimensions with support for 2D and 3D data'
+            },
+            {
+                'name': 'Normalization',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable data normalization'},
+                    {'name': 'method', 'type': 'list', 'limits': ['min-max', 'zero-center', 'standardization', 'unit-norm', 'robust'], 'value': 'zero-center', 'tip': 'Normalization method'},
+                    {'name': 'min_value', 'type': 'float', 'value': 0.0, 'limits': (-10.0, 10.0), 'tip': 'Minimum value for min-max normalization'},
+                    {'name': 'max_value', 'type': 'float', 'value': 1.0, 'limits': (-10.0, 10.0), 'tip': 'Maximum value for min-max normalization'},
+                    {'name': 'mean', 'type': 'group', 'children': [
+                        {'name': 'r', 'type': 'float', 'value': 0.485, 'limits': (0.0, 1.0), 'tip': 'Mean value for red channel'},
+                        {'name': 'g', 'type': 'float', 'value': 0.456, 'limits': (0.0, 1.0), 'tip': 'Mean value for green channel'},
+                        {'name': 'b', 'type': 'float', 'value': 0.406, 'limits': (0.0, 1.0), 'tip': 'Mean value for blue channel'}
+                    ], 'tip': 'Mean values for zero-center normalization (ImageNet defaults)'},
+                    {'name': 'std', 'type': 'group', 'children': [
+                        {'name': 'r', 'type': 'float', 'value': 0.229, 'limits': (0.001, 1.0), 'tip': 'Standard deviation for red channel'},
+                        {'name': 'g', 'type': 'float', 'value': 0.224, 'limits': (0.001, 1.0), 'tip': 'Standard deviation for green channel'},
+                        {'name': 'b', 'type': 'float', 'value': 0.225, 'limits': (0.001, 1.0), 'tip': 'Standard deviation for blue channel'}
+                    ], 'tip': 'Standard deviation values for standardization (ImageNet defaults)'},
+                    {'name': 'axis', 'type': 'int', 'value': -1, 'limits': (-3, 3), 'tip': 'Axis along which to normalize (-1 for all)'},
+                    {'name': 'epsilon', 'type': 'float', 'value': 1e-7, 'limits': (1e-10, 1e-3), 'tip': 'Small constant to avoid division by zero'}
+                ],
+                'tip': 'Normalize data using various methods (min-max, zero-center, standardization, etc.)'
+            }
+        ]
+        
+        # Add all preset methods
+        for method in preset_methods:
+            self.addChild(method)
+    
+    def _add_custom_button(self):
+        """Add a button parameter for loading custom preprocessing functions from files."""
+        self.addChild({
+            'name': 'Load Custom Preprocessing',
+            'type': 'action',
+            'tip': 'Click to load custom preprocessing functions from a Python file'
+        })
+        
+        # Connect the action to the file loading function
+        custom_button = self.child('Load Custom Preprocessing')
+        custom_button.sigActivated.connect(self._load_custom_preprocessing)
+    
+    def _load_custom_preprocessing(self):
+        """Load custom preprocessing functions from a selected Python file."""
+        
+        # Open file dialog to select Python file
+        file_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Select Python file with custom preprocessing functions",
+            "",
+            "Python Files (*.py)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Load and parse the Python file
+            custom_functions = self._extract_preprocessing_functions(file_path)
+            
+            if not custom_functions:
+                QMessageBox.warning(
+                    None,
+                    "No Functions Found",
+                    "No valid preprocessing functions found in the selected file.\n\n"
+                    "Functions should accept 'data' parameter and return processed data."
+                )
+                return
+            
+            # Add each found function as a custom preprocessing method
+            added_count = 0
+            for func_name, func_info in custom_functions.items():
+                if self._add_custom_function(func_name, func_info):
+                    added_count += 1
+            
+            if added_count > 0:
+                QMessageBox.information(
+                    None,
+                    "Functions Loaded",
+                    f"Successfully loaded {added_count} custom preprocessing function(s):\n" +
+                    "\n".join(custom_functions.keys())
+                )
+            else:
+                QMessageBox.warning(
+                    None,
+                    "No New Functions",
+                    "All functions from the file are already loaded or invalid."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(
+                None,
+                "Error Loading File",
+                f"Failed to load custom preprocessing from file:\n{str(e)}"
+            )
+    
+    def _extract_preprocessing_functions(self, file_path):
+        """Extract valid preprocessing functions from a Python file."""
+        custom_functions = {}
+        
+        try:
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse the AST
+            tree = ast.parse(content)
+            
+            # Find function definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Check if it's a valid preprocessing function
+                    if self._is_valid_preprocessing_function(node):
+                        # Extract function parameters
+                        params = self._extract_function_parameters(node)
+                        
+                        # Extract docstring if available
+                        docstring = ast.get_docstring(node) or f"Custom preprocessing function: {func_name}"
+                        
+                        custom_functions[func_name] = {
+                            'parameters': params,
+                            'docstring': docstring,
+                            'file_path': file_path,
+                            'function_name': func_name
+                        }
+            
+        except Exception as e:
+            print(f"Error parsing file {file_path}: {e}")
+        
+        return custom_functions
+    
+    def _is_valid_preprocessing_function(self, func_node):
+        """Check if a function is a valid preprocessing function."""
+        # Check if function has at least one parameter (should be 'data' or similar)
+        if not func_node.args.args:
+            return False
+        
+        # Check if first parameter is likely a data parameter
+        first_param = func_node.args.args[0].arg
+        if first_param not in ['data', 'x', 'input', 'array', 'tensor']:
+            return False
+        
+        # Function should return something (basic check)
+        has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
+        if not has_return:
+            return False
+        
+        return True
+    
+    def _extract_function_parameters(self, func_node):
+        """Extract parameters from function definition (excluding 'data' parameter)."""
+        params = []
+        
+        # Skip the first parameter (data) and extract others
+        for arg in func_node.args.args[1:]:
+            param_name = arg.arg
+            
+            # Try to infer parameter type and default values
+            param_info = {
+                'name': param_name,
+                'type': 'float',  # Default type
+                'default': 1.0,   # Default value
+                'limits': (0.0, 10.0),
+                'tip': f'Parameter for {param_name}'
+            }
+            
+            # Basic type inference based on parameter name
+            if 'size' in param_name.lower() or 'dim' in param_name.lower():
+                param_info.update({'type': 'int', 'default': 224, 'limits': (1, 2048)})
+            elif 'scale' in param_name.lower() or 'factor' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 1.0, 'limits': (0.1, 10.0)})
+            elif 'mean' in param_name.lower() or 'center' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 0.5, 'limits': (0.0, 1.0)})
+            elif 'std' in param_name.lower() or 'deviation' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 0.25, 'limits': (0.001, 1.0)})
+            elif 'enable' in param_name.lower():
+                param_info.update({'type': 'bool', 'default': True})
+            elif 'method' in param_name.lower() or 'mode' in param_name.lower():
+                param_info.update({'type': 'str', 'default': 'bilinear'})
+            
+            params.append(param_info)
+        
+        # Check for default values in function definition
+        if func_node.args.defaults:
+            num_defaults = len(func_node.args.defaults)
+            for i, default in enumerate(func_node.args.defaults):
+                param_index = len(func_node.args.args) - num_defaults + i - 1  # -1 to skip data param
+                if param_index >= 0 and param_index < len(params):
+                    if isinstance(default, ast.Constant):
+                        params[param_index]['default'] = default.value
+                        # Update type based on default value
+                        if isinstance(default.value, bool):
+                            params[param_index]['type'] = 'bool'
+                        elif isinstance(default.value, int):
+                            params[param_index]['type'] = 'int'
+                        elif isinstance(default.value, float):
+                            params[param_index]['type'] = 'float'
+                        elif isinstance(default.value, str):
+                            params[param_index]['type'] = 'str'
+        
+        return params
+    
+    def _add_custom_function(self, func_name, func_info):
+        """Add a custom function as a preprocessing method."""
+        # Add (custom) suffix to distinguish from presets
+        display_name = f"{func_name} (custom)"
+        
+        # Check if function already exists (check both original and display names)
+        existing_names = [child.name() for child in self.children()]
+        if func_name in existing_names or display_name in existing_names:
+            return False
+        
+        # Create parameters list
+        children = [
+            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} preprocessing'}
+        ]
+        
+        # Add function-specific parameters
+        for param_info in func_info['parameters']:
+            param_config = {
+                'name': param_info['name'],
+                'type': param_info['type'],
+                'value': param_info['default'],
+                'tip': param_info['tip']
+            }
+            
+            # Add limits for numeric types
+            if param_info['type'] in ['int', 'float'] and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            
+            children.append(param_config)
+        
+        # Add metadata parameters
+        children.extend([
+            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function name in source file'}
+        ])
+        
+        # Create the preprocessing method
+        method_config = {
+            'name': display_name,
+            'type': 'group',
+            'children': children,
+            'removable': True,
+            'renamable': False,
+            'tip': func_info['docstring']
+        }
+        
+        # Insert before the "Load Custom Preprocessing" button
+        button_index = None
+        for i, child in enumerate(self.children()):
+            if child.name() == 'Load Custom Preprocessing':
+                button_index = i
+                break
+        
+        if button_index is not None:
+            self.insertChild(button_index, method_config)
+        else:
+            self.addChild(method_config)
+        
+        return True
+    
+    def addNew(self, typ=None):
+        """Legacy method - no longer used since we load from files."""
+        pass
+
+# Custom callbacks group that includes preset callbacks and allows adding custom callbacks from files  
+class CallbacksGroup(pTypes.GroupParameter):
+    def __init__(self, **opts):
+        opts['type'] = 'group'
+        pTypes.GroupParameter.__init__(self, **opts)
+        
+        # Add preset callbacks
+        self._add_preset_callbacks()
+        
+        # Add custom callbacks button
+        self._add_custom_button()
+    
+    def _add_preset_callbacks(self):
+        """Add preset callback methods with their parameters."""
+        preset_callbacks = [
+            {
+                'name': 'Early Stopping',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable early stopping'},
+                    {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
+                    {'name': 'patience', 'type': 'int', 'value': 10, 'limits': (1, 100), 'tip': 'Number of epochs with no improvement to wait'},
+                    {'name': 'min_delta', 'type': 'float', 'value': 0.001, 'limits': (0.0, 1.0), 'tip': 'Minimum change to qualify as improvement'},
+                    {'name': 'mode', 'type': 'list', 'limits': ['min', 'max', 'auto'], 'value': 'min', 'tip': 'Direction of improvement'},
+                    {'name': 'restore_best_weights', 'type': 'bool', 'value': True, 'tip': 'Restore model weights from best epoch'}
+                ],
+                'tip': 'Stop training when monitored metric stops improving'
+            },
+            {
+                'name': 'Learning Rate Scheduler',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable learning rate scheduling'},
+                    {'name': 'scheduler_type', 'type': 'list', 'limits': ['ReduceLROnPlateau', 'StepLR', 'ExponentialLR', 'CosineAnnealingLR'], 'value': 'ReduceLROnPlateau', 'tip': 'Type of learning rate scheduler'},
+                    {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
+                    {'name': 'factor', 'type': 'float', 'value': 0.5, 'limits': (0.01, 1.0), 'tip': 'Factor by which learning rate is reduced'},
+                    {'name': 'patience', 'type': 'int', 'value': 5, 'limits': (1, 50), 'tip': 'Number of epochs with no improvement to wait'},
+                    {'name': 'min_lr', 'type': 'float', 'value': 1e-7, 'limits': (1e-10, 1e-2), 'tip': 'Minimum learning rate'},
+                    {'name': 'step_size', 'type': 'int', 'value': 30, 'limits': (1, 1000), 'tip': 'Period of learning rate decay (for StepLR)'},
+                    {'name': 'gamma', 'type': 'float', 'value': 0.1, 'limits': (0.01, 1.0), 'tip': 'Multiplicative factor of learning rate decay'}
+                ],
+                'tip': 'Adjust learning rate during training based on metrics or schedule'
+            },
+            {
+                'name': 'Model Checkpoint',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable model checkpointing'},
+                    {'name': 'filepath', 'type': 'str', 'value': './checkpoints/model-{epoch:02d}-{val_loss:.2f}.h5', 'tip': 'Path template for checkpoint files'},
+                    {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
+                    {'name': 'save_best_only', 'type': 'bool', 'value': True, 'tip': 'Save only the best model'},
+                    {'name': 'save_weights_only', 'type': 'bool', 'value': False, 'tip': 'Save only model weights (not full model)'},
+                    {'name': 'mode', 'type': 'list', 'limits': ['min', 'max', 'auto'], 'value': 'min', 'tip': 'Direction of improvement'},
+                    {'name': 'period', 'type': 'int', 'value': 1, 'limits': (1, 100), 'tip': 'Interval between checkpoints'}
+                ],
+                'tip': 'Save model checkpoints during training'
+            },
+            {
+                'name': 'CSV Logger',
+                'type': 'group', 
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable CSV logging'},
+                    {'name': 'filename', 'type': 'str', 'value': './logs/training_log.csv', 'tip': 'Path to CSV log file'},
+                    {'name': 'separator', 'type': 'str', 'value': ',', 'tip': 'Delimiter for CSV file'},
+                    {'name': 'append', 'type': 'bool', 'value': False, 'tip': 'Append to existing file or create new'}
+                ],
+                'tip': 'Log training metrics to CSV file'
+            },
+            {
+                'name': 'TensorBoard',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable TensorBoard logging'},
+                    {'name': 'log_dir', 'type': 'str', 'value': './logs/tensorboard', 'tip': 'Directory for TensorBoard logs'},
+                    {'name': 'histogram_freq', 'type': 'int', 'value': 1, 'limits': (0, 100), 'tip': 'Frequency for histogram computation'},
+                    {'name': 'write_graph', 'type': 'bool', 'value': True, 'tip': 'Write model graph to TensorBoard'},
+                    {'name': 'write_images', 'type': 'bool', 'value': False, 'tip': 'Write model weights as images'},
+                    {'name': 'update_freq', 'type': 'list', 'limits': ['epoch', 'batch'], 'value': 'epoch', 'tip': 'Update frequency for logging'}
+                ],
+                'tip': 'Log training metrics and model graph to TensorBoard'
+            }
+        ]
+        
+        # Add all preset callbacks
+        for callback in preset_callbacks:
+            self.addChild(callback)
+    
+    def _add_custom_button(self):
+        """Add a button parameter for loading custom callback functions from files."""
+        self.addChild({
+            'name': 'Load Custom Callbacks',
+            'type': 'action',
+            'tip': 'Click to load custom callback functions from a Python file'
+        })
+        
+        # Connect the action to the file loading function
+        custom_button = self.child('Load Custom Callbacks')
+        custom_button.sigActivated.connect(self._load_custom_callbacks)
+    
+    def _load_custom_callbacks(self):
+        """Load custom callback functions from a selected Python file."""
+        
+        # Open file dialog to select Python file
+        file_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Select Python file with custom callback functions",
+            "",
+            "Python Files (*.py)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Load and parse the Python file
+            custom_functions = self._extract_callback_functions(file_path)
+            
+            if not custom_functions:
+                QMessageBox.warning(
+                    None,
+                    "No Functions Found",
+                    "No valid callback functions found in the selected file.\n\n"
+                    "Functions should inherit from tf.keras.callbacks.Callback or implement callback interface."
+                )
+                return
+            
+            # Add each found function as a custom callback
+            added_count = 0
+            for func_name, func_info in custom_functions.items():
+                if self._add_custom_function(func_name, func_info):
+                    added_count += 1
+            
+            if added_count > 0:
+                QMessageBox.information(
+                    None,
+                    "Functions Loaded",
+                    f"Successfully loaded {added_count} custom callback function(s):\n" +
+                    "\n".join(custom_functions.keys())
+                )
+            else:
+                QMessageBox.warning(
+                    None,
+                    "No New Functions",
+                    "All functions from the file are already loaded or invalid."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(
+                None,
+                "Error Loading File",
+                f"Failed to load custom callbacks from file:\n{str(e)}"
+            )
+    
+    def _extract_callback_functions(self, file_path):
+        """Extract valid callback functions from a Python file."""
+        custom_functions = {}
+        
+        try:
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse the AST
+            tree = ast.parse(content)
+            
+            # Find function definitions and class definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Check if it's a valid callback function
+                    if self._is_valid_callback_function(node):
+                        # Extract function parameters
+                        params = self._extract_function_parameters(node)
+                        
+                        # Extract docstring if available
+                        docstring = ast.get_docstring(node) or f"Custom callback function: {func_name}"
+                        
+                        custom_functions[func_name] = {
+                            'parameters': params,
+                            'docstring': docstring,
+                            'file_path': file_path,
+                            'function_name': func_name,
+                            'type': 'function'
+                        }
+                elif isinstance(node, ast.ClassDef):
+                    class_name = node.name
+                    
+                    # Check if it's a callback class
+                    if self._is_valid_callback_class(node):
+                        # Extract class init parameters
+                        params = self._extract_class_parameters(node)
+                        
+                        # Extract docstring if available
+                        docstring = ast.get_docstring(node) or f"Custom callback class: {class_name}"
+                        
+                        custom_functions[class_name] = {
+                            'parameters': params,
+                            'docstring': docstring,
+                            'file_path': file_path,
+                            'function_name': class_name,
+                            'type': 'class'
+                        }
+            
+        except Exception as e:
+            print(f"Error parsing file {file_path}: {e}")
+        
+        return custom_functions
+    
+    def _is_valid_callback_function(self, func_node):
+        """Check if a function is a valid callback function."""
+        # Look for common callback method names or parameters
+        func_name = func_node.name.lower()
+        callback_indicators = ['callback', 'on_epoch', 'on_batch', 'on_train', 'monitor', 'log']
+        
+        return any(indicator in func_name for indicator in callback_indicators)
+    
+    def _is_valid_callback_class(self, class_node):
+        """Check if a class is a valid callback class."""
+        class_name = class_node.name.lower()
+        
+        # Check class name for callback indicators
+        if 'callback' in class_name:
+            return True
+        
+        # Check if class has callback-like methods
+        for node in class_node.body:
+            if isinstance(node, ast.FunctionDef):
+                method_name = node.name.lower()
+                if any(method in method_name for method in ['on_epoch', 'on_batch', 'on_train']):
+                    return True
+        
+        return False
+    
+    def _extract_class_parameters(self, class_node):
+        """Extract parameters from class __init__ method."""
+        params = []
+        
+        # Find __init__ method
+        for node in class_node.body:
+            if isinstance(node, ast.FunctionDef) and node.name == '__init__':
+                # Skip 'self' parameter and extract others
+                for arg in node.args.args[1:]:
+                    param_name = arg.arg
+                    
+                    param_info = {
+                        'name': param_name,
+                        'type': 'str',  # Default type
+                        'default': '',
+                        'tip': f'Parameter for {param_name}'
+                    }
+                    
+                    # Basic type inference
+                    if 'patience' in param_name.lower() or 'epoch' in param_name.lower():
+                        param_info.update({'type': 'int', 'default': 10, 'limits': (1, 1000)})
+                    elif 'rate' in param_name.lower() or 'factor' in param_name.lower():
+                        param_info.update({'type': 'float', 'default': 0.1, 'limits': (0.001, 1.0)})
+                    elif 'enable' in param_name.lower():
+                        param_info.update({'type': 'bool', 'default': True})
+                    elif 'path' in param_name.lower() or 'dir' in param_name.lower():
+                        param_info.update({'type': 'str', 'default': './logs'})
+                    
+                    params.append(param_info)
+                break
+        
+        return params
+    
+    def _extract_function_parameters(self, func_node):
+        """Extract parameters from function definition."""
+        params = []
+        
+        # Extract function arguments (skip common callback parameters like 'logs', 'epoch', etc.)
+        skip_params = {'self', 'logs', 'epoch', 'batch', 'model'}
+        
+        for arg in func_node.args.args:
+            param_name = arg.arg
+            
+            if param_name not in skip_params:
+                param_info = {
+                    'name': param_name,
+                    'type': 'str',
+                    'default': '',
+                    'tip': f'Parameter for {param_name}'
+                }
+                
+                # Basic type inference based on parameter name
+                if 'patience' in param_name.lower() or 'step' in param_name.lower():
+                    param_info.update({'type': 'int', 'default': 10, 'limits': (1, 1000)})
+                elif 'rate' in param_name.lower() or 'threshold' in param_name.lower():
+                    param_info.update({'type': 'float', 'default': 0.1, 'limits': (0.001, 1.0)})
+                elif 'enable' in param_name.lower():
+                    param_info.update({'type': 'bool', 'default': True})
+                
+                params.append(param_info)
+        
+        return params
+    
+    def _add_custom_function(self, func_name, func_info):
+        """Add a custom function as a callback method."""
+        # Add (custom) suffix to distinguish from presets
+        display_name = f"{func_name} (custom)"
+        
+        # Check if function already exists
+        existing_names = [child.name() for child in self.children()]
+        if func_name in existing_names or display_name in existing_names:
+            return False
+        
+        # Create parameters list
+        children = [
+            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} callback'}
+        ]
+        
+        # Add function-specific parameters
+        for param_info in func_info['parameters']:
+            param_config = {
+                'name': param_info['name'],
+                'type': param_info['type'],
+                'value': param_info['default'],
+                'tip': param_info['tip']
+            }
+            
+            if param_info['type'] in ['int', 'float'] and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            
+            children.append(param_config)
+        
+        # Add metadata parameters
+        children.extend([
+            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function/class name in source file'},
+            {'name': 'callback_type', 'type': 'str', 'value': func_info['type'], 'readonly': True, 'tip': 'Type of callback (function or class)'}
+        ])
+        
+        # Create the callback method
+        method_config = {
+            'name': display_name,
+            'type': 'group',
+            'children': children,
+            'removable': True,
+            'renamable': False,
+            'tip': func_info['docstring']
+        }
+        
+        # Insert before the "Load Custom Callbacks" button
+        button_index = None
+        for i, child in enumerate(self.children()):
+            if child.name() == 'Load Custom Callbacks':
+                button_index = i
+                break
+        
+        if button_index is not None:
+            self.insertChild(button_index, method_config)
+        else:
+            self.addChild(method_config)
+        
+        return True
+    
+    def addNew(self, typ=None):
+        """Legacy method - no longer used since we load from files."""
+        pass
+    
+    def _add_preset_augmentations(self):
+        """Add preset augmentation methods with their parameters."""
+        preset_methods = [
+            {
+                'name': 'Horizontal Flip',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable horizontal flip augmentation'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying horizontal flip'}
+                ],
+                'tip': 'Randomly flip images horizontally'
+            },
+            {
+                'name': 'Vertical Flip',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable vertical flip augmentation'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying vertical flip'}
+                ],
+                'tip': 'Randomly flip images vertically'
+            },
+            {
+                'name': 'Rotation',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable rotation augmentation'},
+                    {'name': 'angle_range', 'type': 'float', 'value': 15.0, 'limits': (0.0, 180.0), 'suffix': '°', 'tip': 'Maximum rotation angle in degrees'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying rotation'}
+                ],
+                'tip': 'Randomly rotate images by specified angle range'
+            },
+            {
+                'name': 'Gaussian Noise',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable Gaussian noise augmentation'},
+                    {'name': 'variance_limit', 'type': 'float', 'value': 0.01, 'limits': (0.0, 0.1), 'tip': 'Maximum variance of Gaussian noise'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Probability of adding noise'}
+                ],
+                'tip': 'Add random Gaussian noise to images'
+            },
+            {
+                'name': 'Brightness Adjustment',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable brightness adjustment'},
+                    {'name': 'brightness_limit', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Maximum brightness change (±)'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of brightness adjustment'}
+                ],
+                'tip': 'Randomly adjust image brightness'
+            },
+            {
+                'name': 'Contrast Adjustment',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable contrast adjustment'},
+                    {'name': 'contrast_limit', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Maximum contrast change (±)'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of contrast adjustment'}
+                ],
+                'tip': 'Randomly adjust image contrast'
+            },
+            {
+                'name': 'Color Jittering',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable color jittering'},
+                    {'name': 'hue_shift_limit', 'type': 'int', 'value': 20, 'limits': (0, 50), 'tip': 'Maximum hue shift'},
+                    {'name': 'sat_shift_limit', 'type': 'int', 'value': 30, 'limits': (0, 100), 'tip': 'Maximum saturation shift'},
+                    {'name': 'val_shift_limit', 'type': 'int', 'value': 20, 'limits': (0, 100), 'tip': 'Maximum value shift'},
+                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of color jittering'}
+                ],
+                'tip': 'Randomly adjust hue, saturation, and value'
+            },
+            {
+                'name': 'Random Cropping',
+                'type': 'group',
+                'children': [
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable random cropping'},
+                    {'name': 'crop_area_min', 'type': 'float', 'value': 0.08, 'limits': (0.01, 1.0), 'tip': 'Minimum crop area as fraction of original'},
+                    {'name': 'crop_area_max', 'type': 'float', 'value': 1.0, 'limits': (0.01, 1.0), 'tip': 'Maximum crop area as fraction of original'},
+                    {'name': 'aspect_ratio_min', 'type': 'float', 'value': 0.75, 'limits': (0.1, 2.0), 'tip': 'Minimum aspect ratio for cropping'},
+                    {'name': 'aspect_ratio_max', 'type': 'float', 'value': 1.33, 'limits': (0.1, 2.0), 'tip': 'Maximum aspect ratio for cropping'},
+                    {'name': 'probability', 'type': 'float', 'value': 1.0, 'limits': (0.0, 1.0), 'tip': 'Probability of random cropping'}
+                ],
+                'tip': 'Randomly crop parts of the image with specified area and aspect ratio constraints'
+            }
+        ]
+        
+        # Add all preset methods
+        for method in preset_methods:
+            self.addChild(method)
+    
+    def _add_custom_button(self):
+        """Add a button parameter for loading custom augmentation functions from files."""
+        self.addChild({
+            'name': 'Load Custom Augmentations',
+            'type': 'action',
+            'tip': 'Click to load custom augmentation functions from a Python file'
+        })
+        
+        # Connect the action to the file loading function
+        custom_button = self.child('Load Custom Augmentations')
+        custom_button.sigActivated.connect(self._load_custom_augmentations)
+    
+    def _load_custom_augmentations(self):
+        """Load custom augmentation functions from a selected Python file."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        
+        # Open file dialog to select Python file
+        file_path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Select Python file with custom augmentation functions",
+            "",
+            "Python Files (*.py)"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            # Load and parse the Python file
+            custom_functions = self._extract_augmentation_functions(file_path)
+            
+            if not custom_functions:
+                QMessageBox.warning(
+                    None,
+                    "No Functions Found",
+                    "No valid augmentation functions found in the selected file.\n\n"
+                    "Functions should accept 'image' parameter and return modified image."
+                )
+                return
+            
+            # Add each found function as a custom augmentation
+            added_count = 0
+            for func_name, func_info in custom_functions.items():
+                if self._add_custom_function(func_name, func_info):
+                    added_count += 1
+            
+            if added_count > 0:
+                QMessageBox.information(
+                    None,
+                    "Functions Loaded",
+                    f"Successfully loaded {added_count} custom augmentation function(s):\n" +
+                    "\n".join(custom_functions.keys())
+                )
+            else:
+                QMessageBox.warning(
+                    None,
+                    "No New Functions",
+                    "All functions from the file are already loaded or invalid."
+                )
+                
+        except Exception as e:
+            QMessageBox.critical(
+                None,
+                "Error Loading File",
+                f"Failed to load custom augmentations from file:\n{str(e)}"
+            )
+    
+    def _extract_augmentation_functions(self, file_path):
+        """Extract valid augmentation functions from a Python file."""
+        custom_functions = {}
+        
+        try:
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse the AST
+            tree = ast.parse(content)
+            
+            # Find function definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Check if it's a valid augmentation function
+                    if self._is_valid_augmentation_function(node):
+                        # Extract function parameters
+                        params = self._extract_function_parameters(node)
+                        
+                        # Extract docstring if available
+                        docstring = ast.get_docstring(node) or f"Custom augmentation function: {func_name}"
+                        
+                        custom_functions[func_name] = {
+                            'parameters': params,
+                            'docstring': docstring,
+                            'file_path': file_path,
+                            'function_name': func_name
+                        }
+            
+        except Exception as e:
+            print(f"Error parsing file {file_path}: {e}")
+        
+        return custom_functions
+    
+    def _is_valid_augmentation_function(self, func_node):
+        """Check if a function is a valid augmentation function."""
+        # Check if function has at least one parameter (should be 'image')
+        if not func_node.args.args:
+            return False
+        
+        # Check if first parameter is likely an image parameter
+        first_param = func_node.args.args[0].arg
+        if first_param not in ['image', 'img', 'x', 'data']:
+            return False
+        
+        # Function should return something (basic check)
+        has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
+        if not has_return:
+            return False
+        
+        return True
+    
+    def _extract_function_parameters(self, func_node):
+        """Extract parameters from function definition (excluding 'image' parameter)."""
+        params = []
+        
+        # Skip the first parameter (image) and extract others
+        for arg in func_node.args.args[1:]:
+            param_name = arg.arg
+            
+            # Try to infer parameter type and default values
+            param_info = {
+                'name': param_name,
+                'type': 'float',  # Default type
+                'default': 0.5,   # Default value
+                'limits': (0.0, 1.0),
+                'tip': f'Parameter for {param_name}'
+            }
+            
+            # Basic type inference based on parameter name
+            if 'angle' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 15.0, 'limits': (0.0, 180.0), 'suffix': '°'})
+            elif 'prob' in param_name.lower() or 'p' == param_name.lower():
+                param_info.update({'type': 'float', 'default': 0.5, 'limits': (0.0, 1.0)})
+            elif 'strength' in param_name.lower() or 'intensity' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 1.0, 'limits': (0.0, 5.0)})
+            elif 'size' in param_name.lower() or 'kernel' in param_name.lower():
+                param_info.update({'type': 'int', 'default': 3, 'limits': (1, 15)})
+            elif 'enable' in param_name.lower():
+                param_info.update({'type': 'bool', 'default': True})
+            
+            params.append(param_info)
+        
+        # Check for default values in function definition
+        if func_node.args.defaults:
+            num_defaults = len(func_node.args.defaults)
+            for i, default in enumerate(func_node.args.defaults):
+                param_index = len(func_node.args.args) - num_defaults + i - 1  # -1 to skip image param
+                if param_index >= 0 and param_index < len(params):
+                    if isinstance(default, ast.Constant):
+                        params[param_index]['default'] = default.value
+                        # Update type based on default value
+                        if isinstance(default.value, bool):
+                            params[param_index]['type'] = 'bool'
+                        elif isinstance(default.value, int):
+                            params[param_index]['type'] = 'int'
+                        elif isinstance(default.value, float):
+                            params[param_index]['type'] = 'float'
+        
+        return params
+    
+    def _add_custom_function(self, func_name, func_info):
+        """Add a custom function as an augmentation method."""
+        # Add (custom) suffix to distinguish from presets
+        display_name = f"{func_name} (custom)"
+        
+        # Check if function already exists (check both original and display names)
+        existing_names = [child.name() for child in self.children()]
+        if func_name in existing_names or display_name in existing_names:
+            return False
+        
+        # Create parameters list
+        children = [
+            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} augmentation'}
+        ]
+        
+        # Add function-specific parameters
+        for param_info in func_info['parameters']:
+            children.append({
+                'name': param_info['name'],
+                'type': param_info['type'],
+                'value': param_info['default'],
+                'limits': param_info.get('limits'),
+                'suffix': param_info.get('suffix', ''),
+                'tip': param_info['tip']
+            })
+        
+        # Add metadata parameters
+        children.extend([
+            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function name in source file'}
+        ])
+        
+        # Create the augmentation method
+        method_config = {
+            'name': display_name,
+            'type': 'group',
+            'children': children,
+            'removable': True,
+            'renamable': False,  # Keep original function name
+            'tip': func_info['docstring']
+        }
+        
+        # Insert before the "Load Custom Augmentations" button
+        # Find the button's index and insert before it
+        button_index = None
+        for i, child in enumerate(self.children()):
+            if child.name() == 'Load Custom Augmentations':
+                button_index = i
+                break
+        
+        if button_index is not None:
+            self.insertChild(button_index, method_config)
+        else:
+            # Fallback: add at the end if button not found
+            self.addChild(method_config)
+        
+        return True
+    
+    def addNew(self, typ=None):
+        """Legacy method - no longer used since we load from files."""
+        # This method is called by the parameter tree system but we use the button instead
+        pass
+
 # Register the custom parameter types
 pTypes.registerParameterType('directory', DirectoryParameter, override=True)
 pTypes.registerParameterType('directory_only', DirectoryOnlyParameter, override=True)
+pTypes.registerParameterType('augmentation_group', AugmentationGroup, override=True)
+pTypes.registerParameterType('preprocessing_group', PreprocessingGroup, override=True)
+pTypes.registerParameterType('callbacks_group', CallbacksGroup, override=True)
 
 def get_parameter_tooltip(param_name, section_name=None):
     """Get tooltip text for a parameter based on its name and section."""
@@ -435,6 +1439,88 @@ def get_parameter_tooltip(param_name, section_name=None):
         'three_augment': 'Apply Three-Augment policy for advanced data augmentation',
         'is_multilabel': 'Whether this is a multi-label classification task',
         
+        # Preprocessing tooltips
+        'Resizing': 'Resize images to target dimensions with support for 2D and 3D data',
+        'Normalization': 'Normalize data using various methods (min-max, zero-center, standardization, etc.)',
+        'target_size': 'Target dimensions for resizing',
+        'interpolation': 'Interpolation method for resizing',
+        'preserve_aspect_ratio': 'Whether to preserve aspect ratio during resize',
+        'data_format': 'Data format (2D for images, 3D for volumes)',
+        'method': 'Normalization/processing method',
+        'min_value': 'Minimum value for min-max normalization',
+        'max_value': 'Maximum value for min-max normalization',
+        'mean': 'Mean values for zero-center normalization',
+        'std': 'Standard deviation values for standardization',
+        'axis': 'Axis along which to normalize',
+        'epsilon': 'Small constant to avoid division by zero',
+        'r': 'Red channel value',
+        'g': 'Green channel value', 
+        'b': 'Blue channel value',
+        
+        # Callbacks tooltips
+        'Early Stopping': 'Stop training when monitored metric stops improving',
+        'Learning Rate Scheduler': 'Adjust learning rate during training based on metrics or schedule',
+        'Model Checkpoint': 'Save model checkpoints during training',
+        'CSV Logger': 'Log training metrics to CSV file',
+        'TensorBoard': 'Log training metrics and model graph to TensorBoard',
+        'monitor': 'Metric to monitor',
+        'patience': 'Number of epochs with no improvement to wait',
+        'min_delta': 'Minimum change to qualify as improvement',
+        'mode': 'Direction of improvement (min/max)',
+        'restore_best_weights': 'Restore model weights from best epoch',
+        'scheduler_type': 'Type of learning rate scheduler',
+        'factor': 'Factor by which learning rate is reduced',
+        'min_lr': 'Minimum learning rate',
+        'step_size': 'Period of learning rate decay',
+        'gamma': 'Multiplicative factor of learning rate decay',
+        'filepath': 'Path template for checkpoint files',
+        'save_best_only': 'Save only the best model',
+        'save_weights_only': 'Save only model weights (not full model)',
+        'period': 'Interval between checkpoints',
+        'filename': 'Path to CSV log file',
+        'separator': 'Delimiter for CSV file',
+        'append': 'Append to existing file or create new',
+        'log_dir': 'Directory for TensorBoard logs',
+        'histogram_freq': 'Frequency for histogram computation',
+        'write_graph': 'Write model graph to TensorBoard',
+        'write_images': 'Write model weights as images',
+        'update_freq': 'Update frequency for logging',
+        
+        # New augmentation method tooltips
+        'Horizontal Flip': 'Randomly flip images horizontally for data augmentation',
+        'Vertical Flip': 'Randomly flip images vertically for data augmentation',
+        'Rotation': 'Randomly rotate images by specified angle range',
+        'Gaussian Noise': 'Add random Gaussian noise to images for robustness',
+        'Brightness Adjustment': 'Randomly adjust image brightness within specified limits',
+        'Contrast Adjustment': 'Randomly adjust image contrast within specified limits',
+        'Color Jittering': 'Randomly adjust hue, saturation, and value for color variations',
+        'Random Cropping': 'Randomly crop portions of images with area and aspect ratio constraints',
+        'enabled': 'Enable or disable this augmentation method',
+        'probability': 'Probability of applying this augmentation (0.0 = never, 1.0 = always)',
+        'angle_range': 'Maximum rotation angle in degrees (±)',
+        'variance_limit': 'Maximum variance for Gaussian noise',
+        'brightness_limit': 'Maximum brightness adjustment (±)',
+        'contrast_limit': 'Maximum contrast adjustment (±)',
+        'hue_shift_limit': 'Maximum hue shift in degrees',
+        'sat_shift_limit': 'Maximum saturation shift percentage',
+        'val_shift_limit': 'Maximum value/brightness shift percentage',
+        'crop_area_min': 'Minimum crop area as fraction of original image',
+        'crop_area_max': 'Maximum crop area as fraction of original image',
+        'aspect_ratio_min': 'Minimum aspect ratio for cropped region',
+        'aspect_ratio_max': 'Maximum aspect ratio for cropped region',
+        
+        # Custom augmentation tooltips
+        'min_angle': 'Minimum rotation angle for custom rotation',
+        'max_angle': 'Maximum rotation angle for custom rotation',
+        'noise_type': 'Type of noise to add (gaussian, uniform, salt_pepper)',
+        'intensity': 'Intensity of the noise effect',
+        'blur_type': 'Type of blur to apply (gaussian, motion, median)',
+        'blur_limit': 'Maximum blur kernel size',
+        'distortion_type': 'Type of distortion to apply (elastic, perspective, barrel)',
+        'distortion_strength': 'Strength of the distortion effect',
+        'filter_type': 'Type of filter to apply (sharpen, emboss, edge_enhance)',
+        'filter_strength': 'Strength of the filter effect',
+        
         # Training Advanced tooltips
         'train_tf_while_loop': 'Use TensorFlow while loops for training (usually faster)',
         'train_tf_function': 'Use tf.function compilation for training loops',
@@ -485,6 +1571,8 @@ def get_parameter_tooltip(param_name, section_name=None):
         'model_advanced': 'Advanced model architecture parameters',
         'data_advanced': 'Advanced data pipeline configuration',
         'augmentation': 'Data augmentation and preprocessing settings',
+        'preprocessing': 'Data preprocessing methods including resizing and normalization',
+        'callbacks': 'Training callbacks for monitoring, checkpointing, and scheduling',
         'training_advanced': 'Advanced training loop and optimization settings',
         'evaluation': 'Model evaluation and metrics configuration',
         'runtime_advanced': 'Advanced runtime and performance settings',
@@ -501,6 +1589,30 @@ def get_parameter_tooltip(param_name, section_name=None):
 def dict_to_params(data, name="Config"):
     """Convert a nested dictionary to Parameter tree structure with enhanced parameter types and tooltips."""
     if isinstance(data, dict):
+        # Check if this is a special augmentation group type
+        if data.get('type') == 'augmentation_group':
+            return {
+                'name': data.get('name', name),
+                'type': 'augmentation_group',
+                'tip': get_parameter_tooltip('augmentation')
+            }
+        
+        # Check if this is a special preprocessing group type
+        if data.get('type') == 'preprocessing_group':
+            return {
+                'name': data.get('name', name),
+                'type': 'preprocessing_group',
+                'tip': get_parameter_tooltip('preprocessing')
+            }
+        
+        # Check if this is a special callbacks group type
+        if data.get('type') == 'callbacks_group':
+            return {
+                'name': data.get('name', name),
+                'type': 'callbacks_group',
+                'tip': get_parameter_tooltip('callbacks')
+            }
+        
         children = []
         for key, value in data.items():
             if isinstance(value, dict):
@@ -800,7 +1912,15 @@ def params_to_dict(param):
         result = {}
         for child in param.children():
             child_name = child.name()
-            if child.hasChildren():
+            
+            # Special handling for augmentation group
+            if isinstance(child, AugmentationGroup):
+                result[child_name] = extract_augmentation_config(child)
+            elif isinstance(child, PreprocessingGroup):
+                result[child_name] = extract_preprocessing_config(child)
+            elif isinstance(child, CallbacksGroup):
+                result[child_name] = extract_callbacks_config(child)
+            elif child.hasChildren():
                 # Handle special group parameters like image_size or crop_area_range
                 if child_name == 'image_size' and len(child.children()) == 2:
                     width_child = next((c for c in child.children() if c.name() == 'width'), None)
@@ -834,6 +1954,71 @@ def params_to_dict(param):
         return result
     else:
         return param.value()
+
+def extract_augmentation_config(aug_group):
+    """Extract configuration from AugmentationGroup parameter."""
+    config = {}
+    
+    for method_param in aug_group.children():
+        method_name = method_param.name()
+        method_config = {}
+        
+        # Extract configuration for each augmentation method
+        for param in method_param.children():
+            method_config[param.name()] = param.value()
+        
+        config[method_name] = method_config
+    
+    return config
+
+def extract_preprocessing_config(prep_group):
+    """Extract configuration from PreprocessingGroup parameter."""
+    config = {}
+    
+    for method_param in prep_group.children():
+        method_name = method_param.name()
+        
+        # Skip the button
+        if method_name == 'Load Custom Preprocessing':
+            continue
+            
+        method_config = {}
+        
+        # Extract configuration for each preprocessing method
+        for param in method_param.children():
+            if param.hasChildren():
+                # Handle nested parameters (like target_size, mean, std)
+                nested_config = {}
+                for child_param in param.children():
+                    nested_config[child_param.name()] = child_param.value()
+                method_config[param.name()] = nested_config
+            else:
+                method_config[param.name()] = param.value()
+        
+        config[method_name] = method_config
+    
+    return config
+
+def extract_callbacks_config(callbacks_group):
+    """Extract configuration from CallbacksGroup parameter."""
+    config = {}
+    
+    for callback_param in callbacks_group.children():
+        callback_name = callback_param.name()
+        
+        # Skip the button
+        if callback_name == 'Load Custom Callbacks':
+            continue
+            
+        callback_config = {}
+        
+        # Extract configuration for each callback
+        for param in callback_param.children():
+            callback_config[param.name()] = param.value()
+        
+        config[callback_name] = callback_config
+    
+    return config
 
 # ---------------------------
 # Bridge: GUI <-> Callbacks
@@ -1008,14 +2193,46 @@ def map_gui_to_expconfig(gui_cfg: Dict[str, Any], exp_name: str):
     try:
         if 'augmentation' in gui_cfg:
             aug = gui_cfg['augmentation']
-            exp_cfg.task.train_data.aug_rand_hflip = bool(aug.get('aug_rand_hflip', True))
-            exp_cfg.task.train_data.aug_crop = bool(aug.get('aug_crop', True))
-            if aug.get('crop_area_range'):
-                exp_cfg.task.train_data.crop_area_range = aug['crop_area_range']
-            if aug.get('color_jitter') is not None:
-                exp_cfg.task.train_data.color_jitter = float(aug['color_jitter'])
-            if aug.get('randaug_magnitude') is not None:
-                exp_cfg.task.train_data.randaug_magnitude = int(aug['randaug_magnitude'])
+            
+            # Handle new augmentation structure
+            if isinstance(aug, dict):
+                # Check for horizontal flip
+                hflip = aug.get('Horizontal Flip', {})
+                if hflip.get('enabled', False):
+                    exp_cfg.task.train_data.aug_rand_hflip = True
+                else:
+                    exp_cfg.task.train_data.aug_rand_hflip = False
+                
+                # Check for random cropping
+                crop = aug.get('Random Cropping', {})
+                if crop.get('enabled', False):
+                    exp_cfg.task.train_data.aug_crop = True
+                    # Set crop area range if available
+                    min_area = crop.get('crop_area_min', 0.08)
+                    max_area = crop.get('crop_area_max', 1.0)
+                    exp_cfg.task.train_data.crop_area_range = [min_area, max_area]
+                else:
+                    exp_cfg.task.train_data.aug_crop = False
+                
+                # Check for color jittering
+                color_jitter = aug.get('Color Jittering', {})
+                if color_jitter.get('enabled', False):
+                    # Map to color jitter strength (simplified mapping)
+                    hue_shift = color_jitter.get('hue_shift_limit', 20) / 50.0  # Normalize to 0-1
+                    exp_cfg.task.train_data.color_jitter = hue_shift
+                else:
+                    exp_cfg.task.train_data.color_jitter = 0.0
+            
+            # Fallback to legacy structure for backward compatibility
+            else:
+                exp_cfg.task.train_data.aug_rand_hflip = bool(aug.get('aug_rand_hflip', True))
+                exp_cfg.task.train_data.aug_crop = bool(aug.get('aug_crop', True))
+                if aug.get('crop_area_range'):
+                    exp_cfg.task.train_data.crop_area_range = aug['crop_area_range']
+                if aug.get('color_jitter') is not None:
+                    exp_cfg.task.train_data.color_jitter = float(aug['color_jitter'])
+                if aug.get('randaug_magnitude') is not None:
+                    exp_cfg.task.train_data.randaug_magnitude = int(aug['randaug_magnitude'])
     except Exception as e:
         print(f"Error mapping augmentation config: {e}")
 
@@ -1696,6 +2913,58 @@ class MainWindow(QMainWindow):
         self.progress.setValue(100)
 
 # helpers used above (np_to_qpixmap, build_albu_pipeline) - include simple definitions here:
+
+def create_custom_albumentations_transform(file_path, function_name, config):
+    """Create a custom Albumentations transform from a Python function."""
+    if not ALBU_AVAILABLE:
+        return None
+    
+    try:
+        # Load the module from file
+        spec = importlib.util.spec_from_file_location("custom_augmentations", file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Get the function
+        if not hasattr(module, function_name):
+            print(f"Function {function_name} not found in {file_path}")
+            return None
+        
+        custom_function = getattr(module, function_name)
+        
+        # Create a wrapper for Albumentations
+        class CustomTransform(A.ImageOnlyTransform):
+            def __init__(self, custom_func, func_config, always_apply=False, p=1.0):
+                super().__init__(always_apply, p)
+                self.custom_func = custom_func
+                self.func_config = func_config
+            
+            def apply(self, image, **params):
+                try:
+                    # Extract parameters for the function (excluding enabled, file_path, function_name)
+                    func_params = {}
+                    for key, value in self.func_config.items():
+                        if key not in ['enabled', 'file_path', 'function_name']:
+                            func_params[key] = value
+                    
+                    # Call the custom function
+                    result = self.custom_func(image, **func_params)
+                    return result if result is not None else image
+                except Exception as e:
+                    print(f"Error in custom augmentation function: {e}")
+                    return image
+        
+        # Get probability from config
+        probability = config.get('probability', 0.5)
+        if 'p' in config:
+            probability = config['p']
+        
+        return CustomTransform(custom_function, config, p=probability)
+        
+    except Exception as e:
+        print(f"Error creating custom transform from {file_path}: {e}")
+        return None
+
 def np_to_qpixmap(img: np.ndarray) -> QPixmap:
     if img is None:
         return QPixmap()
@@ -1715,28 +2984,149 @@ def np_to_qpixmap(img: np.ndarray) -> QPixmap:
 def build_albu_pipeline(aug_cfg: Dict[str,Any], target_h:int, target_w:int):
     if not ALBU_AVAILABLE:
         raise RuntimeError("albumentations / cv2 missing")
+    
     transforms = []
-    if aug_cfg.get("aug_rand_hflip"):
-        transforms.append(A.HorizontalFlip(p=0.5))
-    if aug_cfg.get("three_augment"):
-        transforms.append(A.VerticalFlip(p=0.5))
     
-    # Use RandAugment magnitude instead of rotation limit
-    randaug_mag = aug_cfg.get("randaug_magnitude", 0)
-    if randaug_mag and randaug_mag > 0:
-        transforms.append(A.Rotate(limit=min(randaug_mag, 30), border_mode=cv2.BORDER_REFLECT_101, p=0.6))
+    # Handle new augmentation structure
+    if isinstance(aug_cfg, dict):
+        # Horizontal flip
+        hflip = aug_cfg.get('Horizontal Flip', {})
+        if hflip.get('enabled', False):
+            prob = hflip.get('probability', 0.5)
+            transforms.append(A.HorizontalFlip(p=prob))
+        
+        # Vertical flip
+        vflip = aug_cfg.get('Vertical Flip', {})
+        if vflip.get('enabled', False):
+            prob = vflip.get('probability', 0.5)
+            transforms.append(A.VerticalFlip(p=prob))
+        
+        # Rotation
+        rotation = aug_cfg.get('Rotation', {})
+        if rotation.get('enabled', False):
+            angle = rotation.get('angle_range', 15.0)
+            prob = rotation.get('probability', 0.5)
+            transforms.append(A.Rotate(limit=angle, border_mode=cv2.BORDER_REFLECT_101, p=prob))
+        
+        # Gaussian noise
+        noise = aug_cfg.get('Gaussian Noise', {})
+        if noise.get('enabled', False):
+            variance = noise.get('variance_limit', 0.01)
+            prob = noise.get('probability', 0.2)
+            transforms.append(A.GaussNoise(var_limit=(0, variance * 255**2), p=prob))
+        
+        # Brightness adjustment
+        brightness = aug_cfg.get('Brightness Adjustment', {})
+        if brightness.get('enabled', False):
+            limit = brightness.get('brightness_limit', 0.2)
+            prob = brightness.get('probability', 0.5)
+            transforms.append(A.RandomBrightness(limit=limit, p=prob))
+        
+        # Contrast adjustment
+        contrast = aug_cfg.get('Contrast Adjustment', {})
+        if contrast.get('enabled', False):
+            limit = contrast.get('contrast_limit', 0.2)
+            prob = contrast.get('probability', 0.5)
+            transforms.append(A.RandomContrast(limit=limit, p=prob))
+        
+        # Color jittering
+        color_jitter = aug_cfg.get('Color Jittering', {})
+        if color_jitter.get('enabled', False):
+            hue = color_jitter.get('hue_shift_limit', 20)
+            sat = color_jitter.get('sat_shift_limit', 30)
+            val = color_jitter.get('val_shift_limit', 20)
+            prob = color_jitter.get('probability', 0.5)
+            transforms.append(A.HueSaturationValue(hue_shift_limit=hue, sat_shift_limit=sat, val_shift_limit=val, p=prob))
+        
+        # Random cropping
+        crop = aug_cfg.get('Random Cropping', {})
+        if crop.get('enabled', False):
+            min_area = crop.get('crop_area_min', 0.08)
+            max_area = crop.get('crop_area_max', 1.0)
+            min_ratio = crop.get('aspect_ratio_min', 0.75)
+            max_ratio = crop.get('aspect_ratio_max', 1.33)
+            prob = crop.get('probability', 1.0)
+            transforms.append(A.RandomResizedCrop(
+                height=target_h, width=target_w, 
+                scale=(min_area, max_area), 
+                ratio=(min_ratio, max_ratio), 
+                p=prob
+            ))
+        
+        # Handle custom augmentations loaded from files
+        for key, value in aug_cfg.items():
+            if isinstance(value, dict) and value.get('enabled', False):
+                # Check if this is a custom function (has file_path and function_name)
+                if 'file_path' in value and 'function_name' in value:
+                    try:
+                        # Load and apply custom function
+                        custom_transform = create_custom_albumentations_transform(
+                            value['file_path'], 
+                            value['function_name'], 
+                            value
+                        )
+                        if custom_transform:
+                            transforms.append(custom_transform)
+                    except Exception as e:
+                        print(f"Error loading custom augmentation {key}: {e}")
+                
+                # Handle legacy custom augmentations (without file_path)
+                elif 'Custom' in key:
+                    try:
+                        if 'Rotation' in key:
+                            min_angle = value.get('min_angle', -45.0)
+                            max_angle = value.get('max_angle', 45.0)
+                            prob = value.get('probability', 0.5)
+                            transforms.append(A.Rotate(limit=(min_angle, max_angle), p=prob))
+                        
+                        elif 'Noise' in key:
+                            noise_type = value.get('noise_type', 'gaussian')
+                            intensity = value.get('intensity', 0.05)
+                            prob = value.get('probability', 0.3)
+                            if noise_type == 'gaussian':
+                                transforms.append(A.GaussNoise(var_limit=(0, intensity * 255**2), p=prob))
+                            elif noise_type == 'salt_pepper':
+                                transforms.append(A.ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=prob))
+                        
+                        elif 'Blur' in key:
+                            blur_type = value.get('blur_type', 'gaussian')
+                            blur_limit = value.get('blur_limit', 3)
+                            prob = value.get('probability', 0.2)
+                            if blur_type == 'gaussian':
+                                transforms.append(A.GaussianBlur(blur_limit=(3, blur_limit), p=prob))
+                            elif blur_type == 'motion':
+                                transforms.append(A.MotionBlur(blur_limit=(3, blur_limit), p=prob))
+                            elif blur_type == 'median':
+                                transforms.append(A.MedianBlur(blur_limit=blur_limit, p=prob))
+                        
+                    except Exception as e:
+                        print(f"Error adding legacy custom augmentation {key}: {e}")
     
-    # Use crop area range
-    crop_range = aug_cfg.get("crop_area_range", [0.08, 1.0])
-    if isinstance(crop_range, list) and len(crop_range) >= 2:
-        transforms.append(A.RandomResizedCrop(height=target_h, width=target_w, scale=(crop_range[0], crop_range[1]), ratio=(0.9,1.1), p=0.6))
+    # Fallback to legacy structure
+    else:
+        if aug_cfg.get("aug_rand_hflip"):
+            transforms.append(A.HorizontalFlip(p=0.5))
+        if aug_cfg.get("three_augment"):
+            transforms.append(A.VerticalFlip(p=0.5))
+        
+        # Use RandAugment magnitude instead of rotation limit
+        randaug_mag = aug_cfg.get("randaug_magnitude", 0)
+        if randaug_mag and randaug_mag > 0:
+            transforms.append(A.Rotate(limit=min(randaug_mag, 30), border_mode=cv2.BORDER_REFLECT_101, p=0.6))
+        
+        # Use crop area range
+        crop_range = aug_cfg.get("crop_area_range", [0.08, 1.0])
+        if isinstance(crop_range, list) and len(crop_range) >= 2:
+            transforms.append(A.RandomResizedCrop(height=target_h, width=target_w, scale=(crop_range[0], crop_range[1]), ratio=(0.9,1.1), p=0.6))
+        
+        # Color jitter
+        color_jitter = aug_cfg.get("color_jitter", 0.0)
+        if color_jitter and color_jitter > 0:
+            transforms.append(A.RandomBrightnessContrast(brightness_limit=color_jitter, contrast_limit=color_jitter, p=0.6))
     
-    # Color jitter
-    color_jitter = aug_cfg.get("color_jitter", 0.0)
-    if color_jitter and color_jitter > 0:
-        transforms.append(A.RandomBrightnessContrast(brightness_limit=color_jitter, contrast_limit=color_jitter, p=0.6))
-    
-    transforms.append(A.Resize(target_h, target_w))
+    # Always add resize and normalize at the end
+    if not any(isinstance(t, A.RandomResizedCrop) for t in transforms):
+        transforms.append(A.Resize(target_h, target_w))
     transforms.append(A.Normalize())
     return A.Compose(transforms)
 
