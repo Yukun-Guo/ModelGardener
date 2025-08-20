@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QPlainTextEdit, QLabel, QMessageBox, 
     QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QDialog, 
-    QGridLayout, QProgressBar, QToolBar, QLineEdit,QSizePolicy,
+    QGridLayout, QProgressBar, QToolBar, QLineEdit, QSizePolicy,
     QTreeWidget
 )
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
@@ -27,6 +27,7 @@ from PySide6.QtGui import QPixmap, QImage, QAction
 from PySide6.QtWebEngineWidgets import QWebEngineView
 import pyqtgraph as pg
 from pyqtgraph.parametertree import Parameter, ParameterTree
+from directory_only_parameter import DirectoryOnlyBrowseWidget, DirectoryOnlyParameterItem, DirectoryOnlyParameter
 import pyqtgraph.parametertree.parameterTypes as pTypes
 import numpy as np
 import tensorflow_models as tfm
@@ -173,96 +174,7 @@ def create_comprehensive_config():
         'advanced': advanced_config
     }
 
-# Custom widget for directory-only browsing (no file button)
-class DirectoryOnlyBrowseWidget(QWidget):
-    def __init__(self, param):
-        super().__init__()
-        self.param = param
-        self.sigChanged = None  # No change signal needed for this custom widget
-        
-        # Set minimum height to ensure widget stays visible
-        self.setMinimumHeight(25)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(2)
-        
-        # Text field to show current path
-        self.lineEdit = QLineEdit()
-        self.lineEdit.setText(str(param.value()))
-        self.lineEdit.textChanged.connect(self._on_text_changed)
-        
-        # Browse directory button only
-        browse_dir_btn = QPushButton("Dir...")
-        browse_dir_btn.setMaximumWidth(50)
-        browse_dir_btn.setMinimumWidth(50)
-        browse_dir_btn.clicked.connect(self._browse_directory)
-        
-        layout.addWidget(self.lineEdit)
-        layout.addWidget(browse_dir_btn)
-    
-    def _on_text_changed(self, text):
-        """Handle manual text changes in the line edit."""
-        self.param.setValue(text)
-    
-    def _browse_directory(self):
-        """Open directory browser dialog."""
-        directory = QFileDialog.getExistingDirectory(None, f"Select directory for {self.param.name()}")
-        if directory:
-            self.lineEdit.setText(directory)
-            self.param.setValue(directory)
-    
-    def value(self):
-        """Return current value from the line edit."""
-        return self.lineEdit.text()
-    
-    def setValue(self, value):
-        """Set the value in the line edit."""
-        self.lineEdit.setText(str(value))
-    
-    def focusInEvent(self, event):
-        """Handle focus in event - ensure widget stays visible."""
-        super().focusInEvent(event)
-        self.lineEdit.setFocus()
-    
-    def focusOutEvent(self, event):
-        """Handle focus out event - ensure widget stays visible."""
-        super().focusOutEvent(event)
-        # Don't hide the widget when losing focus
-        self.show()
-
-class DirectoryOnlyParameterItem(pTypes.WidgetParameterItem):
-    def makeWidget(self):
-        widget = DirectoryOnlyBrowseWidget(self.param)
-        # Ensure the widget is always visible
-        widget.setVisible(True)
-        return widget
-    
-    def valueChanged(self, param, data, info=None, force=False):
-        """Handle external value changes."""
-        if hasattr(self, 'widget') and self.widget is not None:
-            self.widget.setValue(data)
-            # Ensure widget stays visible after value change
-            self.widget.show()
-    
-    def showEditor(self):
-        """Override to ensure the widget is always shown."""
-        if hasattr(self, 'widget') and self.widget is not None:
-            self.widget.show()
-            return True
-        return super().showEditor()
-    
-    def hideEditor(self):
-        """Override to prevent hiding the widget."""
-        # Don't actually hide the widget, just ensure it's visible
-        if hasattr(self, 'widget') and self.widget is not None:
-            self.widget.show()
-        return True
-
-# Custom parameter type for directory-only browsing
-class DirectoryOnlyParameter(pTypes.SimpleParameter):
-    itemClass = DirectoryOnlyParameterItem
+# ...existing code...
 
 # Custom widget for directory/file browsing with buttons on same row
 class DirectoryBrowseWidget(QWidget):
