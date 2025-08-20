@@ -26,6 +26,7 @@ from callbacks_group import CallbacksGroup
 from loss_functions_group import LossFunctionsGroup
 from metrics_group import MetricsGroup
 from optimizer_group import OptimizerGroup
+from data_loader_group import DataLoaderGroup
 from bridge_callback import BRIDGE
 from trainer_thread import TFModelsTrainerThread
 import pyqtgraph.parametertree.parameterTypes as pTypes
@@ -42,6 +43,7 @@ pTypes.registerParameterType('callbacks_group', CallbacksGroup, override=True)
 pTypes.registerParameterType('loss_functions_group', LossFunctionsGroup, override=True)
 pTypes.registerParameterType('metrics_group', MetricsGroup, override=True)
 pTypes.registerParameterType('optimizer_group', OptimizerGroup, override=True)
+pTypes.registerParameterType('data_loader_group', DataLoaderGroup, override=True)
 
 
 # ---------------------------
@@ -840,9 +842,10 @@ class MainWindow(QMainWindow):
             'data': {
                 'train_dir': '',
                 'val_dir': '',
-                'batch_size': 32,
-                'num_classes': 1000,
-                'shuffle': True,
+                'data_loader': {
+                    'type': 'data_loader_group',
+                    'name': 'data_loader'
+                },
                 'preprocessing': {
                     'type': 'preprocessing_group', 
                     'name': 'preprocessing'
@@ -1154,6 +1157,10 @@ class MainWindow(QMainWindow):
             
             # Optimizer tooltips
             'optimizer': 'Configure optimizers for training the neural network',
+            
+            # Data loader tooltips
+            'data_loader': 'Configure custom data loaders for training and validation data',
+            
             'adam': 'Adam optimizer - adaptive moment estimation with momentum',
             'sgd': 'Stochastic Gradient Descent optimizer',
             'rmsprop': 'RMSprop optimizer - root mean square propagation',
@@ -1229,6 +1236,7 @@ class MainWindow(QMainWindow):
             'data_advanced': 'Advanced data pipeline configuration',
             'augmentation': 'Data augmentation and preprocessing settings',
             'preprocessing': 'Data preprocessing methods including resizing and normalization',
+            'data_loader': 'Custom data loader configuration for training and validation data',
             'optimizer': 'Optimizer configuration for training neural networks',
             'loss_functions': 'Loss function selection and configuration for model training',
             'metrics': 'Training and validation metrics configuration',
@@ -1295,6 +1303,14 @@ class MainWindow(QMainWindow):
                     'name': data.get('name', name),
                     'type': 'optimizer_group',
                     'tip': self.get_parameter_tooltip('optimizer')
+                }
+            
+            # Check if this is a special data loader group type
+            if data.get('type') == 'data_loader_group':
+                return {
+                    'name': data.get('name', name),
+                    'type': 'data_loader_group',
+                    'tip': self.get_parameter_tooltip('data_loader')
                 }
             
             children = []
