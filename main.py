@@ -1929,7 +1929,7 @@ class MetricsGroup(pTypes.GroupParameter):
                     {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable precision metric'},
                     {'name': 'name', 'type': 'str', 'value': 'precision', 'tip': 'Name for this metric'},
                     {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
-                    {'name': 'class_id', 'type': 'int', 'value': None, 'tip': 'Class ID for binary precision (None for multiclass)'}
+                    {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary precision (0 for first class, None for multiclass)'}
                 ],
                 'tip': 'Precision metric for classification tasks'
             },
@@ -1940,7 +1940,7 @@ class MetricsGroup(pTypes.GroupParameter):
                     {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable recall metric'},
                     {'name': 'name', 'type': 'str', 'value': 'recall', 'tip': 'Name for this metric'},
                     {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
-                    {'name': 'class_id', 'type': 'int', 'value': None, 'tip': 'Class ID for binary recall (None for multiclass)'}
+                    {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary recall (0 for first class, None for multiclass)'}
                 ],
                 'tip': 'Recall metric for classification tasks'
             },
@@ -1951,7 +1951,7 @@ class MetricsGroup(pTypes.GroupParameter):
                     {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable F1 score metric'},
                     {'name': 'name', 'type': 'str', 'value': 'f1_score', 'tip': 'Name for this metric'},
                     {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
-                    {'name': 'class_id', 'type': 'int', 'value': None, 'tip': 'Class ID for binary F1 (None for multiclass)'}
+                    {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary F1 (0 for first class, None for multiclass)'}
                 ],
                 'tip': 'F1 score metric (harmonic mean of precision and recall)'
             },
@@ -3267,9 +3267,14 @@ def params_to_dict(param):
                     result[child_name] = params_to_dict(child)
             else:
                 # Leaf parameter
-                value = child.value()
+                try:
+                    value = child.value()
+                except Exception:
+                    # Handle parameters without values set
+                    value = None
+                    
                 # Handle None values properly
-                if value == 'None' or value == '':
+                if value == 'None' or value == '' or value is None:
                     # Check if this parameter should be None vs empty string
                     if child_name in ['mixed_precision', 'prefetch_buffer_size', 'tpu_settings', 'all_reduce_alg', 'loss_scale']:
                         result[child_name] = None
