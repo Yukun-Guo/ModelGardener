@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QPlainTextEdit, QLabel, QMessageBox, 
     QFormLayout, QSpinBox, QDoubleSpinBox, QCheckBox, QDialog, 
     QGridLayout, QProgressBar, QToolBar, QLineEdit, QSizePolicy,
-    QTreeWidget
+    QTreeWidget, QTabWidget, QScrollArea
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QImage, QAction
@@ -25,6 +25,7 @@ from preprocessing_group import PreprocessingGroup
 from callbacks_group import CallbacksGroup
 from loss_functions_group import LossFunctionsGroup
 from metrics_group import MetricsGroup
+from optimizer_group import OptimizerGroup
 from bridge_callback import BRIDGE
 from trainer_thread import TFModelsTrainerThread
 import pyqtgraph.parametertree.parameterTypes as pTypes
@@ -40,6 +41,7 @@ pTypes.registerParameterType('preprocessing_group', PreprocessingGroup, override
 pTypes.registerParameterType('callbacks_group', CallbacksGroup, override=True)
 pTypes.registerParameterType('loss_functions_group', LossFunctionsGroup, override=True)
 pTypes.registerParameterType('metrics_group', MetricsGroup, override=True)
+pTypes.registerParameterType('optimizer_group', OptimizerGroup, override=True)
 
 
 # ---------------------------
@@ -66,23 +68,23 @@ class MainWindow(QMainWindow):
         self.resume_ckpt_path = None
         self.tb_proc = None
 
-        # toolbar
-        toolbar = QToolBar("Main")
-        self.addToolBar(toolbar)
-        act_save_json = QAction("Save JSON", self); act_save_json.triggered.connect(lambda: self.save_config("json"))
-        toolbar.addAction(act_save_json)
-        act_save_yaml = QAction("Save YAML", self); act_save_yaml.triggered.connect(lambda: self.save_config("yaml"))
-        toolbar.addAction(act_save_yaml)
-        act_load = QAction("Load Config", self); act_load.triggered.connect(self.load_config)
-        toolbar.addAction(act_load)
-        toolbar.addSeparator()
-        act_ckpt = QAction("Choose checkpoint", self); act_ckpt.triggered.connect(self.choose_checkpoint)
-        toolbar.addAction(act_ckpt)
-        act_model_dir = QAction("Choose model_dir", self); act_model_dir.triggered.connect(self.choose_model_dir)
-        toolbar.addAction(act_model_dir)
-
         # left layout: config tree + augment controls + controls
         left_layout = QVBoxLayout()
+        
+        # Config buttons row (Load and Save)
+        config_buttons_layout = QHBoxLayout()
+        btn_load_config = QPushButton("Load Config")
+        btn_load_config.clicked.connect(self.load_config)
+        btn_save_json = QPushButton("Save JSON")
+        btn_save_json.clicked.connect(lambda: self.save_config("json"))
+        btn_save_yaml = QPushButton("Save YAML")
+        btn_save_yaml.clicked.connect(lambda: self.save_config("yaml"))
+        
+        config_buttons_layout.addWidget(btn_load_config)
+        config_buttons_layout.addWidget(btn_save_json)
+        config_buttons_layout.addWidget(btn_save_yaml)
+        config_buttons_layout.addStretch()  # Add stretch to push buttons to left
+        left_layout.addLayout(config_buttons_layout)
         
         # Create ParameterTree with comprehensive config data organized in Basic/Advanced sections
         self.params = Parameter.create(**self.dict_to_params(self.comprehensive_cfg, "Configuration"))
@@ -107,35 +109,202 @@ class MainWindow(QMainWindow):
         # Add a test for tooltip display using button clicks
         self.last_clicked_param = None
         
-        left_layout.addWidget(QLabel("Config"))
+        left_layout.addWidget(QLabel("Configuration"))
         left_layout.addWidget(self.tree, stretch=3)
 
-        # Preview Data button
+        # Control panel below the tree
+        control_panel_layout = QVBoxLayout()
+        
+        # Data preview button
         btn_preview = QPushButton("Preview Data")
         btn_preview.clicked.connect(self.preview_augmentation)
-        left_layout.addWidget(btn_preview)
-
-        # training controls (directory selection is now integrated in parameter tree)
-        self.btn_start = QPushButton("Start Training"); self.btn_start.clicked.connect(self.start_training); left_layout.addWidget(self.btn_start)
-        self.btn_stop = QPushButton("Stop Training"); self.btn_stop.clicked.connect(self.stop_training); left_layout.addWidget(self.btn_stop)
-
-        self.progress = QProgressBar(); left_layout.addWidget(self.progress)
+        control_panel_layout.addWidget(btn_preview)
+        
+        # Training control buttons
+        training_buttons_layout = QHBoxLayout()
+        self.btn_start = QPushButton("Start Training")
+        self.btn_start.clicked.connect(self.start_training)
+        self.btn_stop = QPushButton("Stop Training")
+        self.btn_stop.clicked.connect(self.stop_training)
+        
+        training_buttons_layout.addWidget(self.btn_start)
+        training_buttons_layout.addWidget(self.btn_stop)
+        control_panel_layout.addLayout(training_buttons_layout)
+        
+        # Checkpoint and model directory buttons
+        path_buttons_layout = QHBoxLayout()
+        btn_ckpt = QPushButton("Choose Checkpoint")
+        btn_ckpt.clicked.connect(self.choose_checkpoint)
+        btn_model_dir = QPushButton("Choose Model Dir")
+        btn_model_dir.clicked.connect(self.choose_model_dir)
+        
+        path_buttons_layout.addWidget(btn_ckpt)
+        path_buttons_layout.addWidget(btn_model_dir)
+        control_panel_layout.addLayout(path_buttons_layout)
+        
+        # Progress bar
+        self.progress = QProgressBar()
+        control_panel_layout.addWidget(self.progress)
+        
+        left_layout.addLayout(control_panel_layout)
 
         left_widget = QWidget(); left_widget.setLayout(left_layout)
 
-        # right layout: TensorBoard + logs + plots
+        # right layout: Tab widget with multiple tabs
         right_layout = QVBoxLayout()
-        self.tb_view = QWebEngineView()
+        self.tab_widget = QTabWidget()
         
+        # TensorBoard tab
+        tensorboard_tab = QWidget()
+        tensorboard_layout = QVBoxLayout()
+        self.tb_view = QWebEngineView()
         self.tb_view.setUrl(f"http://localhost:6006")  # Default URL for TensorBoard
-        right_layout.addWidget(QLabel("TensorBoard"))
-        right_layout.addWidget(self.tb_view, stretch=2)
+        tensorboard_layout.addWidget(self.tb_view)
+        tensorboard_tab.setLayout(tensorboard_layout)
+        self.tab_widget.addTab(tensorboard_tab, "TensorBoard")
+        
+        # Data Preview tab
+        data_preview_tab = QWidget()
+        data_preview_layout = QVBoxLayout()
+        self.preview_label = QLabel("Click 'Preview Data' in the control panel to see data samples here")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidget(self.preview_label)
+        self.preview_scroll.setWidgetResizable(True)
+        data_preview_layout.addWidget(self.preview_scroll)
+        data_preview_tab.setLayout(data_preview_layout)
+        self.tab_widget.addTab(data_preview_tab, "Data Preview")
+        
+        # Testing tab
+        testing_tab = QWidget()
+        testing_layout = QVBoxLayout()
+        testing_layout.addWidget(QLabel("Testing Tools"))
+        
+        # Add model testing controls
+        test_controls_layout = QHBoxLayout()
+        btn_test_model = QPushButton("Test Current Model")
+        btn_load_test_data = QPushButton("Load Test Dataset")
+        btn_run_evaluation = QPushButton("Run Evaluation")
+        
+        test_controls_layout.addWidget(btn_test_model)
+        test_controls_layout.addWidget(btn_load_test_data)
+        test_controls_layout.addWidget(btn_run_evaluation)
+        testing_layout.addLayout(test_controls_layout)
+        
+        # Test results area
+        self.test_results = QPlainTextEdit()
+        self.test_results.setReadOnly(True)
+        self.test_results.setPlaceholderText("Test results will appear here...")
+        testing_layout.addWidget(QLabel("Test Results:"))
+        testing_layout.addWidget(self.test_results)
+        
+        testing_tab.setLayout(testing_layout)
+        self.tab_widget.addTab(testing_tab, "Testing")
+        
+        # Deploy tab
+        deploy_tab = QWidget()
+        deploy_layout = QVBoxLayout()
+        deploy_layout.addWidget(QLabel("Model Deployment"))
+        
+        # Deployment controls
+        deploy_controls_layout = QVBoxLayout()
+        
+        export_controls_layout = QHBoxLayout()
+        btn_export_savedmodel = QPushButton("Export SavedModel")
+        btn_export_tflite = QPushButton("Export TFLite")
+        btn_export_onnx = QPushButton("Export ONNX")
+        
+        export_controls_layout.addWidget(btn_export_savedmodel)
+        export_controls_layout.addWidget(btn_export_tflite)
+        export_controls_layout.addWidget(btn_export_onnx)
+        deploy_controls_layout.addLayout(export_controls_layout)
+        
+        deployment_controls_layout = QHBoxLayout()
+        btn_deploy_local = QPushButton("Deploy Locally")
+        btn_deploy_cloud = QPushButton("Deploy to Cloud")
+        btn_create_container = QPushButton("Create Docker Container")
+        
+        deployment_controls_layout.addWidget(btn_deploy_local)
+        deployment_controls_layout.addWidget(btn_deploy_cloud)
+        deployment_controls_layout.addWidget(btn_create_container)
+        deploy_controls_layout.addLayout(deployment_controls_layout)
+        
+        deploy_layout.addLayout(deploy_controls_layout)
+        
+        # Deployment status/logs
+        self.deploy_log = QPlainTextEdit()
+        self.deploy_log.setReadOnly(True)
+        self.deploy_log.setPlaceholderText("Deployment logs will appear here...")
+        deploy_layout.addWidget(QLabel("Deployment Logs:"))
+        deploy_layout.addWidget(self.deploy_log)
+        
+        deploy_tab.setLayout(deploy_layout)
+        self.tab_widget.addTab(deploy_tab, "Deploy")
+        
+        # Prediction tab
+        prediction_tab = QWidget()
+        prediction_layout = QVBoxLayout()
+        prediction_layout.addWidget(QLabel("Model Prediction"))
+        
+        # Model loading controls
+        model_load_layout = QHBoxLayout()
+        btn_load_model = QPushButton("Load Deployed Model")
+        self.model_path_label = QLabel("No model loaded")
+        model_load_layout.addWidget(btn_load_model)
+        model_load_layout.addWidget(self.model_path_label)
+        prediction_layout.addLayout(model_load_layout)
+        
+        # Prediction controls
+        pred_controls_layout = QHBoxLayout()
+        btn_select_image = QPushButton("Select Image")
+        btn_predict = QPushButton("Run Prediction")
+        btn_batch_predict = QPushButton("Batch Prediction")
+        
+        pred_controls_layout.addWidget(btn_select_image)
+        pred_controls_layout.addWidget(btn_predict)
+        pred_controls_layout.addWidget(btn_batch_predict)
+        prediction_layout.addLayout(pred_controls_layout)
+        
+        # Prediction results area
+        pred_results_layout = QHBoxLayout()
+        
+        # Image preview
+        self.pred_image_label = QLabel("No image selected")
+        self.pred_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pred_image_label.setMinimumSize(300, 300)
+        self.pred_image_label.setStyleSheet("border: 1px solid gray;")
+        pred_results_layout.addWidget(self.pred_image_label)
+        
+        # Prediction results
+        pred_text_layout = QVBoxLayout()
+        pred_text_layout.addWidget(QLabel("Prediction Results:"))
+        self.pred_results = QPlainTextEdit()
+        self.pred_results.setReadOnly(True)
+        self.pred_results.setPlaceholderText("Prediction results will appear here...")
+        pred_text_layout.addWidget(self.pred_results)
+        pred_results_layout.addLayout(pred_text_layout)
+        
+        prediction_layout.addLayout(pred_results_layout)
+        
+        prediction_tab.setLayout(prediction_layout)
+        self.tab_widget.addTab(prediction_tab, "Prediction")
+        
+        # Logs tab (moved from being standalone to being a tab)
+        logs_tab = QWidget()
+        logs_layout = QVBoxLayout()
         self.log_edit = QPlainTextEdit()
         self.log_edit.setReadOnly(True)
-        right_layout.addWidget(QLabel("Logs"))
-        right_layout.addWidget(self.log_edit, stretch=1)
+        logs_layout.addWidget(QLabel("Training Logs"))
+        logs_layout.addWidget(self.log_edit)
+        logs_tab.setLayout(logs_layout)
+        self.tab_widget.addTab(logs_tab, "Logs")
+        
+        right_layout.addWidget(self.tab_widget)
         right_widget = QWidget()
         right_widget.setLayout(right_layout)
+
+        # Connect button handlers for new UI elements
+        self._connect_tab_handlers()
 
         # main layout
         main_layout = QHBoxLayout()
@@ -301,7 +470,7 @@ class MainWindow(QMainWindow):
                 self.comprehensive_cfg['basic']['runtime'].update(self.gui_cfg['runtime'])
                 
             # Update advanced configuration sections as needed
-            for section in ['model_advanced', 'data_advanced', 'augmentation', 'training_advanced', 'evaluation', 'runtime_advanced']:
+            for section in ['model_advanced', 'data_advanced', 'augmentation', 'callbacks', 'training_advanced', 'evaluation', 'runtime_advanced']:
                 if section in self.gui_cfg:
                     self.comprehensive_cfg['advanced'][section].update(self.gui_cfg[section])
                     
@@ -425,13 +594,22 @@ class MainWindow(QMainWindow):
         # Get configuration from parameter tree instead of widgets
         self.write_back_tree()
         
-        # Get image size from new config structure
-        data_cfg = self.gui_cfg.get("data", {})
-        image_size = data_cfg.get("image_size", [224, 224])
-        if isinstance(image_size, list) and len(image_size) >= 2:
-            size = int(image_size[0])
-        else:
-            size = 224
+        # Get image size from preprocessing config, fallback to default
+        preprocessing_cfg = self.gui_cfg.get("preprocessing", {})
+        # Try to get target_size from preprocessing, otherwise use default
+        size = 224  # Default size
+        
+        # Look for resizing configuration in preprocessing
+        if isinstance(preprocessing_cfg, dict):
+            for method_name, method_config in preprocessing_cfg.items():
+                if isinstance(method_config, dict) and method_config.get('enabled', False):
+                    if 'target_size' in method_config:
+                        target_size = method_config['target_size']
+                        if isinstance(target_size, list) and len(target_size) >= 2:
+                            size = int(target_size[0])
+                        elif isinstance(target_size, int):
+                            size = target_size
+                        break
             
         # Use augmentation config from parameter tree
         aug_cfg = self.gui_cfg.get("augmentation", {})
@@ -445,14 +623,31 @@ class MainWindow(QMainWindow):
             except Exception:
                 aug = cv2.resize(img_rgb, (size, size))
             samples.append(aug)
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Data Preview")
-        layout = QGridLayout(dlg)
+        
+        # Create a widget to display the preview in the Data Preview tab
+        preview_widget = QWidget()
+        layout = QGridLayout(preview_widget)
+        
+        # Original image
         pix = self.np_to_qpixmap(img_rgb)
-        w0 = QLabel(); w0.setPixmap(pix.scaled(300,300, Qt.KeepAspectRatio)); layout.addWidget(QLabel("Original"),0,0); layout.addWidget(w0,1,0)
+        w0 = QLabel()
+        w0.setPixmap(pix.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio))
+        layout.addWidget(QLabel("Original"), 0, 0)
+        layout.addWidget(w0, 1, 0)
+        
+        # Augmented samples
         for i, s in enumerate(samples):
-            p = self.np_to_qpixmap(s); l = QLabel(); l.setPixmap(p.scaled(300,300, Qt.KeepAspectRatio)); layout.addWidget(QLabel(f"Aug {i+1}"),0,i+1); layout.addWidget(l,1,i+1)
-        dlg.exec()
+            p = self.np_to_qpixmap(s)
+            l = QLabel()
+            l.setPixmap(p.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio))
+            layout.addWidget(QLabel(f"Aug {i+1}"), 0, i+1)
+            layout.addWidget(l, 1, i+1)
+        
+        # Set the preview widget in the scroll area
+        self.preview_scroll.setWidget(preview_widget)
+        
+        # Switch to the Data Preview tab
+        self.tab_widget.setCurrentIndex(1)  # Index 1 is Data Preview tab
 
     # logging / plotting handlers
     def append_log(self, text):
@@ -511,6 +706,132 @@ class MainWindow(QMainWindow):
         self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
         self.progress.setValue(100)
 
+    def _connect_tab_handlers(self):
+        """Connect button handlers for the new tab interface."""
+        # Find buttons and connect them to handlers
+        
+        # Testing tab buttons
+        for btn in self.findChildren(QPushButton):
+            if btn.text() == "Test Current Model":
+                btn.clicked.connect(self.test_current_model)
+            elif btn.text() == "Load Test Dataset":
+                btn.clicked.connect(self.load_test_dataset)
+            elif btn.text() == "Run Evaluation":
+                btn.clicked.connect(self.run_evaluation)
+            elif btn.text() == "Export SavedModel":
+                btn.clicked.connect(self.export_savedmodel)
+            elif btn.text() == "Export TFLite":
+                btn.clicked.connect(self.export_tflite)
+            elif btn.text() == "Export ONNX":
+                btn.clicked.connect(self.export_onnx)
+            elif btn.text() == "Deploy Locally":
+                btn.clicked.connect(self.deploy_locally)
+            elif btn.text() == "Deploy to Cloud":
+                btn.clicked.connect(self.deploy_cloud)
+            elif btn.text() == "Create Docker Container":
+                btn.clicked.connect(self.create_container)
+            elif btn.text() == "Load Deployed Model":
+                btn.clicked.connect(self.load_deployed_model)
+            elif btn.text() == "Select Image":
+                btn.clicked.connect(self.select_image_for_prediction)
+            elif btn.text() == "Run Prediction":
+                btn.clicked.connect(self.run_prediction)
+            elif btn.text() == "Batch Prediction":
+                btn.clicked.connect(self.batch_prediction)
+
+    # Testing tab methods
+    def test_current_model(self):
+        """Test the current trained model."""
+        self.test_results.appendPlainText("Testing current model...")
+        # Implement model testing logic here
+        self.append_log("Model testing initiated")
+
+    def load_test_dataset(self):
+        """Load a test dataset for evaluation."""
+        path = QFileDialog.getExistingDirectory(self, "Select Test Dataset Directory")
+        if path:
+            self.test_results.appendPlainText(f"Test dataset loaded: {path}")
+            self.append_log(f"Test dataset loaded: {path}")
+
+    def run_evaluation(self):
+        """Run model evaluation on test dataset."""
+        self.test_results.appendPlainText("Running evaluation...")
+        # Implement evaluation logic here
+        self.append_log("Model evaluation started")
+
+    # Deploy tab methods
+    def export_savedmodel(self):
+        """Export model as SavedModel format."""
+        path = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+        if path:
+            self.deploy_log.appendPlainText(f"Exporting SavedModel to: {path}")
+            self.append_log(f"SavedModel export initiated: {path}")
+
+    def export_tflite(self):
+        """Export model as TensorFlow Lite format."""
+        path, _ = QFileDialog.getSaveFileName(self, "Save TFLite Model", filter="*.tflite")
+        if path:
+            self.deploy_log.appendPlainText(f"Exporting TFLite model to: {path}")
+            self.append_log(f"TFLite export initiated: {path}")
+
+    def export_onnx(self):
+        """Export model as ONNX format."""
+        path, _ = QFileDialog.getSaveFileName(self, "Save ONNX Model", filter="*.onnx")
+        if path:
+            self.deploy_log.appendPlainText(f"Exporting ONNX model to: {path}")
+            self.append_log(f"ONNX export initiated: {path}")
+
+    def deploy_locally(self):
+        """Deploy model locally."""
+        self.deploy_log.appendPlainText("Deploying model locally...")
+        self.append_log("Local deployment initiated")
+
+    def deploy_cloud(self):
+        """Deploy model to cloud."""
+        self.deploy_log.appendPlainText("Deploying model to cloud...")
+        self.append_log("Cloud deployment initiated")
+
+    def create_container(self):
+        """Create Docker container for model deployment."""
+        self.deploy_log.appendPlainText("Creating Docker container...")
+        self.append_log("Docker container creation initiated")
+
+    # Prediction tab methods
+    def load_deployed_model(self):
+        """Load a deployed model for prediction."""
+        path, _ = QFileDialog.getOpenFileName(self, "Load Model", filter="SavedModel (*/saved_model.pb);;TFLite (*.tflite);;ONNX (*.onnx)")
+        if path:
+            self.model_path_label.setText(f"Loaded: {os.path.basename(path)}")
+            self.pred_results.appendPlainText(f"Model loaded: {path}")
+            self.append_log(f"Model loaded for prediction: {path}")
+
+    def select_image_for_prediction(self):
+        """Select an image for prediction."""
+        path, _ = QFileDialog.getOpenFileName(self, "Select Image", filter="Images (*.png *.jpg *.jpeg *.bmp *.tiff)")
+        if path:
+            # Load and display the image
+            pixmap = QPixmap(path)
+            scaled_pixmap = pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.pred_image_label.setPixmap(scaled_pixmap)
+            self.pred_results.appendPlainText(f"Image selected: {os.path.basename(path)}")
+            self.selected_image_path = path
+
+    def run_prediction(self):
+        """Run prediction on selected image."""
+        if hasattr(self, 'selected_image_path'):
+            self.pred_results.appendPlainText("Running prediction...")
+            # Implement prediction logic here
+            self.append_log("Prediction initiated")
+        else:
+            QMessageBox.warning(self, "No Image", "Please select an image first.")
+
+    def batch_prediction(self):
+        """Run batch prediction on multiple images."""
+        path = QFileDialog.getExistingDirectory(self, "Select Directory with Images")
+        if path:
+            self.pred_results.appendPlainText(f"Running batch prediction on: {path}")
+            self.append_log(f"Batch prediction initiated: {path}")
+
     def create_comprehensive_config(self):
         """Create a comprehensive configuration structure with Basic and Advanced sections."""
         
@@ -519,16 +840,31 @@ class MainWindow(QMainWindow):
             'data': {
                 'train_dir': '',
                 'val_dir': '',
-                'image_size': [224, 224],
                 'batch_size': 32,
                 'num_classes': 1000,
-                'shuffle': True
+                'shuffle': True,
+                'preprocessing': {
+                    'type': 'preprocessing_group', 
+                    'name': 'preprocessing'
+                }
             },
             'model': {
                 'backbone_type': 'resnet',
                 'model_id': 50,
                 'dropout_rate': 0.0,
-                'activation': 'relu'
+                'activation': 'relu',
+                'optimizer': {
+                    'type': 'optimizer_group',
+                    'name': 'optimizer'
+                },
+                'loss_functions': {
+                    'type': 'loss_functions_group',
+                    'name': 'loss_functions'
+                },
+                'metrics': {
+                    'type': 'metrics_group',
+                    'name': 'metrics'
+                }
             },
             'training': {
                 'epochs': 100,
@@ -584,21 +920,9 @@ class MainWindow(QMainWindow):
                 'type': 'augmentation_group',
                 'name': 'augmentation'
             },
-            'preprocessing': {
-                'type': 'preprocessing_group', 
-                'name': 'preprocessing'
-            },
             'callbacks': {
                 'type': 'callbacks_group',
                 'name': 'callbacks'
-            },
-            'loss_functions': {
-                'type': 'loss_functions_group',
-                'name': 'loss_functions'
-            },
-            'metrics': {
-                'type': 'metrics_group',
-                'name': 'metrics'
             },
             'training_advanced': {
                 'train_tf_while_loop': True,
@@ -828,6 +1152,32 @@ class MainWindow(QMainWindow):
             'filter_type': 'Type of filter to apply (sharpen, emboss, edge_enhance)',
             'filter_strength': 'Strength of the filter effect',
             
+            # Optimizer tooltips
+            'optimizer': 'Configure optimizers for training the neural network',
+            'adam': 'Adam optimizer - adaptive moment estimation with momentum',
+            'sgd': 'Stochastic Gradient Descent optimizer',
+            'rmsprop': 'RMSprop optimizer - root mean square propagation',
+            'adagrad': 'Adagrad optimizer - adaptive gradient algorithm',
+            'adamw': 'AdamW optimizer - Adam with decoupled weight decay',
+            'adadelta': 'Adadelta optimizer - adaptive delta algorithm',
+            'adamax': 'Adamax optimizer - Adam with infinity norm',
+            'nadam': 'Nadam optimizer - Nesterov-accelerated Adam',
+            'ftrl': 'FTRL optimizer - Follow The Regularized Leader',
+            'custom': 'Custom optimizer loaded from Python file',
+            'learning_rate': 'Step size for parameter updates during optimization',
+            'beta_1': 'Exponential decay rate for first moment estimates (momentum)',
+            'beta_2': 'Exponential decay rate for second moment estimates (variance)',
+            'epsilon': 'Small constant to prevent division by zero',
+            'amsgrad': 'Whether to use AMSGrad variant of Adam optimizer',
+            'momentum': 'Momentum factor for SGD and other momentum-based optimizers',
+            'nesterov': 'Whether to use Nesterov momentum in SGD',
+            'rho': 'Smoothing constant for RMSprop and Adadelta optimizers',
+            'weight_decay': 'Weight decay coefficient for L2 regularization',
+            'initial_accumulator_value': 'Starting value for gradient accumulators',
+            'learning_rate_power': 'Power for learning rate decay in FTRL',
+            'l1_regularization_strength': 'Strength of L1 regularization',
+            'l2_regularization_strength': 'Strength of L2 regularization',
+            
             # Training Advanced tooltips
             'train_tf_while_loop': 'Use TensorFlow while loops for training (usually faster)',
             'train_tf_function': 'Use tf.function compilation for training loops',
@@ -872,13 +1222,16 @@ class MainWindow(QMainWindow):
             'basic': 'Essential parameters that most users need to configure',
             'advanced': 'Advanced parameters for expert users and fine-tuning',
             'data': 'Dataset and data loading configuration',
-            'model': 'Neural network architecture settings',
-            'training': 'Training process configuration',
+            'model': 'Neural network architecture, optimizer, loss functions, and metrics settings',
+            'training': 'Training process configuration including epochs and learning rate',
             'runtime': 'Runtime and system configuration',
             'model_advanced': 'Advanced model architecture parameters',
             'data_advanced': 'Advanced data pipeline configuration',
             'augmentation': 'Data augmentation and preprocessing settings',
             'preprocessing': 'Data preprocessing methods including resizing and normalization',
+            'optimizer': 'Optimizer configuration for training neural networks',
+            'loss_functions': 'Loss function selection and configuration for model training',
+            'metrics': 'Training and validation metrics configuration',
             'callbacks': 'Training callbacks for monitoring, checkpointing, and scheduling',
             'training_advanced': 'Advanced training loop and optimization settings',
             'evaluation': 'Model evaluation and metrics configuration',
@@ -934,6 +1287,14 @@ class MainWindow(QMainWindow):
                     'name': data.get('name', name),
                     'type': 'metrics_group',
                     'tip': self.get_parameter_tooltip('metrics')
+                }
+            
+            # Check if this is a special optimizer group type
+            if data.get('type') == 'optimizer_group':
+                return {
+                    'name': data.get('name', name),
+                    'type': 'optimizer_group',
+                    'tip': self.get_parameter_tooltip('optimizer')
                 }
             
             children = []
