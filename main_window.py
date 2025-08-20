@@ -134,12 +134,6 @@ class MainWindow(QMainWindow):
         self.log_edit.setReadOnly(True)
         right_layout.addWidget(QLabel("Logs"))
         right_layout.addWidget(self.log_edit, stretch=1)
-        self.plot = pg.PlotWidget(title="Metrics")
-        self.plot.addLegend()
-        self.plot.showGrid(x=True, y=True)
-        self.curves = {"train_loss": self.plot.plot(pen='r', name="train_loss"), "val_loss": self.plot.plot(pen='b', name="val_loss"),
-                       "train_acc": self.plot.plot(pen='g', name="train_acc"), "val_acc": self.plot.plot(pen='y', name="val_acc")}
-        # right_layout.addWidget(self.plot, stretch=2)
         right_widget = QWidget()
         right_widget.setLayout(right_layout)
 
@@ -516,7 +510,6 @@ class MainWindow(QMainWindow):
         self.append_log("Training finished (thread signalled).")
         self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
         self.progress.setValue(100)
-
 
     def create_comprehensive_config(self):
         """Create a comprehensive configuration structure with Basic and Advanced sections."""
@@ -1354,11 +1347,6 @@ class MainWindow(QMainWindow):
             config[callback_name] = callback_config
         
         return config
-
-
-
-
-    # helpers used above (np_to_qpixmap, build_albu_pipeline) - include simple definitions here:
 
     def create_custom_albumentations_transform(self, file_path, function_name, config):
         """Create a custom Albumentations transform from a Python function."""
