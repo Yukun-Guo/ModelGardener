@@ -1052,7 +1052,7 @@ class CallbacksGroup(pTypes.GroupParameter):
                 'type': 'group',
                 'children': [
                     {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable model checkpointing'},
-                    {'name': 'filepath', 'type': 'str', 'value': './checkpoints/model-{epoch:02d}-{val_loss:.2f}.h5', 'tip': 'Path template for checkpoint files'},
+                    {'name': 'filepath', 'type': 'str', 'value': './checkpoints/model-{epoch:02d}-{val_loss:.2f}.keras', 'tip': 'Path template for checkpoint files'},
                     {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
                     {'name': 'save_best_only', 'type': 'bool', 'value': True, 'tip': 'Save only the best model'},
                     {'name': 'save_weights_only', 'type': 'bool', 'value': False, 'tip': 'Save only model weights (not full model)'},
