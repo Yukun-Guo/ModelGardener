@@ -1876,11 +1876,287 @@ class MetricsGroup(pTypes.GroupParameter):
         opts['type'] = 'group'
         pTypes.GroupParameter.__init__(self, **opts)
         
-        # Add preset metrics
-        self._add_preset_metrics()
+        # Add model output configuration first
+        self._add_output_configuration()
+        
+        # Add metrics selection
+        self._add_metrics_selection()
         
         # Add custom metrics button
         self._add_custom_button()
+    
+    def _add_output_configuration(self):
+        """Add model output configuration for metrics."""
+        self.addChild({
+            'name': 'Model Output Configuration',
+            'type': 'group',
+            'children': [
+                {'name': 'num_outputs', 'type': 'int', 'value': 1, 'limits': (1, 10), 'tip': 'Number of model outputs (1 for single output, >1 for multiple outputs)'},
+                {'name': 'output_names', 'type': 'str', 'value': 'main_output', 'tip': 'Comma-separated names for multiple outputs (e.g., "main_output,aux_output")'},
+                {'name': 'metrics_strategy', 'type': 'list', 'limits': ['shared_metrics_all_outputs', 'different_metrics_per_output'], 'value': 'shared_metrics_all_outputs', 'tip': 'Metrics strategy: same metrics for all outputs or different metrics per output'}
+            ],
+            'tip': 'Configure model outputs and metrics assignment strategy'
+        })
+        
+        # Connect output configuration change to update metrics selection
+        output_config = self.child('Model Output Configuration')
+        output_config.child('num_outputs').sigValueChanged.connect(self._update_metrics_selection)
+        output_config.child('num_outputs').sigValueChanged.connect(self._update_output_names)
+        output_config.child('metrics_strategy').sigValueChanged.connect(self._update_metrics_selection)
+    
+    def _add_metrics_selection(self):
+        """Add metrics selection based on output configuration."""
+        # Initially add single metrics selection
+        self._update_metrics_selection()
+    
+    def _update_output_names(self):
+        """Update output names based on the number of outputs."""
+        output_config = self.child('Model Output Configuration')
+        num_outputs = output_config.child('num_outputs').value()
+        output_names_param = output_config.child('output_names')
+        
+        # Generate default names based on number of outputs
+        if num_outputs == 1:
+            output_names_param.setValue('main_output')
+        else:
+            # Generate names like "output_1, output_2, output_3"
+            names = [f'output_{i+1}' for i in range(num_outputs)]
+            output_names_param.setValue(', '.join(names))
+        
+        # Update metrics selection after changing output names
+        self._update_metrics_selection()
+    
+    def _update_metrics_selection(self):
+        """Update metrics selection based on output configuration."""
+        # Remove existing metrics selection if any
+        existing_groups = []
+        for child in self.children():
+            if child.name().startswith('Metrics Selection') or child.name().startswith('Output'):
+                existing_groups.append(child)
+        
+        for group in existing_groups:
+            self.removeChild(group)
+        
+        # Get current configuration
+        output_config = self.child('Model Output Configuration')
+        num_outputs = output_config.child('num_outputs').value()
+        metrics_strategy = output_config.child('metrics_strategy').value()
+        output_names = output_config.child('output_names').value().split(',')
+        output_names = [name.strip() for name in output_names if name.strip()]
+        
+        # Ensure we have enough output names for the number of outputs
+        while len(output_names) < num_outputs:
+            output_names.append(f'output_{len(output_names) + 1}')
+        
+        if num_outputs == 1:
+            # Single output - always use shared metrics
+            self._add_shared_metrics_selection()
+        else:
+            # Multiple outputs - check strategy
+            if metrics_strategy == 'shared_metrics_all_outputs':
+                self._add_shared_metrics_selection()
+            else:
+                # Different metrics per output
+                self._add_multiple_metrics_selection(num_outputs, output_names)
+    
+    def _add_shared_metrics_selection(self):
+        """Add shared metrics selection for all outputs."""
+        metric_options = self._get_metric_options()
+        
+        self.addChild({
+            'name': 'Metrics Selection',
+            'type': 'group',
+            'children': [
+                {'name': 'selected_metrics', 'type': 'str', 'value': 'Accuracy', 'tip': 'Comma-separated list of metrics to use (e.g., "Accuracy,Top-K Categorical Accuracy")'},
+                {'name': 'available_metrics', 'type': 'list', 'limits': metric_options, 'value': 'Accuracy', 'tip': 'Available metrics - select one to add to the list above'}
+            ],
+            'tip': 'Select metrics to apply to all model outputs'
+        })
+        
+        # Connect the available metrics dropdown to add metrics to the text list
+        metrics_selection = self.child('Metrics Selection')
+        if metrics_selection and metrics_selection.child('available_metrics'):
+            metrics_selection.child('available_metrics').sigValueChanged.connect(
+                lambda: self._add_metric_to_selection('Metrics Selection')
+            )
+        
+        # Add metric configuration for each selected metric
+        self._add_selected_metrics_parameters('Metrics Selection')
+    
+    def _add_multiple_metrics_selection(self, num_outputs, output_names):
+        """Add multiple metrics selections for different outputs."""        
+        metric_options = self._get_metric_options()
+        
+        for i in range(num_outputs):
+            output_name = output_names[i] if i < len(output_names) else f'output_{i+1}'
+            
+            self.addChild({
+                'name': f'Output {i+1}: {output_name}',
+                'type': 'group',
+                'children': [
+                    {'name': 'selected_metrics', 'type': 'str', 'value': 'Accuracy', 'tip': f'Comma-separated list of metrics for {output_name} (e.g., "Accuracy,Precision")'},
+                    {'name': 'available_metrics', 'type': 'list', 'limits': metric_options, 'value': 'Accuracy', 'tip': f'Available metrics for {output_name} - select one to add to the list above'}
+                ],
+                'tip': f'Metrics configuration for output: {output_name}'
+            })
+            
+            # Connect the available metrics dropdown to add metrics to the text list
+            output_group = self.child(f'Output {i+1}: {output_name}')
+            if output_group and output_group.child('available_metrics'):
+                # Create a proper closure to capture the current parent_name value
+                def create_callback(pname):
+                    return lambda: self._add_metric_to_selection(pname)
+                
+                output_group.child('available_metrics').sigValueChanged.connect(
+                    create_callback(f'Output {i+1}: {output_name}')
+                )
+            
+            # Add metric parameters for this output
+            self._add_selected_metrics_parameters(f'Output {i+1}: {output_name}')
+    
+    def _get_metric_options(self):
+        """Get list of available metric names including custom ones."""
+        base_options = [
+            'Accuracy',
+            'Categorical Accuracy',
+            'Sparse Categorical Accuracy',
+            'Top-K Categorical Accuracy',
+            'Precision',
+            'Recall',
+            'F1 Score',
+            'AUC',
+            'Mean Squared Error',
+            'Mean Absolute Error'
+        ]
+        
+        # Add custom metrics if any
+        if hasattr(self, '_custom_metric_functions'):
+            custom_options = list(self._custom_metric_functions.keys())
+            return base_options + custom_options
+        
+        return base_options
+    
+    def _add_metric_to_selection(self, parent_name):
+        """Add selected metric from dropdown to the metrics list."""
+        parent = self.child(parent_name)
+        if not parent:
+            return
+            
+        available_metrics = parent.child('available_metrics')
+        selected_metrics = parent.child('selected_metrics')
+        
+        if not available_metrics or not selected_metrics:
+            return
+            
+        selected_metric = available_metrics.value()
+        current_metrics = selected_metrics.value()
+        
+        # Parse current metrics
+        metrics_list = [m.strip() for m in current_metrics.split(',') if m.strip()]
+        
+        # Add new metric if not already in list
+        if selected_metric not in metrics_list:
+            metrics_list.append(selected_metric)
+            new_metrics_str = ', '.join(metrics_list)
+            selected_metrics.setValue(new_metrics_str)
+            
+            # Update metric parameters
+            self._update_metrics_parameters(parent_name)
+    
+    def _add_selected_metrics_parameters(self, parent_name):
+        """Add configuration for selected metrics."""
+        parent = self.child(parent_name)
+        if not parent:
+            return
+            
+        # Connect selection change to parameter update
+        if parent.child('selected_metrics'):
+            parent.child('selected_metrics').sigValueChanged.connect(
+                lambda: self._update_metrics_parameters(parent_name)
+            )
+        
+        # Add initial parameters
+        self._update_metrics_parameters(parent_name)
+    
+    def _update_metrics_parameters(self, parent_name):
+        """Update metrics parameters based on selection."""
+        parent = self.child(parent_name)
+        if not parent:
+            return
+            
+        selected_metrics_str = parent.child('selected_metrics').value()
+        selected_metrics = [m.strip() for m in selected_metrics_str.split(',') if m.strip()]
+        
+        # Remove existing metric configurations (except selected_metrics and available_metrics)
+        existing_configs = []
+        for child in parent.children():
+            if child.name() not in ['selected_metrics', 'available_metrics']:
+                existing_configs.append(child)
+        
+        for config in existing_configs:
+            parent.removeChild(config)
+        
+        # Add configuration for each selected metric
+        for metric_name in selected_metrics:
+            metric_params = self._get_metric_parameters(metric_name)
+            if metric_params:
+                parent.addChild({
+                    'name': f'{metric_name} Config',
+                    'type': 'group',
+                    'children': metric_params,
+                    'tip': f'Configuration for {metric_name} metric'
+                })
+    
+    def _get_metric_parameters(self, metric_name):
+        """Get parameters for a specific metric."""
+        # Check if it's a custom metric
+        if hasattr(self, '_custom_metric_parameters') and metric_name in self._custom_metric_parameters:
+            return self._custom_metric_parameters[metric_name]
+        
+        # Return built-in metric parameters
+        metric_parameters = {
+            'Accuracy': [
+                {'name': 'name', 'type': 'str', 'value': 'accuracy', 'tip': 'Name for this metric'}
+            ],
+            'Categorical Accuracy': [
+                {'name': 'name', 'type': 'str', 'value': 'categorical_accuracy', 'tip': 'Name for this metric'}
+            ],
+            'Sparse Categorical Accuracy': [
+                {'name': 'name', 'type': 'str', 'value': 'sparse_categorical_accuracy', 'tip': 'Name for this metric'}
+            ],
+            'Top-K Categorical Accuracy': [
+                {'name': 'name', 'type': 'str', 'value': 'top_5_accuracy', 'tip': 'Name for this metric'},
+                {'name': 'k', 'type': 'int', 'value': 5, 'limits': (1, 100), 'tip': 'Number of top predictions to consider'}
+            ],
+            'Precision': [
+                {'name': 'name', 'type': 'str', 'value': 'precision', 'tip': 'Name for this metric'},
+                {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
+                {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary precision (0 for first class, None for multiclass)'}
+            ],
+            'Recall': [
+                {'name': 'name', 'type': 'str', 'value': 'recall', 'tip': 'Name for this metric'},
+                {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
+                {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary recall (0 for first class, None for multiclass)'}
+            ],
+            'F1 Score': [
+                {'name': 'name', 'type': 'str', 'value': 'f1_score', 'tip': 'Name for this metric'},
+                {'name': 'average', 'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'value': 'macro', 'tip': 'Averaging strategy'},
+                {'name': 'class_id', 'type': 'int', 'value': 0, 'limits': (0, 100), 'tip': 'Class ID for binary F1 (0 for first class, None for multiclass)'}
+            ],
+            'AUC': [
+                {'name': 'name', 'type': 'str', 'value': 'auc', 'tip': 'Name for this metric'},
+                {'name': 'curve', 'type': 'list', 'limits': ['ROC', 'PR'], 'value': 'ROC', 'tip': 'Curve type (ROC or Precision-Recall)'},
+                {'name': 'multi_class', 'type': 'list', 'limits': ['ovr', 'ovo'], 'value': 'ovr', 'tip': 'Multiclass strategy (one-vs-rest or one-vs-one)'}
+            ],
+            'Mean Squared Error': [
+                {'name': 'name', 'type': 'str', 'value': 'mse', 'tip': 'Name for this metric'}
+            ],
+            'Mean Absolute Error': [
+                {'name': 'name', 'type': 'str', 'value': 'mae', 'tip': 'Name for this metric'}
+            ]
+        }
+        
+        return metric_parameters.get(metric_name, [])
     
     def _add_preset_metrics(self):
         """Add preset metrics with their parameters."""
@@ -2004,6 +2280,7 @@ class MetricsGroup(pTypes.GroupParameter):
     
     def _load_custom_metrics(self):
         """Load custom metrics from a selected Python file."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
         
         # Open file dialog to select Python file
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2024,30 +2301,25 @@ class MetricsGroup(pTypes.GroupParameter):
                 QMessageBox.warning(
                     None,
                     "No Functions Found",
-                    "No valid metric functions found in the selected file.\n\n"
-                    "Functions should accept 'y_true' and 'y_pred' parameters and return metric value."
+                    "No valid metrics found in the selected file.\n\n"
+                    "Functions should accept 'y_true' and 'y_pred' parameters or be TensorFlow metric classes."
                 )
                 return
             
-            # Add each found function as a custom metric
-            added_count = 0
+            # Add custom functions to the available metric options
             for func_name, func_info in custom_functions.items():
-                if self._add_custom_function(func_name, func_info):
-                    added_count += 1
+                self._add_custom_metric_option(func_name, func_info)
             
-            if added_count > 0:
-                QMessageBox.information(
-                    None,
-                    "Functions Loaded",
-                    f"Successfully loaded {added_count} custom metric(s):\n" +
-                    "\n".join(custom_functions.keys())
-                )
-            else:
-                QMessageBox.warning(
-                    None,
-                    "No New Functions",
-                    "All functions from the file are already loaded or invalid."
-                )
+            # Update all metric selection dropdowns
+            self._update_all_metrics_selections()
+            
+            QMessageBox.information(
+                None,
+                "Functions Loaded",
+                f"Successfully loaded {len(custom_functions)} custom metric(s):\n" +
+                "\n".join(custom_functions.keys()) +
+                "\n\nThese metrics are now available in the selection dropdowns."
+            )
                 
         except Exception as e:
             QMessageBox.critical(
@@ -2055,6 +2327,277 @@ class MetricsGroup(pTypes.GroupParameter):
                 "Error Loading File",
                 f"Failed to load custom metrics from file:\n{str(e)}"
             )
+    
+    def _add_custom_metric_option(self, func_name, func_info):
+        """Add a custom metric as an option in dropdowns."""
+        # Store custom metric function info for later use
+        if not hasattr(self, '_custom_metric_functions'):
+            self._custom_metric_functions = {}
+        
+        display_name = f"{func_name} (custom)"
+        self._custom_metric_functions[display_name] = func_info
+        
+        # Add parameters for this custom metric
+        params = []
+        for param_info in func_info['parameters']:
+            param_config = {
+                'name': param_info['name'],
+                'type': param_info['type'],
+                'value': param_info['default'],
+                'tip': param_info['tip']
+            }
+            
+            # Add limits for numeric types
+            if param_info['type'] in ['int', 'float'] and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            elif param_info['type'] == 'list' and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            
+            params.append(param_config)
+        
+        # Add metadata parameters
+        params.extend([
+            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function/class name in source file'},
+            {'name': 'metric_type', 'type': 'str', 'value': func_info['type'], 'readonly': True, 'tip': 'Type of metric (function or class)'}
+        ])
+        
+        # Store parameters for this custom metric
+        if not hasattr(self, '_custom_metric_parameters'):
+            self._custom_metric_parameters = {}
+        self._custom_metric_parameters[display_name] = params
+    
+    def _update_all_metrics_selections(self):
+        """Update all metrics selection dropdowns with custom metrics."""
+        # Get updated metric options
+        metric_options = self._get_metric_options()
+        
+        # Find all metrics selection parameters and update their options
+        for child in self.children():
+            if child.name().startswith('Metrics Selection') or child.name().startswith('Output'):
+                available_metrics = child.child('available_metrics')
+                if available_metrics:
+                    available_metrics.setLimits(metric_options)
+    
+    def _extract_metric_functions(self, file_path):
+        """Extract valid metric functions from a Python file."""
+        import ast
+        custom_functions = {}
+        
+        try:
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse the AST
+            tree = ast.parse(content)
+            
+            # Find function definitions and class definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    if self._is_valid_metric_function(node):
+                        func_info = {
+                            'type': 'function',
+                            'parameters': self._extract_function_parameters_metrics(node),
+                            'docstring': ast.get_docstring(node) or f'Custom metric function: {node.name}',
+                            'file_path': file_path,
+                            'function_name': node.name
+                        }
+                        custom_functions[node.name] = func_info
+                elif isinstance(node, ast.ClassDef):
+                    if self._is_valid_metric_class(node):
+                        func_info = {
+                            'type': 'class',
+                            'parameters': self._extract_class_parameters_metrics(node),
+                            'docstring': ast.get_docstring(node) or f'Custom metric class: {node.name}',
+                            'file_path': file_path,
+                            'function_name': node.name
+                        }
+                        custom_functions[node.name] = func_info
+            
+        except Exception as e:
+            print(f"Error parsing file {file_path}: {e}")
+        
+        return custom_functions
+    
+    def _is_valid_metric_function(self, func_node):
+        """Check if a function is a valid metric function."""
+        # Check if function has at least two parameters (should be 'y_true', 'y_pred')
+        if len(func_node.args.args) < 2:
+            return False
+        
+        # Check if parameters are likely metric function parameters
+        param_names = [arg.arg for arg in func_node.args.args]
+        
+        # Common metric function parameter names
+        valid_patterns = [
+            ['y_true', 'y_pred'],
+            ['true', 'pred'],
+            ['target', 'prediction'],
+            ['labels', 'logits'],
+            ['ground_truth', 'predictions']
+        ]
+        
+        for pattern in valid_patterns:
+            if all(any(p in param.lower() for p in pattern) for param in param_names[:2]):
+                return True
+        
+        # Function should return something (basic check)
+        has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
+        return has_return
+    
+    def _is_valid_metric_class(self, class_node):
+        """Check if a class is a valid metric class."""
+        class_name = class_node.name.lower()
+        
+        # Check class name for metric indicators
+        if 'metric' in class_name or 'accuracy' in class_name or 'precision' in class_name or 'recall' in class_name or 'f1' in class_name:
+            return True
+        
+        # Check if class has common TensorFlow metric methods
+        metric_methods = ['update_state', 'result', 'reset_states', '__call__']
+        class_method_names = []
+        
+        for node in class_node.body:
+            if isinstance(node, ast.FunctionDef):
+                class_method_names.append(node.name)
+        
+        # If it has at least 2 of the common metric methods, consider it a metric class
+        method_matches = sum(1 for method in metric_methods if method in class_method_names)
+        return method_matches >= 2
+    
+    def _extract_class_parameters_metrics(self, class_node):
+        """Extract parameters from class __init__ method."""
+        import ast
+        params = []
+        
+        # Find __init__ method
+        for node in class_node.body:
+            if isinstance(node, ast.FunctionDef) and node.name == '__init__':
+                # Skip 'self' parameter and extract others
+                for arg in node.args.args[1:]:
+                    param_name = arg.arg
+                    
+                    # Try to infer parameter type and default values
+                    param_info = {
+                        'name': param_name,
+                        'type': 'str',  # Default type
+                        'default': '',   # Default value
+                        'tip': f'Parameter for {param_name}'
+                    }
+                    
+                    # Basic type inference based on parameter name
+                    if 'num' in param_name.lower() or 'k' in param_name.lower() or 'classes' in param_name.lower():
+                        param_info.update({'type': 'int', 'default': 1, 'limits': (1, 100)})
+                    elif 'threshold' in param_name.lower() or 'alpha' in param_name.lower():
+                        param_info.update({'type': 'float', 'default': 0.5, 'limits': (0.0, 1.0)})
+                    elif 'name' in param_name.lower():
+                        param_info.update({'type': 'str', 'default': class_node.name.lower()})
+                    elif 'dtype' in param_name.lower():
+                        param_info.update({'type': 'str', 'default': 'float32'})
+                    
+                    params.append(param_info)
+                break
+        
+        return params
+    
+    def _extract_function_parameters_metrics(self, func_node):
+        """Extract parameters from metric function definition (excluding 'y_true', 'y_pred' parameters)."""
+        import ast
+        params = []
+        
+        # Skip the first two parameters (y_true, y_pred) and extract others
+        for arg in func_node.args.args[2:]:
+            param_name = arg.arg
+            
+            # Try to infer parameter type and default values
+            param_info = {
+                'name': param_name,
+                'type': 'float',  # Default type
+                'default': 1.0,   # Default value
+                'limits': (0.0, 10.0),
+                'tip': f'Parameter for {param_name}'
+            }
+            
+            # Basic type inference based on parameter name
+            if 'average' in param_name.lower():
+                param_info.update({'type': 'list', 'limits': ['micro', 'macro', 'weighted', 'samples'], 'default': 'macro'})
+            elif 'threshold' in param_name.lower():
+                param_info.update({'type': 'float', 'default': 0.5, 'limits': (0.0, 1.0)})
+            elif 'k' in param_name.lower():
+                param_info.update({'type': 'int', 'default': 5, 'limits': (1, 100)})
+            elif 'class' in param_name.lower():
+                param_info.update({'type': 'int', 'default': 0, 'limits': (0, 100)})
+            elif 'name' in param_name.lower():
+                param_info.update({'type': 'str', 'default': func_node.name})
+            
+            params.append(param_info)
+        
+        # Check for default values in function definition
+        if func_node.args.defaults:
+            num_defaults = len(func_node.args.defaults)
+            for i, default in enumerate(func_node.args.defaults):
+                param_index = len(func_node.args.args) - num_defaults + i - 2  # -2 to skip y_true, y_pred
+                if param_index >= 0 and param_index < len(params):
+                    if isinstance(default, ast.Constant):
+                        params[param_index]['default'] = default.value
+                        # Update type based on default value
+                        if isinstance(default.value, bool):
+                            params[param_index]['type'] = 'bool'
+                        elif isinstance(default.value, int):
+                            params[param_index]['type'] = 'int'
+                        elif isinstance(default.value, float):
+                            params[param_index]['type'] = 'float'
+                        elif isinstance(default.value, str):
+                            params[param_index]['type'] = 'str'
+        
+        return params
+                
+        # except Exception as e:
+        #     QMessageBox.critical(
+        #         None,
+        #         "Error Loading File",
+        #         f"Failed to load custom metrics from file:\n{str(e)}"
+        #     )
+    
+    def _add_custom_metric_option(self, func_name, func_info):
+        """Add a custom metric as an option."""
+        # Store custom metric function info for later use
+        if not hasattr(self, '_custom_metric_functions'):
+            self._custom_metric_functions = {}
+        
+        display_name = f"{func_name} (custom)"
+        self._custom_metric_functions[display_name] = func_info
+        
+        # Add parameters for this custom metric
+        params = []
+        for param_info in func_info['parameters']:
+            param_config = {
+                'name': param_info['name'],
+                'type': param_info['type'],
+                'value': param_info['default'],
+                'tip': param_info['tip']
+            }
+            
+            # Add limits for numeric types
+            if param_info['type'] in ['int', 'float'] and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            elif param_info['type'] == 'list' and 'limits' in param_info:
+                param_config['limits'] = param_info['limits']
+            
+            params.append(param_config)
+        
+        # Add metadata parameters
+        params.extend([
+            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
+            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function/class name in source file'},
+            {'name': 'metric_type', 'type': 'str', 'value': func_info['type'], 'readonly': True, 'tip': 'Type of metric (function or class)'}
+        ])
+        
+        # Store parameters for this custom metric
+        if not hasattr(self, '_custom_metric_parameters'):
+            self._custom_metric_parameters = {}
+        self._custom_metric_parameters[display_name] = params
     
     def _extract_metric_functions(self, file_path):
         """Extract valid metric functions from a Python file."""
@@ -2239,69 +2782,6 @@ class MetricsGroup(pTypes.GroupParameter):
                             params[param_index]['type'] = 'float'
         
         return params
-    
-    def _add_custom_function(self, func_name, func_info):
-        """Add a custom function as a metric method."""
-        # Add (custom) suffix to distinguish from presets
-        display_name = f"{func_name} (custom)"
-        
-        # Check if function already exists
-        existing_names = [child.name() for child in self.children()]
-        if func_name in existing_names or display_name in existing_names:
-            return False
-        
-        # Create parameters list
-        children = [
-            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} metric'}
-        ]
-        
-        # Add function-specific parameters
-        for param_info in func_info['parameters']:
-            param_config = {
-                'name': param_info['name'],
-                'type': param_info['type'],
-                'value': param_info['default'],
-                'tip': param_info['tip']
-            }
-            
-            # Add limits for numeric types
-            if param_info['type'] in ['int', 'float'] and 'limits' in param_info:
-                param_config['limits'] = param_info['limits']
-            elif param_info['type'] == 'list' and 'limits' in param_info:
-                param_config['limits'] = param_info['limits']
-            
-            children.append(param_config)
-        
-        # Add metadata parameters
-        children.extend([
-            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
-            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function/class name in source file'},
-            {'name': 'metric_type', 'type': 'str', 'value': func_info['type'], 'readonly': True, 'tip': 'Type of metric (function or class)'}
-        ])
-        
-        # Create the metric method
-        method_config = {
-            'name': display_name,
-            'type': 'group',
-            'children': children,
-            'removable': True,
-            'renamable': False,
-            'tip': func_info['docstring']
-        }
-        
-        # Insert before the "Load Custom Metrics" button
-        button_index = None
-        for i, child in enumerate(self.children()):
-            if child.name() == 'Load Custom Metrics':
-                button_index = i
-                break
-        
-        if button_index is not None:
-            self.insertChild(button_index, method_config)
-        else:
-            self.addChild(method_config)
-        
-        return True
     
     def addNew(self, typ=None):
         """Legacy method - no longer used since we load from files."""
