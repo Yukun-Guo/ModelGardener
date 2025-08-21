@@ -437,12 +437,13 @@ class ConfigManager:
                 if model_group:
                     # Optimizers
                     optimizer_group = model_group.child('optimizer')
-                    if optimizer_group and hasattr(optimizer_group, '_custom_optimizers'):
-                        for name, func in optimizer_group._custom_optimizers.items():
-                            # Need to store file path if available
+                    if optimizer_group and hasattr(optimizer_group, '_custom_optimizer_metadata'):
+                        for name, info in optimizer_group._custom_optimizer_metadata.items():
                             custom_info['optimizers'].append({
                                 'name': name,
-                                'function_name': name.replace('Custom_', ''),
+                                'file_path': info['file_path'],
+                                'function_name': info['function_name'],
+                                'type': info['type']
                             })
                     
                     # Loss functions

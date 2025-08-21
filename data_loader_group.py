@@ -468,7 +468,7 @@ class DataLoaderGroup(pTypes.GroupParameter):
         """Load custom data loader from metadata info."""
         try:
             file_path = loader_info.get('file_path', '')
-            function_name = loader_info.get('original_name', '')
+            function_name = loader_info.get('function_name', '')
             loader_type = loader_info.get('type', 'function')
             
             if not os.path.exists(file_path):

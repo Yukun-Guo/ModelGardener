@@ -260,10 +260,18 @@ class OptimizerGroup(pTypes.GroupParameter):
                     func = getattr(module, function_name)
                     custom_name = f"Custom_{function_name}"
                     
-                    # Store the function
+                    # Store the function with metadata
                     if not hasattr(self, '_custom_optimizers'):
                         self._custom_optimizers = {}
+                    if not hasattr(self, '_custom_optimizer_metadata'):
+                        self._custom_optimizer_metadata = {}
+                    
                     self._custom_optimizers[custom_name] = func
+                    self._custom_optimizer_metadata[custom_name] = {
+                        'file_path': file_path,
+                        'function_name': function_name,
+                        'type': 'function'
+                    }
                     
                     # Extract parameters from function signature
                     self._extract_custom_optimizer_parameters(custom_name, func)
@@ -392,11 +400,18 @@ class OptimizerGroup(pTypes.GroupParameter):
             optimizer = getattr(module, function_name)
             custom_name = f"Custom_{function_name}"
             
-            # Store the function/class
+            # Store the function/class with metadata
             if not hasattr(self, '_custom_optimizers'):
                 self._custom_optimizers = {}
+            if not hasattr(self, '_custom_optimizer_metadata'):
+                self._custom_optimizer_metadata = {}
                 
             self._custom_optimizers[custom_name] = optimizer
+            self._custom_optimizer_metadata[custom_name] = {
+                'file_path': file_path,
+                'function_name': function_name,
+                'type': optimizer_type
+            }
             
             # Extract parameters
             self._extract_custom_optimizer_parameters(custom_name, optimizer)

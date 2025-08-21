@@ -408,7 +408,7 @@ class CallbacksGroup(pTypes.GroupParameter):
                 return False
             
             # Extract callbacks from the file
-            custom_functions = self._extract_callbacks(file_path)
+            custom_functions = self._extract_callback_functions(file_path)
             
             # Find the specific function we need
             target_function = None
@@ -422,7 +422,7 @@ class CallbacksGroup(pTypes.GroupParameter):
                 return False
             
             # Add the custom callback function
-            self._add_custom_callback_option(function_name, target_function)
+            self._add_custom_function(function_name, target_function)
             
             return True
             
@@ -431,6 +431,25 @@ class CallbacksGroup(pTypes.GroupParameter):
             import traceback
             traceback.print_exc()
             return False
+    
+    def _add_custom_callback_option(self, option_name, callback_info):
+        """Add a custom callback option to the callbacks selector."""
+        selection_group = self.child('Callback Selection')
+        if selection_group:
+            callbacks_selector = selection_group.child('selected_callbacks')
+            if callbacks_selector:
+                # Get current options
+                current_options = list(callbacks_selector.opts['limits'])
+                
+                # Add new option if not already present
+                if option_name not in current_options:
+                    current_options.append(option_name)
+                    callbacks_selector.setLimits(current_options)
+                    
+                    # Store the callback info for later use
+                    if not hasattr(self, '_custom_callback_functions'):
+                        self._custom_callback_functions = {}
+                    self._custom_callback_functions[option_name] = callback_info
     
     def addNew(self, typ=None):
         """Legacy method - no longer used since we load from files."""
