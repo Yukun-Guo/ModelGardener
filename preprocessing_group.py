@@ -317,24 +317,44 @@ class PreprocessingGroup(pTypes.GroupParameter):
                             for param_name, param_value in method_config.items():
                                 if isinstance(param_value, dict):
                                     # This is a nested group (like target_size, mean, std)
-                                    nested_group = method_group.child(param_name)
-                                    if nested_group:
-                                        for nested_param_name, nested_param_value in param_value.items():
-                                            nested_param = nested_group.child(nested_param_name)
-                                            if nested_param:
+                                    try:
+                                        nested_group = method_group.child(param_name)
+                                        if nested_group:
+                                            for nested_param_name, nested_param_value in param_value.items():
                                                 try:
-                                                    nested_param.setValue(nested_param_value)
+                                                    nested_param = nested_group.child(nested_param_name)
+                                                    if nested_param:
+                                                        try:
+                                                            nested_param.setValue(nested_param_value)
+                                                        except Exception as e:
+                                                            print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' to '{nested_param_value}': {e}")
+                                                    else:
+                                                        print(f"Warning: Preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' not found")
+                                                except KeyError as e:
+                                                    print(f"Warning: Preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' not found in group: {e}")
                                                 except Exception as e:
-                                                    print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' to '{nested_param_value}': {e}")
+                                                    print(f"Warning: Error accessing preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}': {e}")
+                                        else:
+                                            print(f"Warning: Preprocessing nested group '{method_name}.{param_name}' not found")
+                                    except KeyError as e:
+                                        print(f"Warning: Preprocessing nested group '{method_name}.{param_name}' not found: {e}")
+                                    except Exception as e:
+                                        print(f"Warning: Error accessing preprocessing nested group '{method_name}.{param_name}': {e}")
                                 else:
                                     # This is a direct parameter
-                                    param = method_group.child(param_name)
-                                    if param:
-                                        try:
-                                            param.setValue(param_value)
-                                        except Exception as e:
-                                            print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}' to '{param_value}': {e}")
-                                    else:
+                                    try:
+                                        param = method_group.child(param_name)
+                                        if param:
+                                            try:
+                                                param.setValue(param_value)
+                                            except Exception as e:
+                                                print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}' to '{param_value}': {e}")
+                                        else:
+                                            print(f"Warning: Preprocessing parameter '{method_name}.{param_name}' not found")
+                                    except KeyError as e:
+                                        print(f"Warning: Preprocessing parameter '{method_name}.{param_name}' not found in group: {e}")
+                                    except Exception as e:
+                                        print(f"Warning: Error accessing preprocessing parameter '{method_name}.{param_name}': {e}")
                                         # This might be a custom preprocessing parameter
                                         if 'file_path' in method_config:
                                             print(f"Note: Custom preprocessing '{method_name}' parameter '{param_name}' not found - may need to load custom preprocessing first")
@@ -353,23 +373,44 @@ class PreprocessingGroup(pTypes.GroupParameter):
                         for param_name, param_value in method_config.items():
                             if isinstance(param_value, dict):
                                 # This is a nested group
-                                nested_group = method_group.child(param_name)
-                                if nested_group:
-                                    for nested_param_name, nested_param_value in param_value.items():
-                                        nested_param = nested_group.child(nested_param_name)
-                                        if nested_param:
+                                try:
+                                    nested_group = method_group.child(param_name)
+                                    if nested_group:
+                                        for nested_param_name, nested_param_value in param_value.items():
                                             try:
-                                                nested_param.setValue(nested_param_value)
+                                                nested_param = nested_group.child(nested_param_name)
+                                                if nested_param:
+                                                    try:
+                                                        nested_param.setValue(nested_param_value)
+                                                    except Exception as e:
+                                                        print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}': {e}")
+                                                else:
+                                                    print(f"Warning: Preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' not found")
+                                            except KeyError as e:
+                                                print(f"Warning: Preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' not found in group: {e}")
                                             except Exception as e:
-                                                print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}': {e}")
+                                                print(f"Warning: Error accessing preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}': {e}")
+                                    else:
+                                        print(f"Warning: Preprocessing nested group '{method_name}.{param_name}' not found")
+                                except KeyError as e:
+                                    print(f"Warning: Preprocessing nested group '{method_name}.{param_name}' not found: {e}")
+                                except Exception as e:
+                                    print(f"Warning: Error accessing preprocessing nested group '{method_name}.{param_name}': {e}")
                             else:
                                 # This is a direct parameter
-                                param = method_group.child(param_name)
-                                if param:
-                                    try:
-                                        param.setValue(param_value)
-                                    except Exception as e:
-                                        print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}': {e}")
+                                try:
+                                    param = method_group.child(param_name)
+                                    if param:
+                                        try:
+                                            param.setValue(param_value)
+                                        except Exception as e:
+                                            print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}': {e}")
+                                    else:
+                                        print(f"Warning: Preprocessing parameter '{method_name}.{param_name}' not found")
+                                except KeyError as e:
+                                    print(f"Warning: Preprocessing parameter '{method_name}.{param_name}' not found in group: {e}")
+                                except Exception as e:
+                                    print(f"Warning: Error accessing preprocessing parameter '{method_name}.{param_name}': {e}")
                     else:
                         print(f"Warning: Preprocessing method '{method_name}' not found - may need to load custom preprocessing first")
                 except Exception as e:
@@ -389,6 +430,11 @@ class PreprocessingGroup(pTypes.GroupParameter):
             file_path = preprocessing_info.get('file_path', '')
             function_name = preprocessing_info.get('function_name', '')
             preprocessing_type = preprocessing_info.get('type', 'function')
+            
+            # Check for empty function name
+            if not function_name:
+                print(f"Warning: Empty function name in custom preprocessing metadata for {file_path}")
+                return False
             
             if not os.path.exists(file_path):
                 print(f"Warning: Custom preprocessing file not found: {file_path}")

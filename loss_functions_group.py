@@ -614,6 +614,11 @@ class LossFunctionsGroup(pTypes.GroupParameter):
             function_name = loss_info.get('function_name', '')
             loss_type = loss_info.get('type', 'function')
             
+            # Check for empty function name
+            if not function_name:
+                print(f"Warning: Empty function name in custom loss function metadata for {file_path}")
+                return False
+            
             if not os.path.exists(file_path):
                 print(f"Warning: Custom loss function file not found: {file_path}")
                 return False

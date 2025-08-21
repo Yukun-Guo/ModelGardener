@@ -1255,12 +1255,19 @@ class MetricsGroup(pTypes.GroupParameter):
                 model_output_group = self.child('Model Output Configuration')
                 if model_output_group:
                     for param_name, param_value in output_config.items():
-                        param = model_output_group.child(param_name)
-                        if param:
-                            try:
-                                param.setValue(param_value)
-                            except Exception as e:
-                                print(f"Warning: Could not set metrics output config parameter '{param_name}' to '{param_value}': {e}")
+                        try:
+                            param = model_output_group.child(param_name)
+                            if param:
+                                try:
+                                    param.setValue(param_value)
+                                except Exception as e:
+                                    print(f"Warning: Could not set metrics output config parameter '{param_name}' to '{param_value}': {e}")
+                            else:
+                                print(f"Warning: Metrics output config parameter '{param_name}' not found")
+                        except KeyError as e:
+                            print(f"Warning: Metrics output config parameter '{param_name}' not found: {e}")
+                        except Exception as e:
+                            print(f"Warning: Error accessing metrics output config parameter '{param_name}': {e}")
                     
                     # Update metrics selection after setting output config
                     self._update_metrics_selection()
@@ -1296,15 +1303,29 @@ class MetricsGroup(pTypes.GroupParameter):
                     for param_name, param_value in metrics_selection_config.items():
                         if param_name not in ['selected_metrics', 'available_metrics'] and param_name.endswith(' Config'):
                             # This is a metric configuration group
-                            metric_config_group = metrics_selection_group.child(param_name)
-                            if metric_config_group and isinstance(param_value, dict):
-                                for sub_param_name, sub_param_value in param_value.items():
-                                    sub_param = metric_config_group.child(sub_param_name)
-                                    if sub_param:
+                            try:
+                                metric_config_group = metrics_selection_group.child(param_name)
+                                if metric_config_group and isinstance(param_value, dict):
+                                    for sub_param_name, sub_param_value in param_value.items():
                                         try:
-                                            sub_param.setValue(sub_param_value)
+                                            sub_param = metric_config_group.child(sub_param_name)
+                                            if sub_param:
+                                                try:
+                                                    sub_param.setValue(sub_param_value)
+                                                except Exception as e:
+                                                    print(f"Warning: Could not set metric config '{param_name}.{sub_param_name}' to '{sub_param_value}': {e}")
+                                            else:
+                                                print(f"Warning: Metric config parameter '{param_name}.{sub_param_name}' not found")
+                                        except KeyError as e:
+                                            print(f"Warning: Metric config parameter '{param_name}.{sub_param_name}' not found in group: {e}")
                                         except Exception as e:
-                                            print(f"Warning: Could not set metric config '{param_name}.{sub_param_name}' to '{sub_param_value}': {e}")
+                                            print(f"Warning: Error accessing metric config parameter '{param_name}.{sub_param_name}': {e}")
+                                else:
+                                    print(f"Warning: Metric config group '{param_name}' not found or invalid format")
+                            except KeyError as e:
+                                print(f"Warning: Metric config group '{param_name}' not found: {e}")
+                            except Exception as e:
+                                print(f"Warning: Error accessing metric config group '{param_name}': {e}")
             
             # Handle multiple outputs if they exist
             for child in self.children():
@@ -1354,6 +1375,11 @@ class MetricsGroup(pTypes.GroupParameter):
             file_path = metric_info.get('file_path', '')
             function_name = metric_info.get('function_name', '')
             metric_type = metric_info.get('type', 'function')
+            
+            # Check for empty function name
+            if not function_name:
+                print(f"Warning: Empty function name in custom metric metadata for {file_path}")
+                return False
             
             if not os.path.exists(file_path):
                 print(f"Warning: Custom metric file not found: {file_path}")

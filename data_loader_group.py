@@ -457,12 +457,19 @@ class DataLoaderGroup(pTypes.GroupParameter):
         # Set parameter values
         for param_name, param_value in selection_config.items():
             if param_name not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
-                param = selection_group.child(param_name)
-                if param:
-                    try:
-                        param.setValue(param_value)
-                    except Exception as e:
-                        print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+                try:
+                    param = selection_group.child(param_name)
+                    if param:
+                        try:
+                            param.setValue(param_value)
+                        except Exception as e:
+                            print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+                    else:
+                        print(f"Warning: Parameter '{param_name}' not found in current data loader configuration")
+                except KeyError as e:
+                    print(f"Warning: Parameter '{param_name}' not found in selection group: {e}")
+                except Exception as e:
+                    print(f"Warning: Error accessing parameter '{param_name}': {e}")
     
     def load_custom_data_loader_from_metadata(self, loader_info):
         """Load custom data loader from metadata info."""
@@ -470,6 +477,11 @@ class DataLoaderGroup(pTypes.GroupParameter):
             file_path = loader_info.get('file_path', '')
             function_name = loader_info.get('function_name', '')
             loader_type = loader_info.get('type', 'function')
+            
+            # Check for empty function name
+            if not function_name:
+                print(f"Warning: Empty function name in custom data loader metadata for {file_path}")
+                return False
             
             if not os.path.exists(file_path):
                 print(f"Warning: Custom data loader file not found: {file_path}")

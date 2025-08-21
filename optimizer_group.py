@@ -370,12 +370,19 @@ class OptimizerGroup(pTypes.GroupParameter):
         # Set parameter values
         for param_name, param_value in selection_config.items():
             if param_name not in ['selected_optimizer']:
-                param = selection_group.child(param_name)
-                if param:
-                    try:
-                        param.setValue(param_value)
-                    except Exception as e:
-                        print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+                try:
+                    param = selection_group.child(param_name)
+                    if param:
+                        try:
+                            param.setValue(param_value)
+                        except Exception as e:
+                            print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+                    else:
+                        print(f"Warning: Parameter '{param_name}' not found in current optimizer configuration")
+                except KeyError as e:
+                    print(f"Warning: Parameter '{param_name}' not found in selection group: {e}")
+                except Exception as e:
+                    print(f"Warning: Error accessing parameter '{param_name}': {e}")
     
     def load_custom_optimizer_from_metadata(self, optimizer_info):
         """Load custom optimizer from metadata info."""
@@ -383,6 +390,11 @@ class OptimizerGroup(pTypes.GroupParameter):
             file_path = optimizer_info.get('file_path', '')
             function_name = optimizer_info.get('function_name', '')
             optimizer_type = optimizer_info.get('type', 'function')
+            
+            # Check for empty function name
+            if not function_name:
+                print(f"Warning: Empty function name in custom optimizer metadata for {file_path}")
+                return False
             
             if not os.path.exists(file_path):
                 print(f"Warning: Custom optimizer file not found: {file_path}")
