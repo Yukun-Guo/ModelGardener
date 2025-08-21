@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
                 font-family: 'Segoe UI', 'Arial', sans-serif;
                 font-size: 14pt;
                 font-weight: 600;
-                color: #34495e;
+                color: #fcfcfc;
                 padding: 8px 0px;
                 background-color: transparent;
             }
