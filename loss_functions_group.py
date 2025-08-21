@@ -576,7 +576,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
             
             # Handle multiple outputs if they exist
             for child in self.children():
-                if child.name().startswith('Output') and 'Loss' in child.name():
+                if child.name().startswith('Output'):
                     # This is a per-output loss configuration
                     output_config_data = config.get(child.name(), {})
                     if output_config_data:
@@ -595,12 +595,19 @@ class LossFunctionsGroup(pTypes.GroupParameter):
                         # Set other parameters
                         for param_name, param_value in output_config_data.items():
                             if param_name not in ['selected_loss']:
-                                param = child.child(param_name)
-                                if param:
-                                    try:
-                                        param.setValue(param_value)
-                                    except Exception as e:
-                                        print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                                try:
+                                    param = child.child(param_name)
+                                    if param:
+                                        try:
+                                            param.setValue(param_value)
+                                        except Exception as e:
+                                            print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                                    else:
+                                        # Parameter doesn't exist - this is normal if loss function changed
+                                        print(f"Warning: Parameter '{param_name}' not found for {child.name()} (loss function may have changed)")
+                                except KeyError:
+                                    # Parameter doesn't exist - this is normal if loss function changed
+                                    print(f"Warning: Parameter '{param_name}' not found for {child.name()} (loss function may have changed)")
                         
         except Exception as e:
             print(f"Error setting loss function configuration: {e}")

@@ -1329,7 +1329,7 @@ class MetricsGroup(pTypes.GroupParameter):
             
             # Handle multiple outputs if they exist
             for child in self.children():
-                if child.name().startswith('Output') and 'Metrics' in child.name():
+                if child.name().startswith('Output'):
                     # This is a per-output metrics configuration
                     output_config_data = config.get(child.name(), {})
                     if output_config_data:
@@ -1347,22 +1347,37 @@ class MetricsGroup(pTypes.GroupParameter):
                         for param_name, param_value in output_config_data.items():
                             if param_name not in ['selected_metrics']:
                                 if param_name.endswith(' Config') and isinstance(param_value, dict):
-                                    metric_config_group = child.child(param_name)
-                                    if metric_config_group:
-                                        for sub_param_name, sub_param_value in param_value.items():
-                                            sub_param = metric_config_group.child(sub_param_name)
-                                            if sub_param:
+                                    try:
+                                        metric_config_group = child.child(param_name)
+                                        if metric_config_group:
+                                            for sub_param_name, sub_param_value in param_value.items():
                                                 try:
-                                                    sub_param.setValue(sub_param_value)
-                                                except Exception as e:
-                                                    print(f"Warning: Could not set {child.name()} config '{param_name}.{sub_param_name}': {e}")
+                                                    sub_param = metric_config_group.child(sub_param_name)
+                                                    if sub_param:
+                                                        try:
+                                                            sub_param.setValue(sub_param_value)
+                                                        except Exception as e:
+                                                            print(f"Warning: Could not set {child.name()} config '{param_name}.{sub_param_name}': {e}")
+                                                    else:
+                                                        print(f"Warning: Config parameter '{param_name}.{sub_param_name}' not found for {child.name()} (metric may have changed)")
+                                                except KeyError:
+                                                    print(f"Warning: Config parameter '{param_name}.{sub_param_name}' not found for {child.name()} (metric may have changed)")
+                                        else:
+                                            print(f"Warning: Config group '{param_name}' not found for {child.name()} (metric may have changed)")
+                                    except KeyError:
+                                        print(f"Warning: Config group '{param_name}' not found for {child.name()} (metric may have changed)")
                                 else:
-                                    param = child.child(param_name)
-                                    if param:
-                                        try:
-                                            param.setValue(param_value)
-                                        except Exception as e:
-                                            print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                                    try:
+                                        param = child.child(param_name)
+                                        if param:
+                                            try:
+                                                param.setValue(param_value)
+                                            except Exception as e:
+                                                print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                                        else:
+                                            print(f"Warning: Parameter '{param_name}' not found for {child.name()} (metrics may have changed)")
+                                    except KeyError:
+                                        print(f"Warning: Parameter '{param_name}' not found for {child.name()} (metrics may have changed)")
                         
         except Exception as e:
             print(f"Error setting metrics configuration: {e}")
@@ -1406,12 +1421,6 @@ class MetricsGroup(pTypes.GroupParameter):
             self._update_all_metrics_selections()
             
             print(f"Successfully loaded custom metric: {function_name}")
-            return True
-            
-        except Exception as e:
-            print(f"Error loading custom metric from metadata: {e}")
-            return False
-            
             return True
             
         except Exception as e:
