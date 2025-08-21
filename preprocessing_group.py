@@ -1,4 +1,6 @@
 import ast
+import os
+import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -296,6 +298,127 @@ class PreprocessingGroup(pTypes.GroupParameter):
             self.addChild(method_config)
         
         return True
+    
+    def set_preprocessing_config(self, config):
+        """Set the preprocessing configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+        
+        try:
+            # Handle preprocessing chain configuration
+            preprocessing_chain_config = config.get('Preprocessing Chain', {})
+            if preprocessing_chain_config:
+                preprocessing_chain = self.child('Preprocessing Chain')
+                if preprocessing_chain:
+                    for method_name, method_config in preprocessing_chain_config.items():
+                        method_group = preprocessing_chain.child(method_name)
+                        if method_group and isinstance(method_config, dict):
+                            # Set parameters for this preprocessing method
+                            for param_name, param_value in method_config.items():
+                                if isinstance(param_value, dict):
+                                    # This is a nested group (like target_size, mean, std)
+                                    nested_group = method_group.child(param_name)
+                                    if nested_group:
+                                        for nested_param_name, nested_param_value in param_value.items():
+                                            nested_param = nested_group.child(nested_param_name)
+                                            if nested_param:
+                                                try:
+                                                    nested_param.setValue(nested_param_value)
+                                                except Exception as e:
+                                                    print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}' to '{nested_param_value}': {e}")
+                                else:
+                                    # This is a direct parameter
+                                    param = method_group.child(param_name)
+                                    if param:
+                                        try:
+                                            param.setValue(param_value)
+                                        except Exception as e:
+                                            print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}' to '{param_value}': {e}")
+                                    else:
+                                        # This might be a custom preprocessing parameter
+                                        if 'file_path' in method_config:
+                                            print(f"Note: Custom preprocessing '{method_name}' parameter '{param_name}' not found - may need to load custom preprocessing first")
+                        else:
+                            print(f"Warning: Preprocessing method '{method_name}' not found or config is not a dict")
+            
+            # Set configuration for other preprocessing methods at the root level
+            for method_name, method_config in config.items():
+                if method_name == 'Preprocessing Chain' or method_name == 'Load Custom Preprocessing':
+                    continue
+                
+                try:    
+                    method_group = self.child(method_name)
+                    if method_group and isinstance(method_config, dict):
+                        # Set parameters for this preprocessing method
+                        for param_name, param_value in method_config.items():
+                            if isinstance(param_value, dict):
+                                # This is a nested group
+                                nested_group = method_group.child(param_name)
+                                if nested_group:
+                                    for nested_param_name, nested_param_value in param_value.items():
+                                        nested_param = nested_group.child(nested_param_name)
+                                        if nested_param:
+                                            try:
+                                                nested_param.setValue(nested_param_value)
+                                            except Exception as e:
+                                                print(f"Warning: Could not set preprocessing nested parameter '{method_name}.{param_name}.{nested_param_name}': {e}")
+                            else:
+                                # This is a direct parameter
+                                param = method_group.child(param_name)
+                                if param:
+                                    try:
+                                        param.setValue(param_value)
+                                    except Exception as e:
+                                        print(f"Warning: Could not set preprocessing parameter '{method_name}.{param_name}': {e}")
+                    else:
+                        print(f"Warning: Preprocessing method '{method_name}' not found - may need to load custom preprocessing first")
+                except Exception as e:
+                    if method_name.endswith('(custom)'):
+                        print(f"Note: Custom preprocessing '{method_name}' not found - needs to be loaded first")
+                    else:
+                        print(f"Warning: Could not configure preprocessing method '{method_name}': {e}")
+                        
+        except Exception as e:
+            print(f"Error setting preprocessing configuration: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def load_custom_preprocessing_from_metadata(self, preprocessing_info):
+        """Load custom preprocessing from metadata info."""
+        try:
+            file_path = preprocessing_info.get('file_path', '')
+            function_name = preprocessing_info.get('function_name', '')
+            preprocessing_type = preprocessing_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom preprocessing file not found: {file_path}")
+                return False
+            
+            # Extract preprocessing methods from the file
+            custom_functions = self._extract_preprocessing_functions(file_path)
+            
+            # Find the specific function we need
+            target_function = None
+            for func_name, func_info in custom_functions.items():
+                if func_info['function_name'] == function_name:
+                    target_function = func_info
+                    break
+            
+            if not target_function:
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+            
+            # Add the custom preprocessing function
+            self._add_custom_function(function_name, target_function)
+            
+            print(f"Successfully loaded custom preprocessing: {function_name}")
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom preprocessing from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def addNew(self, typ=None):
         """Legacy method - no longer used since we load from files."""

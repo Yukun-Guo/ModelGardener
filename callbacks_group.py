@@ -1,4 +1,6 @@
 import ast
+import os
+import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -359,6 +361,76 @@ class CallbacksGroup(pTypes.GroupParameter):
             self.addChild(method_config)
         
         return True
+    
+    def set_callbacks_config(self, config):
+        """Set the callbacks configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+        
+        try:
+            # Set configuration for each callback
+            for callback_name, callback_config in config.items():
+                if callback_name == 'Load Custom Callbacks':
+                    continue
+                    
+                callback_group = self.child(callback_name)
+                if callback_group and isinstance(callback_config, dict):
+                    # Set parameters for this callback
+                    for param_name, param_value in callback_config.items():
+                        param = callback_group.child(param_name)
+                        if param:
+                            try:
+                                param.setValue(param_value)
+                            except Exception as e:
+                                print(f"Warning: Could not set callback parameter '{callback_name}.{param_name}' to '{param_value}': {e}")
+                        else:
+                            # This might be a custom callback parameter - let's try to create it if it doesn't exist
+                            if callback_name.startswith('Custom') and 'file_path' in callback_config:
+                                # This is likely a custom callback that needs to be loaded first
+                                print(f"Note: Custom callback '{callback_name}' parameter '{param_name}' not found - may need to load custom callback first")
+                else:
+                    print(f"Warning: Callback group '{callback_name}' not found or config is not a dict")
+                        
+        except Exception as e:
+            print(f"Error setting callbacks configuration: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def load_custom_callback_from_metadata(self, callback_info):
+        """Load custom callback from metadata info."""
+        try:
+            file_path = callback_info.get('file_path', '')
+            function_name = callback_info.get('function_name', '')
+            callback_type = callback_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom callback file not found: {file_path}")
+                return False
+            
+            # Extract callbacks from the file
+            custom_functions = self._extract_callbacks(file_path)
+            
+            # Find the specific function we need
+            target_function = None
+            for func_name, func_info in custom_functions.items():
+                if func_info['function_name'] == function_name:
+                    target_function = func_info
+                    break
+            
+            if not target_function:
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+            
+            # Add the custom callback function
+            self._add_custom_callback_option(function_name, target_function)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom callback from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def addNew(self, typ=None):
         """Legacy method - no longer used since we load from files."""

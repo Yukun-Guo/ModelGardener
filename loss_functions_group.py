@@ -1,4 +1,6 @@
 import ast
+import os
+import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -33,8 +35,23 @@ class LossFunctionsGroup(pTypes.GroupParameter):
         
         # Connect output configuration change to update loss selection
         output_config = self.child('Model Output Configuration')
+        output_config.child('num_outputs').sigValueChanged.connect(self._update_output_names)
         output_config.child('num_outputs').sigValueChanged.connect(self._update_loss_selection)
         output_config.child('loss_strategy').sigValueChanged.connect(self._update_loss_selection)
+    
+    def _update_output_names(self):
+        """Update output names based on the number of outputs."""
+        output_config = self.child('Model Output Configuration')
+        num_outputs = output_config.child('num_outputs').value()
+        output_names_param = output_config.child('output_names')
+        
+        # Generate default names based on number of outputs
+        if num_outputs == 1:
+            output_names_param.setValue('main_output')
+        else:
+            # Generate names like "output_1, output_2, output_3"
+            names = [f'output_{i+1}' for i in range(num_outputs)]
+            output_names_param.setValue(', '.join(names))
     
     def _add_loss_selection(self):
         """Add loss function selection based on output configuration."""
@@ -503,6 +520,131 @@ class LossFunctionsGroup(pTypes.GroupParameter):
                             params[param_index]['type'] = 'float'
         
         return params
+    
+    def set_loss_config(self, config):
+        """Set the loss function configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+        
+        try:
+            # Set Model Output Configuration
+            output_config = config.get('Model Output Configuration', {})
+            if output_config:
+                model_output_group = self.child('Model Output Configuration')
+                if model_output_group:
+                    for param_name, param_value in output_config.items():
+                        param = model_output_group.child(param_name)
+                        if param:
+                            try:
+                                param.setValue(param_value)
+                            except Exception as e:
+                                print(f"Warning: Could not set output config parameter '{param_name}' to '{param_value}': {e}")
+                    
+                    # Update loss selection after setting output config
+                    self._update_loss_selection()
+            
+            # Set Loss Selection configuration
+            loss_selection_config = config.get('Loss Selection', {})
+            if loss_selection_config:
+                loss_selection_group = self.child('Loss Selection')
+                if loss_selection_group:
+                    # Set selected loss if available in options
+                    selected_loss = loss_selection_config.get('selected_loss')
+                    if selected_loss:
+                        loss_selector = loss_selection_group.child('selected_loss')
+                        if loss_selector:
+                            # Check if the selected loss is in the available options
+                            available_options = loss_selector.opts['limits']
+                            if selected_loss in available_options:
+                                loss_selector.setValue(selected_loss)
+                                # Update parameters after setting the value
+                                self._update_loss_parameters('Loss Selection')
+                            else:
+                                print(f"Warning: Selected loss '{selected_loss}' not found in available options: {available_options}")
+                        else:
+                            print("Warning: loss_selector parameter not found")
+                    
+                    # Set parameter values
+                    for param_name, param_value in loss_selection_config.items():
+                        if param_name not in ['selected_loss']:
+                            param = loss_selection_group.child(param_name)
+                            if param:
+                                try:
+                                    param.setValue(param_value)
+                                except Exception as e:
+                                    print(f"Warning: Could not set loss parameter '{param_name}' to '{param_value}': {e}")
+            
+            # Handle multiple outputs if they exist
+            for child in self.children():
+                if child.name().startswith('Output') and 'Loss' in child.name():
+                    # This is a per-output loss configuration
+                    output_config_data = config.get(child.name(), {})
+                    if output_config_data:
+                        # Set selected loss
+                        selected_loss = output_config_data.get('selected_loss')
+                        if selected_loss:
+                            loss_selector = child.child('selected_loss')
+                            if loss_selector:
+                                available_options = loss_selector.opts['limits']
+                                if selected_loss in available_options:
+                                    loss_selector.setValue(selected_loss)
+                                    self._update_loss_parameters(child.name())
+                                else:
+                                    print(f"Warning: Selected loss '{selected_loss}' not found for {child.name()}")
+                        
+                        # Set other parameters
+                        for param_name, param_value in output_config_data.items():
+                            if param_name not in ['selected_loss']:
+                                param = child.child(param_name)
+                                if param:
+                                    try:
+                                        param.setValue(param_value)
+                                    except Exception as e:
+                                        print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                        
+        except Exception as e:
+            print(f"Error setting loss function configuration: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def load_custom_loss_from_metadata(self, loss_info):
+        """Load custom loss function from metadata info."""
+        try:
+            file_path = loss_info.get('file_path', '')
+            function_name = loss_info.get('function_name', '')
+            loss_type = loss_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom loss function file not found: {file_path}")
+                return False
+            
+            # Extract loss functions from the file
+            custom_functions = self._extract_loss_functions(file_path)
+            
+            # Find the specific function we need
+            target_function = None
+            for func_name, func_info in custom_functions.items():
+                if func_info['function_name'] == function_name:
+                    target_function = func_info
+                    break
+            
+            if not target_function:
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+            
+            # Add the custom loss function
+            self._add_custom_loss_option(function_name, target_function)
+            
+            # Update all loss selection dropdowns
+            self._update_all_loss_selections()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom loss function from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def addNew(self, typ=None):
         """Legacy method - no longer used since we load from files."""

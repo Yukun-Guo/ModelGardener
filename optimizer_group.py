@@ -327,4 +327,88 @@ class OptimizerGroup(pTypes.GroupParameter):
             if optimizer_selector:
                 new_options = self._get_optimizer_options()
                 optimizer_selector.setLimits(new_options)
+    
+    def set_optimizer_config(self, config):
+        """Set the optimizer configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+            
+        selection_group = self.child('Optimizer Selection')
+        if not selection_group:
+            return
+            
+        # Get the Optimizer Selection config
+        selection_config = config.get('Optimizer Selection', {})
+        if not selection_config:
+            return
+        
+        # Set selected optimizer if available in options
+        selected_optimizer = selection_config.get('selected_optimizer')
+        if selected_optimizer:
+            optimizer_selector = selection_group.child('selected_optimizer')
+            if optimizer_selector:
+                # Check if the selected optimizer is in the available options
+                available_options = optimizer_selector.opts['limits']
+                if selected_optimizer in available_options:
+                    optimizer_selector.setValue(selected_optimizer)
+                    # Update parameters after setting the value
+                    self._update_optimizer_parameters()
+                else:
+                    # If the selected optimizer is not available, keep default but log
+                    print(f"Warning: Selected optimizer '{selected_optimizer}' not found in available options: {available_options}")
+            else:
+                print("Warning: optimizer_selector parameter not found")
+        
+        # Set parameter values
+        for param_name, param_value in selection_config.items():
+            if param_name not in ['selected_optimizer']:
+                param = selection_group.child(param_name)
+                if param:
+                    try:
+                        param.setValue(param_value)
+                    except Exception as e:
+                        print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+    
+    def load_custom_optimizer_from_metadata(self, optimizer_info):
+        """Load custom optimizer from metadata info."""
+        try:
+            file_path = optimizer_info.get('file_path', '')
+            function_name = optimizer_info.get('function_name', '')
+            optimizer_type = optimizer_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom optimizer file not found: {file_path}")
+                return False
+                
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_optimizer", file_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            if not hasattr(module, function_name):
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+                
+            optimizer = getattr(module, function_name)
+            custom_name = f"Custom_{function_name}"
+            
+            # Store the function/class
+            if not hasattr(self, '_custom_optimizers'):
+                self._custom_optimizers = {}
+                
+            self._custom_optimizers[custom_name] = optimizer
+            
+            # Extract parameters
+            self._extract_custom_optimizer_parameters(custom_name, optimizer)
+            
+            # Update optimizer options
+            self._refresh_optimizer_options()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom optimizer from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 

@@ -905,20 +905,70 @@ class MainWindow(QMainWindow):
     def _apply_config_to_custom_groups(self):
         """Apply configuration to custom parameter groups after custom functions are loaded."""
         try:
-            # Apply configuration to data loader group
             basic_group = self.params.child('basic')
+            advanced_group = self.params.child('advanced')
+            
             if basic_group:
                 data_group = basic_group.child('data')
+                model_group = basic_group.child('model')
+                
+                # Apply configuration to data loader group
                 if data_group:
                     data_loader_group = data_group.child('data_loader')
                     if data_loader_group and hasattr(data_loader_group, 'set_data_loader_config'):
-                        # Get data loader config from ORIGINAL gui_cfg (not modified by apply_cfg_to_widgets)
                         original_basic_config = self.original_gui_cfg.get('basic', {})
                         original_data_config = original_basic_config.get('data', {})
                         original_data_loader_config = original_data_config.get('data_loader', {})
                         
                         if original_data_loader_config:
                             data_loader_group.set_data_loader_config(original_data_loader_config)
+                    
+                    # Apply configuration to preprocessing group
+                    preprocessing_group = data_group.child('preprocessing')
+                    if preprocessing_group and hasattr(preprocessing_group, 'set_preprocessing_config'):
+                        original_preprocessing_config = original_data_config.get('preprocessing', {})
+                        
+                        if original_preprocessing_config:
+                            preprocessing_group.set_preprocessing_config(original_preprocessing_config)
+                
+                # Apply configuration to model groups
+                if model_group:
+                    # Apply configuration to optimizer group
+                    optimizer_group = model_group.child('optimizer')
+                    if optimizer_group and hasattr(optimizer_group, 'set_optimizer_config'):
+                        original_basic_config = self.original_gui_cfg.get('basic', {})
+                        original_model_config = original_basic_config.get('model', {})
+                        original_optimizer_config = original_model_config.get('optimizer', {})
+                        
+                        if original_optimizer_config:
+                            optimizer_group.set_optimizer_config(original_optimizer_config)
+                    
+                    # Apply configuration to loss functions group
+                    loss_functions_group = model_group.child('loss_functions')
+                    if loss_functions_group and hasattr(loss_functions_group, 'set_loss_config'):
+                        original_loss_config = original_model_config.get('loss_functions', {})
+                        
+                        if original_loss_config:
+                            loss_functions_group.set_loss_config(original_loss_config)
+                    
+                    # Apply configuration to metrics group
+                    metrics_group = model_group.child('metrics')
+                    if metrics_group and hasattr(metrics_group, 'set_metrics_config'):
+                        original_metrics_config = original_model_config.get('metrics', {})
+                        
+                        if original_metrics_config:
+                            metrics_group.set_metrics_config(original_metrics_config)
+            
+            # Apply configuration to advanced groups
+            if advanced_group:
+                # Apply configuration to callbacks group
+                callbacks_group = advanced_group.child('callbacks')
+                if callbacks_group and hasattr(callbacks_group, 'set_callbacks_config'):
+                    original_advanced_config = self.original_gui_cfg.get('advanced', {})
+                    original_callbacks_config = original_advanced_config.get('callbacks', {})
+                    
+                    if original_callbacks_config:
+                        callbacks_group.set_callbacks_config(original_callbacks_config)
                             
         except Exception as e:
             import traceback
@@ -979,17 +1029,26 @@ class MainWindow(QMainWindow):
             # Reload loss functions
             for loss_info in custom_functions_info.get('loss_functions', []):
                 total_attempted += 1
-                file_path = loss_info['file_path']
-                function_name = loss_info['function_name']
                 
-                if os.path.exists(file_path):
-                    try:
-                        # Find the loss functions group
-                        basic_group = self.params.child('basic')
-                        model_group = basic_group.child('model') if basic_group else None
-                        loss_group = model_group.child('loss_functions') if model_group else None
+                try:
+                    # Find the loss functions group
+                    basic_group = self.params.child('basic')
+                    model_group = basic_group.child('model') if basic_group else None
+                    loss_group = model_group.child('loss_functions') if model_group else None
+                    
+                    if loss_group and hasattr(loss_group, 'load_custom_loss_from_metadata'):
+                        success = loss_group.load_custom_loss_from_metadata(loss_info)
+                        if success:
+                            reload_results.append(f"✓ Loss function: {loss_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Loss function failed: {loss_info['name']}")
+                    else:
+                        # Fallback to the old method
+                        file_path = loss_info['file_path']
+                        function_name = loss_info['function_name']
                         
-                        if loss_group:
+                        if os.path.exists(file_path) and loss_group:
                             success = CustomFunctionsLoader.load_custom_loss_function_from_file(
                                 loss_group, file_path, function_name
                             )
@@ -999,11 +1058,10 @@ class MainWindow(QMainWindow):
                             else:
                                 reload_results.append(f"✗ Loss function failed: {loss_info['name']}")
                         else:
-                            reload_results.append(f"✗ Loss function group not accessible: {loss_info['name']}")
-                    except Exception as e:
-                        reload_results.append(f"✗ Loss function error: {loss_info['name']} - {e}")
-                else:
-                    reload_results.append(f"✗ Loss function file not found: {file_path}")
+                            reload_results.append(f"✗ Loss function file not found or group not accessible: {loss_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Loss function error: {loss_info['name']} - {e}")
             
             # Reload augmentations
             for aug_info in custom_functions_info.get('augmentations', []):
@@ -1036,16 +1094,25 @@ class MainWindow(QMainWindow):
             # Reload callbacks
             for callback_info in custom_functions_info.get('callbacks', []):
                 total_attempted += 1
-                file_path = callback_info['file_path']
-                function_name = callback_info['function_name']
                 
-                if os.path.exists(file_path):
-                    try:
-                        # Find the callbacks group
-                        advanced_group = self.params.child('advanced')
-                        callback_group = advanced_group.child('callbacks') if advanced_group else None
+                try:
+                    # Find the callbacks group
+                    advanced_group = self.params.child('advanced')
+                    callback_group = advanced_group.child('callbacks') if advanced_group else None
+                    
+                    if callback_group and hasattr(callback_group, 'load_custom_callback_from_metadata'):
+                        success = callback_group.load_custom_callback_from_metadata(callback_info)
+                        if success:
+                            reload_results.append(f"✓ Callback: {callback_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Callback failed: {callback_info['name']}")
+                    else:
+                        # Fallback to the old method
+                        file_path = callback_info['file_path']
+                        function_name = callback_info['function_name']
                         
-                        if callback_group:
+                        if os.path.exists(file_path) and callback_group:
                             success = CustomFunctionsLoader.load_custom_callback_from_file(
                                 callback_group, file_path, function_name
                             )
@@ -1055,26 +1122,34 @@ class MainWindow(QMainWindow):
                             else:
                                 reload_results.append(f"✗ Callback failed: {callback_info['name']}")
                         else:
-                            reload_results.append(f"✗ Callback group not accessible: {callback_info['name']}")
-                    except Exception as e:
-                        reload_results.append(f"✗ Callback error: {callback_info['name']} - {e}")
-                else:
-                    reload_results.append(f"✗ Callback file not found: {file_path}")
+                            reload_results.append(f"✗ Callback file not found or group not accessible: {callback_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Callback error: {callback_info['name']} - {e}")
             
             # Reload preprocessing
             for prep_info in custom_functions_info.get('preprocessing', []):
                 total_attempted += 1
-                file_path = prep_info['file_path']
-                function_name = prep_info['function_name']
                 
-                if os.path.exists(file_path):
-                    try:
-                        # Find the preprocessing group
-                        basic_group = self.params.child('basic')
-                        data_group = basic_group.child('data') if basic_group else None
-                        prep_group = data_group.child('preprocessing') if data_group else None
+                try:
+                    # Find the preprocessing group
+                    basic_group = self.params.child('basic')
+                    data_group = basic_group.child('data') if basic_group else None
+                    prep_group = data_group.child('preprocessing') if data_group else None
+                    
+                    if prep_group and hasattr(prep_group, 'load_custom_preprocessing_from_metadata'):
+                        success = prep_group.load_custom_preprocessing_from_metadata(prep_info)
+                        if success:
+                            reload_results.append(f"✓ Preprocessing: {prep_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Preprocessing failed: {prep_info['name']}")
+                    else:
+                        # Fallback to the old method
+                        file_path = prep_info['file_path']
+                        function_name = prep_info['function_name']
                         
-                        if prep_group:
+                        if os.path.exists(file_path) and prep_group:
                             success = CustomFunctionsLoader.load_custom_preprocessing_from_file(
                                 prep_group, file_path, function_name
                             )
@@ -1084,16 +1159,14 @@ class MainWindow(QMainWindow):
                             else:
                                 reload_results.append(f"✗ Preprocessing failed: {prep_info['name']}")
                         else:
-                            reload_results.append(f"✗ Preprocessing group not accessible: {prep_info['name']}")
-                    except Exception as e:
-                        reload_results.append(f"✗ Preprocessing error: {prep_info['name']} - {e}")
-                else:
-                    reload_results.append(f"✗ Preprocessing file not found: {file_path}")
+                            reload_results.append(f"✗ Preprocessing file not found or group not accessible: {prep_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Preprocessing error: {prep_info['name']} - {e}")
             
             # Reload optimizers
             for opt_info in custom_functions_info.get('optimizers', []):
                 total_attempted += 1
-                function_name = opt_info['function_name']
                 
                 try:
                     # Find the optimizer group
@@ -1101,14 +1174,56 @@ class MainWindow(QMainWindow):
                     model_group = basic_group.child('model') if basic_group else None
                     optimizer_group = model_group.child('optimizer') if model_group else None
                     
-                    if optimizer_group:
-                        # Note: For optimizers, we need the file path which might not be stored
-                        # This is a limitation of the current optimizer storage system
-                        reload_results.append(f"⚠ Optimizer: {opt_info['name']} (needs manual reload)")
+                    if optimizer_group and hasattr(optimizer_group, 'load_custom_optimizer_from_metadata'):
+                        success = optimizer_group.load_custom_optimizer_from_metadata(opt_info)
+                        if success:
+                            reload_results.append(f"✓ Optimizer: {opt_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Optimizer failed: {opt_info['name']}")
                     else:
-                        reload_results.append(f"✗ Optimizer group not accessible: {opt_info['name']}")
+                        # Fallback message - optimizer groups might not have metadata support yet
+                        reload_results.append(f"⚠ Optimizer: {opt_info['name']} (needs manual reload)")
+                        
                 except Exception as e:
                     reload_results.append(f"✗ Optimizer error: {opt_info['name']} - {e}")
+            
+            # Reload metrics
+            for metric_info in custom_functions_info.get('metrics', []):
+                total_attempted += 1
+                
+                try:
+                    # Find the metrics group
+                    basic_group = self.params.child('basic')
+                    model_group = basic_group.child('model') if basic_group else None
+                    metrics_group = model_group.child('metrics') if model_group else None
+                    
+                    if metrics_group and hasattr(metrics_group, 'load_custom_metric_from_metadata'):
+                        success = metrics_group.load_custom_metric_from_metadata(metric_info)
+                        if success:
+                            reload_results.append(f"✓ Metric: {metric_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Metric failed: {metric_info['name']}")
+                    else:
+                        # Fallback to the old method
+                        file_path = metric_info['file_path']
+                        function_name = metric_info['function_name']
+                        
+                        if os.path.exists(file_path) and metrics_group:
+                            success = CustomFunctionsLoader.load_custom_metric_from_file(
+                                metrics_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Metric: {metric_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Metric failed: {metric_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Metric file not found or group not accessible: {metric_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Metric error: {metric_info['name']} - {e}")
             
             # Show results
             if reload_results:

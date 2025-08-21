@@ -1,4 +1,6 @@
 import ast
+import os
+import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
@@ -1240,6 +1242,157 @@ class MetricsGroup(pTypes.GroupParameter):
     #         self.addChild(method_config)
         
     #     return True
+    
+    def set_metrics_config(self, config):
+        """Set the metrics configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+        
+        try:
+            # Set Model Output Configuration
+            output_config = config.get('Model Output Configuration', {})
+            if output_config:
+                model_output_group = self.child('Model Output Configuration')
+                if model_output_group:
+                    for param_name, param_value in output_config.items():
+                        param = model_output_group.child(param_name)
+                        if param:
+                            try:
+                                param.setValue(param_value)
+                            except Exception as e:
+                                print(f"Warning: Could not set metrics output config parameter '{param_name}' to '{param_value}': {e}")
+                    
+                    # Update metrics selection after setting output config
+                    self._update_metrics_selection()
+            
+            # Set Metrics Selection configuration
+            metrics_selection_config = config.get('Metrics Selection', {})
+            if metrics_selection_config:
+                metrics_selection_group = self.child('Metrics Selection')
+                if metrics_selection_group:
+                    # Set selected metrics
+                    selected_metrics = metrics_selection_config.get('selected_metrics')
+                    if selected_metrics:
+                        metrics_selector = metrics_selection_group.child('selected_metrics')
+                        if metrics_selector:
+                            try:
+                                metrics_selector.setValue(selected_metrics)
+                                # Update available metrics and configs after setting
+                                self._update_metrics_selection()
+                            except Exception as e:
+                                print(f"Warning: Could not set selected metrics to '{selected_metrics}': {e}")
+                    
+                    # Set available metrics
+                    available_metrics = metrics_selection_config.get('available_metrics')
+                    if available_metrics:
+                        available_selector = metrics_selection_group.child('available_metrics')
+                        if available_selector:
+                            try:
+                                available_selector.setValue(available_metrics)
+                            except Exception as e:
+                                print(f"Warning: Could not set available metrics to '{available_metrics}': {e}")
+                    
+                    # Set metric-specific configurations
+                    for param_name, param_value in metrics_selection_config.items():
+                        if param_name not in ['selected_metrics', 'available_metrics'] and param_name.endswith(' Config'):
+                            # This is a metric configuration group
+                            metric_config_group = metrics_selection_group.child(param_name)
+                            if metric_config_group and isinstance(param_value, dict):
+                                for sub_param_name, sub_param_value in param_value.items():
+                                    sub_param = metric_config_group.child(sub_param_name)
+                                    if sub_param:
+                                        try:
+                                            sub_param.setValue(sub_param_value)
+                                        except Exception as e:
+                                            print(f"Warning: Could not set metric config '{param_name}.{sub_param_name}' to '{sub_param_value}': {e}")
+            
+            # Handle multiple outputs if they exist
+            for child in self.children():
+                if child.name().startswith('Output') and 'Metrics' in child.name():
+                    # This is a per-output metrics configuration
+                    output_config_data = config.get(child.name(), {})
+                    if output_config_data:
+                        # Set selected metrics
+                        selected_metrics = output_config_data.get('selected_metrics')
+                        if selected_metrics:
+                            metrics_selector = child.child('selected_metrics')
+                            if metrics_selector:
+                                try:
+                                    metrics_selector.setValue(selected_metrics)
+                                except Exception as e:
+                                    print(f"Warning: Could not set metrics for {child.name()}: {e}")
+                        
+                        # Set other parameters including metric configs
+                        for param_name, param_value in output_config_data.items():
+                            if param_name not in ['selected_metrics']:
+                                if param_name.endswith(' Config') and isinstance(param_value, dict):
+                                    metric_config_group = child.child(param_name)
+                                    if metric_config_group:
+                                        for sub_param_name, sub_param_value in param_value.items():
+                                            sub_param = metric_config_group.child(sub_param_name)
+                                            if sub_param:
+                                                try:
+                                                    sub_param.setValue(sub_param_value)
+                                                except Exception as e:
+                                                    print(f"Warning: Could not set {child.name()} config '{param_name}.{sub_param_name}': {e}")
+                                else:
+                                    param = child.child(param_name)
+                                    if param:
+                                        try:
+                                            param.setValue(param_value)
+                                        except Exception as e:
+                                            print(f"Warning: Could not set {child.name()} parameter '{param_name}': {e}")
+                        
+        except Exception as e:
+            print(f"Error setting metrics configuration: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def load_custom_metric_from_metadata(self, metric_info):
+        """Load custom metric from metadata info."""
+        try:
+            file_path = metric_info.get('file_path', '')
+            function_name = metric_info.get('function_name', '')
+            metric_type = metric_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom metric file not found: {file_path}")
+                return False
+            
+            # Extract metrics from the file
+            custom_functions = self._extract_metric_functions(file_path)
+            
+            # Find the specific function we need
+            target_function = None
+            for func_name, func_info in custom_functions.items():
+                if func_info['function_name'] == function_name:
+                    target_function = func_info
+                    break
+            
+            if not target_function:
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+            
+            # Add the custom metric function
+            self._add_custom_metric_option(function_name, target_function)
+            
+            # Update all metric selection dropdowns
+            self._update_all_metrics_selections()
+            
+            print(f"Successfully loaded custom metric: {function_name}")
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom metric from metadata: {e}")
+            return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom metric from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     # def addNew(self, typ=None):
     #     """Legacy method - no longer used since we load from files."""
