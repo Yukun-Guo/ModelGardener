@@ -852,38 +852,78 @@ class MainWindow(QMainWindow):
             
             # Update configuration
             self.gui_cfg = config_data
-            self.apply_cfg_to_widgets()
-            self.refresh_tree()
             
-            # Store custom functions info for later auto-reload
-            self.last_loaded_custom_functions = custom_functions_info
+            # Store original configuration for custom groups (before apply_cfg_to_widgets modifies it)
+            self.original_gui_cfg = config_data.copy()
             
-            # Show info about loaded configuration
+            # Load custom functions FIRST if they exist, before applying config
             custom_count = sum(len(funcs) for funcs in (custom_functions_info or {}).values())
-            info_msg = f"Loaded: {path}"
-            
             if custom_count > 0:
+                # Ask user if they want to auto-reload custom functions
+                info_msg = f"Loaded: {path}"
                 info_msg += f"\n\nFound {custom_count} custom function(s) to reload:"
                 for func_type, funcs in custom_functions_info.items():
                     if funcs:
                         info_msg += f"\n- {func_type.replace('_', ' ').title()}: {len(funcs)}"
                 
-                info_msg += "\n\nClick 'Auto-Reload Custom Functions' to automatically reload them,"
-                info_msg += "\nor manually reload them using the respective 'Load Custom...' buttons."
+                info_msg += "\n\nCustom functions must be loaded before applying configuration."
+                info_msg += "\nAuto-reload custom functions now?"
                 
-                # Show option to auto-reload custom functions
-                reply = QMessageBox.question(self, "Configuration Loaded", 
-                    info_msg + "\n\nAuto-reload custom functions now?",
+                reply = QMessageBox.question(self, "Configuration Loaded", info_msg,
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes)
                 
                 if reply == QMessageBox.StandardButton.Yes:
+                    # Load custom functions FIRST, before applying configuration
                     self.auto_reload_custom_functions(custom_functions_info)
+                    
+                    # Now apply the configuration with custom functions available
+                    # DO NOT call refresh_tree() as it recreates the parameter tree and loses custom functions
+                    self.apply_cfg_to_widgets()
+                    
+                    # Apply configuration to custom parameter groups
+                    self._apply_config_to_custom_groups()
+                else:
+                    # User chose not to reload custom functions
+                    self.apply_cfg_to_widgets()
+                    self.refresh_tree()
+                    QMessageBox.warning(self, "Warning", 
+                        "Configuration loaded without custom functions. "
+                        "Custom function selections may not work correctly until functions are loaded.")
             else:
-                QMessageBox.information(self, "Loaded", info_msg)
+                # No custom functions, proceed normally
+                self.apply_cfg_to_widgets()
+                self.refresh_tree()
+                QMessageBox.information(self, "Loaded", f"Loaded: {path}")
+                
+            # Store custom functions info for later auto-reload
+            self.last_loaded_custom_functions = custom_functions_info
                 
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load configuration:\n{str(e)}")
+    
+    def _apply_config_to_custom_groups(self):
+        """Apply configuration to custom parameter groups after custom functions are loaded."""
+        try:
+            # Apply configuration to data loader group
+            basic_group = self.params.child('basic')
+            if basic_group:
+                data_group = basic_group.child('data')
+                if data_group:
+                    data_loader_group = data_group.child('data_loader')
+                    if data_loader_group and hasattr(data_loader_group, 'set_data_loader_config'):
+                        # Get data loader config from ORIGINAL gui_cfg (not modified by apply_cfg_to_widgets)
+                        original_basic_config = self.original_gui_cfg.get('basic', {})
+                        original_data_config = original_basic_config.get('data', {})
+                        original_data_loader_config = original_data_config.get('data_loader', {})
+                        
+                        if original_data_loader_config:
+                            data_loader_group.set_data_loader_config(original_data_loader_config)
+                            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.append_log(f"Error applying config to custom groups: {e}")
     
     def auto_reload_custom_functions(self, custom_functions_info: Dict[str, Any]):
         """Automatically reload custom functions from metadata."""
@@ -895,20 +935,33 @@ class MainWindow(QMainWindow):
             total_attempted = 0
             total_successful = 0
             
+            # First, make sure we have a parameter tree
+            if not hasattr(self, 'params') or not self.params:
+                self.refresh_tree()
+            
             # Reload data loaders
             for loader_info in custom_functions_info.get('data_loaders', []):
                 total_attempted += 1
-                file_path = loader_info['file_path']
-                function_name = loader_info['original_name']
                 
-                if os.path.exists(file_path):
-                    try:
-                        # Find the data loader group
-                        basic_group = self.params.child('basic')
-                        data_group = basic_group.child('data') if basic_group else None
-                        data_loader_group = data_group.child('data_loader') if data_group else None
+                try:
+                    # Find the data loader group
+                    basic_group = self.params.child('basic')
+                    data_group = basic_group.child('data') if basic_group else None
+                    data_loader_group = data_group.child('data_loader') if data_group else None
+                    
+                    if data_loader_group and hasattr(data_loader_group, 'load_custom_data_loader_from_metadata'):
+                        success = data_loader_group.load_custom_data_loader_from_metadata(loader_info)
+                        if success:
+                            reload_results.append(f"✓ Data loader: {loader_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Data loader failed: {loader_info['name']}")
+                    else:
+                        # Fallback to the old method
+                        file_path = loader_info['file_path']
+                        function_name = loader_info['original_name']
                         
-                        if data_loader_group:
+                        if os.path.exists(file_path) and data_loader_group:
                             success = CustomFunctionsLoader.load_custom_data_loader_from_file(
                                 data_loader_group, file_path, function_name
                             )
@@ -918,11 +971,10 @@ class MainWindow(QMainWindow):
                             else:
                                 reload_results.append(f"✗ Data loader failed: {loader_info['name']}")
                         else:
-                            reload_results.append(f"✗ Data loader group not accessible: {loader_info['name']}")
-                    except Exception as e:
-                        reload_results.append(f"✗ Data loader error: {loader_info['name']} - {e}")
-                else:
-                    reload_results.append(f"✗ Data loader file not found: {file_path}")
+                            reload_results.append(f"✗ Data loader file not found or group not accessible: {loader_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Data loader error: {loader_info['name']} - {e}")
             
             # Reload loss functions
             for loss_info in custom_functions_info.get('loss_functions', []):

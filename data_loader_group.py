@@ -409,3 +409,105 @@ class DataLoaderGroup(pTypes.GroupParameter):
             config['custom_info'] = self._custom_data_loaders[selected_name]
         
         return config
+    
+    def set_data_loader_config(self, config):
+        """Set the data loader configuration from loaded config data."""
+        if not config or not isinstance(config, dict):
+            return
+            
+        selection_group = self.child('Data Loader Selection')
+        if not selection_group:
+            return
+            
+        # Get the Data Loader Selection config
+        selection_config = config.get('Data Loader Selection', {})
+        if not selection_config:
+            return
+        
+        # Set selected data loader if available in options
+        selected_data_loader = selection_config.get('selected_data_loader')
+        if selected_data_loader:
+            data_loader_selector = selection_group.child('selected_data_loader')
+            if data_loader_selector:
+                # Check if the selected data loader is in the available options
+                available_options = data_loader_selector.opts['limits']
+                if selected_data_loader in available_options:
+                    data_loader_selector.setValue(selected_data_loader)
+                    # Update parameters after setting the value
+                    self._update_data_loader_parameters()
+                else:
+                    # If the selected data loader is not available, keep default but log
+                    print(f"Warning: Selected data loader '{selected_data_loader}' not found in available options: {available_options}")
+            else:
+                print("Warning: data_loader_selector parameter not found")
+        
+        # Set usage flags
+        use_for_train = selection_config.get('use_for_train')
+        if use_for_train is not None:
+            train_param = selection_group.child('use_for_train')
+            if train_param:
+                train_param.setValue(use_for_train)
+                
+        use_for_val = selection_config.get('use_for_val')
+        if use_for_val is not None:
+            val_param = selection_group.child('use_for_val')
+            if val_param:
+                val_param.setValue(use_for_val)
+        
+        # Set parameter values
+        for param_name, param_value in selection_config.items():
+            if param_name not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
+                param = selection_group.child(param_name)
+                if param:
+                    try:
+                        param.setValue(param_value)
+                    except Exception as e:
+                        print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
+    
+    def load_custom_data_loader_from_metadata(self, loader_info):
+        """Load custom data loader from metadata info."""
+        try:
+            file_path = loader_info.get('file_path', '')
+            function_name = loader_info.get('original_name', '')
+            loader_type = loader_info.get('type', 'function')
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom data loader file not found: {file_path}")
+                return False
+                
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_data_loader", file_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            if not hasattr(module, function_name):
+                print(f"Warning: Function '{function_name}' not found in {file_path}")
+                return False
+                
+            loader = getattr(module, function_name)
+            custom_name = f"Custom_{function_name}"
+            
+            # Store the function/class
+            if not hasattr(self, '_custom_data_loaders'):
+                self._custom_data_loaders = {}
+                
+            self._custom_data_loaders[custom_name] = {
+                'loader': loader,
+                'type': loader_type,
+                'file_path': file_path,
+                'original_name': function_name
+            }
+            
+            # Extract parameters
+            self._extract_custom_data_loader_parameters(custom_name, loader, loader_type)
+            
+            # Update data loader options
+            self._refresh_data_loader_options()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error loading custom data loader from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
