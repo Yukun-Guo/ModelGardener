@@ -1,0 +1,96 @@
+{
+  "configuration": {
+    "data": {
+      "train_dir": "./data/train",
+      "val_dir": "./data/val",
+      "data_loader": {
+        "Data Loader Selection": {
+          "selected_data_loader": "Custom_advanced_image_loader",
+          "use_for_train": true,
+          "use_for_val": true,
+          "data_dir": "./data",
+          "batch_size": 32,
+          "image_size": [224, 224],
+          "shuffle": true,
+          "buffer_size": 10000,
+          "augment": true,
+          "preprocessing_pipeline": "advanced"
+        }
+      }
+    },
+    "model": {
+      "backbone_type": "resnet",
+      "model_id": 50,
+      "dropout_rate": 0.1,
+      "loss_functions": {
+        "Loss Selection": {
+          "selected_loss": "Custom Focal Loss (custom)",
+          "alpha": 0.25,
+          "gamma": 2.0,
+          "from_logits": false
+        }
+      }
+    }
+  },
+  "metadata": {
+    "version": "1.2",
+    "sharing_strategy": "file_paths_with_content",
+    "creation_date": "2025-08-20T14:30:00",
+    "model_gardener_version": "1.0",
+    "custom_functions": {
+      "data_loaders": [
+        {
+          "name": "Custom_advanced_image_loader",
+          "file_path": "./custom_functions/data_loaders/advanced_image_loader.py",
+          "original_name": "advanced_image_loader",
+          "type": "function",
+          "file_content": "import tensorflow as tf\nimport numpy as np\nfrom typing import List\n\ndef advanced_image_loader(data_dir: str, batch_size: int = 32, \n                         image_size: List[int] = [224, 224],\n                         shuffle: bool = True, buffer_size: int = 10000,\n                         augment: bool = False, preprocessing_pipeline: str = \"basic\") -> tf.data.Dataset:\n    \"\"\"\n    Advanced image data loader with multiple preprocessing pipelines.\n    \n    Args:\n        data_dir: Directory containing image data\n        batch_size: Batch size for loading\n        image_size: Target image size [height, width]\n        shuffle: Whether to shuffle data\n        buffer_size: Buffer size for shuffling\n        augment: Whether to apply data augmentation\n        preprocessing_pipeline: Type of preprocessing ('basic', 'advanced', 'custom')\n    \n    Returns:\n        tf.data.Dataset: Processed dataset\n    \"\"\"\n    # Implementation would go here\n    pass",
+          "file_size": 847,
+          "file_checksum": "a1b2c3d4e5f67890",
+          "relative_file_path": "advanced_image_loader.py",
+          "sharing_enabled": true,
+          "dependencies": ["tensorflow", "numpy"],
+          "imports": ["tensorflow", "numpy", "typing.List"],
+          "docstring": "Advanced image data loader with multiple preprocessing pipelines.",
+          "parameters_info": [
+            {"name": "data_dir", "type_hint": "str"},
+            {"name": "batch_size", "type_hint": "int"},
+            {"name": "image_size", "type_hint": "List[int]"},
+            {"name": "shuffle", "type_hint": "bool"},
+            {"name": "buffer_size", "type_hint": "int"},
+            {"name": "augment", "type_hint": "bool"},
+            {"name": "preprocessing_pipeline", "type_hint": "str"}
+          ]
+        }
+      ],
+      "loss_functions": [
+        {
+          "name": "Custom Focal Loss (custom)",
+          "file_path": "./custom_functions/loss_functions/focal_loss.py",
+          "function_name": "focal_loss",
+          "type": "function",
+          "file_content": "import tensorflow as tf\n\ndef focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0, from_logits=False):\n    \"\"\"\n    Focal Loss for addressing class imbalance.\n    \n    Args:\n        y_true: Ground truth labels\n        y_pred: Predicted labels\n        alpha: Balancing factor for rare class\n        gamma: Focusing parameter\n        from_logits: Whether predictions are logits\n    \n    Returns:\n        Focal loss value\n    \"\"\"\n    if from_logits:\n        y_pred = tf.nn.sigmoid(y_pred)\n    \n    # Calculate focal loss\n    alpha_t = y_true * alpha + (1 - y_true) * (1 - alpha)\n    p_t = y_true * y_pred + (1 - y_true) * (1 - y_pred)\n    focal_weight = alpha_t * tf.pow((1 - p_t), gamma)\n    \n    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)\n    focal_loss = focal_weight * bce\n    \n    return tf.reduce_mean(focal_loss)",
+          "file_size": 756,
+          "file_checksum": "f1e2d3c4b5a69870",
+          "relative_file_path": "focal_loss.py",
+          "sharing_enabled": true,
+          "dependencies": ["tensorflow"],
+          "imports": ["tensorflow"],
+          "docstring": "Focal Loss for addressing class imbalance.",
+          "parameters_info": [
+            {"name": "y_true"},
+            {"name": "y_pred"},
+            {"name": "alpha", "type_hint": "Any"},
+            {"name": "gamma", "type_hint": "Any"},
+            {"name": "from_logits", "type_hint": "Any"}
+          ]
+        }
+      ],
+      "augmentations": [],
+      "callbacks": [],
+      "preprocessing": [],
+      "metrics": [],
+      "optimizers": []
+    }
+  }
+}

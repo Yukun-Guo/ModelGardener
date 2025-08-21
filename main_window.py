@@ -27,6 +27,8 @@ from loss_functions_group import LossFunctionsGroup
 from metrics_group import MetricsGroup
 from optimizer_group import OptimizerGroup
 from data_loader_group import DataLoaderGroup
+from config_manager import ConfigManager
+from custom_functions_loader import CustomFunctionsLoader
 from bridge_callback import BRIDGE
 from trainer_thread import TFModelsTrainerThread
 import pyqtgraph.parametertree.parameterTypes as pTypes
@@ -70,6 +72,9 @@ class MainWindow(QMainWindow):
         self.trainer_thread: TFModelsTrainerThread = None
         self.resume_ckpt_path = None
         self.tb_proc = None
+        
+        # Initialize enhanced configuration manager
+        self.config_manager = ConfigManager(self)
 
         # left layout: config tree + augment controls + controls
         left_layout = QVBoxLayout()
@@ -82,6 +87,16 @@ class MainWindow(QMainWindow):
         btn_save_json.clicked.connect(lambda: self.save_config("json"))
         btn_save_yaml = QPushButton("Save YAML")
         btn_save_yaml.clicked.connect(lambda: self.save_config("yaml"))
+        
+        # Add auto-reload button
+        btn_auto_reload = QPushButton("Auto-Reload Custom Functions")
+        btn_auto_reload.clicked.connect(self.show_auto_reload_dialog)
+        btn_auto_reload.setToolTip("Reload custom functions from the last loaded configuration")
+        
+        # Add export package button
+        btn_export_package = QPushButton("Export Shareable Package")
+        btn_export_package.clicked.connect(self.export_shareable_package)
+        btn_export_package.setToolTip("Create a complete shareable package with custom functions")
         
         # Apply consistent styling to config buttons
         button_style = """
@@ -103,14 +118,45 @@ class MainWindow(QMainWindow):
                 background-color: #5d6a6b;
             }
         """
+        
+        # Auto-reload button gets a different color to distinguish it
+        auto_reload_style = """
+            QPushButton {
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 11pt;
+                font-weight: 500;
+                padding: 8px 16px;
+                background-color: #3498db;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+        """
+        
         btn_load_config.setStyleSheet(button_style)
         btn_save_json.setStyleSheet(button_style)
         btn_save_yaml.setStyleSheet(button_style)
+        btn_export_package.setStyleSheet(button_style)
+        btn_auto_reload.setStyleSheet(auto_reload_style)
         
         config_buttons_layout.addWidget(btn_load_config)
         config_buttons_layout.addWidget(btn_save_json)
         config_buttons_layout.addWidget(btn_save_yaml)
+        config_buttons_layout.addWidget(btn_export_package)
+        config_buttons_layout.addWidget(btn_auto_reload)
         config_buttons_layout.addStretch()  # Add stretch to push buttons to left
+        
+        # Store the auto-reload button for later use
+        self.btn_auto_reload = btn_auto_reload
+        self.last_loaded_custom_functions = None
+        
         left_layout.addLayout(config_buttons_layout)
         
         # Create ParameterTree with comprehensive config data organized in Basic/Advanced sections
@@ -808,29 +854,412 @@ class MainWindow(QMainWindow):
 
     # file ops
     def save_config(self, fmt="json"):
+        """Enhanced save configuration with custom functions support."""
         self.sync_aug_to_cfg()
-        path, _ = QFileDialog.getSaveFileName(self, "Save config", filter=f"*.{fmt}")
+        
+        # Determine file extension
+        ext = "json" if fmt == "json" else "yaml"
+        filter_str = f"*.{ext}"
+        
+        path, _ = QFileDialog.getSaveFileName(self, "Save config", filter=filter_str)
         if not path:
             return
-        with open(path, "w", encoding="utf-8") as f:
-            if fmt == "json":
-                json.dump(self.gui_cfg, f, indent=2, ensure_ascii=False)
-            else:
-                yaml.dump(self.gui_cfg, f, allow_unicode=True)
-        QMessageBox.information(self, "Saved", f"Saved config to {path}")
+            
+        # Ensure proper extension
+        if not path.endswith(f".{ext}"):
+            path += f".{ext}"
+        
+        try:
+            # Collect custom functions information from parameter tree
+            custom_functions_info = None
+            if hasattr(self, 'params'):
+                custom_functions_info = self.config_manager.collect_custom_functions_info(self.params)
+            
+            # Save enhanced configuration
+            success = self.config_manager.save_enhanced_config(
+                self.gui_cfg, 
+                path, 
+                custom_functions_info
+            )
+            
+            if success:
+                QMessageBox.information(self, "Saved", 
+                    f"Saved enhanced config to {path}\n\n"
+                    f"Custom functions info included: {len(custom_functions_info or {}) > 0}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save configuration:\n{str(e)}")
 
     def load_config(self):
+        """Enhanced load configuration with custom functions support."""
         path, _ = QFileDialog.getOpenFileName(self, "Load config", filter="*.json *.yaml *.yml")
         if not path:
             return
-        with open(path, "r", encoding="utf-8") as f:
-            if path.endswith(".json"):
-                self.gui_cfg = json.load(f)
+            
+        try:
+            # Load enhanced configuration
+            config_data, custom_functions_info = self.config_manager.load_enhanced_config(path)
+            
+            if config_data is None:
+                return  # Error already shown by config_manager
+            
+            # Update configuration
+            self.gui_cfg = config_data
+            self.apply_cfg_to_widgets()
+            self.refresh_tree()
+            
+            # Store custom functions info for later auto-reload
+            self.last_loaded_custom_functions = custom_functions_info
+            
+            # Show info about loaded configuration
+            custom_count = sum(len(funcs) for funcs in (custom_functions_info or {}).values())
+            info_msg = f"Loaded: {path}"
+            
+            if custom_count > 0:
+                info_msg += f"\n\nFound {custom_count} custom function(s) to reload:"
+                for func_type, funcs in custom_functions_info.items():
+                    if funcs:
+                        info_msg += f"\n- {func_type.replace('_', ' ').title()}: {len(funcs)}"
+                
+                info_msg += "\n\nClick 'Auto-Reload Custom Functions' to automatically reload them,"
+                info_msg += "\nor manually reload them using the respective 'Load Custom...' buttons."
+                
+                # Show option to auto-reload custom functions
+                reply = QMessageBox.question(self, "Configuration Loaded", 
+                    info_msg + "\n\nAuto-reload custom functions now?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes)
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    self.auto_reload_custom_functions(custom_functions_info)
             else:
-                self.gui_cfg = yaml.safe_load(f)
-        self.apply_cfg_to_widgets()
-        self.refresh_tree()
-        QMessageBox.information(self, "Loaded", f"Loaded: {path}")
+                QMessageBox.information(self, "Loaded", info_msg)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load configuration:\n{str(e)}")
+    
+    def auto_reload_custom_functions(self, custom_functions_info: Dict[str, Any]):
+        """Automatically reload custom functions from metadata."""
+        if not custom_functions_info:
+            return
+            
+        try:
+            reload_results = []
+            total_attempted = 0
+            total_successful = 0
+            
+            # Reload data loaders
+            for loader_info in custom_functions_info.get('data_loaders', []):
+                total_attempted += 1
+                file_path = loader_info['file_path']
+                function_name = loader_info['original_name']
+                
+                if os.path.exists(file_path):
+                    try:
+                        # Find the data loader group
+                        basic_group = self.params.child('basic')
+                        data_group = basic_group.child('data') if basic_group else None
+                        data_loader_group = data_group.child('data_loader') if data_group else None
+                        
+                        if data_loader_group:
+                            success = CustomFunctionsLoader.load_custom_data_loader_from_file(
+                                data_loader_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Data loader: {loader_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Data loader failed: {loader_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Data loader group not accessible: {loader_info['name']}")
+                    except Exception as e:
+                        reload_results.append(f"✗ Data loader error: {loader_info['name']} - {e}")
+                else:
+                    reload_results.append(f"✗ Data loader file not found: {file_path}")
+            
+            # Reload loss functions
+            for loss_info in custom_functions_info.get('loss_functions', []):
+                total_attempted += 1
+                file_path = loss_info['file_path']
+                function_name = loss_info['function_name']
+                
+                if os.path.exists(file_path):
+                    try:
+                        # Find the loss functions group
+                        basic_group = self.params.child('basic')
+                        model_group = basic_group.child('model') if basic_group else None
+                        loss_group = model_group.child('loss_functions') if model_group else None
+                        
+                        if loss_group:
+                            success = CustomFunctionsLoader.load_custom_loss_function_from_file(
+                                loss_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Loss function: {loss_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Loss function failed: {loss_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Loss function group not accessible: {loss_info['name']}")
+                    except Exception as e:
+                        reload_results.append(f"✗ Loss function error: {loss_info['name']} - {e}")
+                else:
+                    reload_results.append(f"✗ Loss function file not found: {file_path}")
+            
+            # Reload augmentations
+            for aug_info in custom_functions_info.get('augmentations', []):
+                total_attempted += 1
+                file_path = aug_info['file_path']
+                function_name = aug_info['function_name']
+                
+                if os.path.exists(file_path):
+                    try:
+                        # Find the augmentation group
+                        advanced_group = self.params.child('advanced')
+                        aug_group = advanced_group.child('augmentation') if advanced_group else None
+                        
+                        if aug_group:
+                            success = CustomFunctionsLoader.load_custom_augmentation_from_file(
+                                aug_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Augmentation: {aug_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Augmentation failed: {aug_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Augmentation group not accessible: {aug_info['name']}")
+                    except Exception as e:
+                        reload_results.append(f"✗ Augmentation error: {aug_info['name']} - {e}")
+                else:
+                    reload_results.append(f"✗ Augmentation file not found: {file_path}")
+            
+            # Reload callbacks
+            for callback_info in custom_functions_info.get('callbacks', []):
+                total_attempted += 1
+                file_path = callback_info['file_path']
+                function_name = callback_info['function_name']
+                
+                if os.path.exists(file_path):
+                    try:
+                        # Find the callbacks group
+                        advanced_group = self.params.child('advanced')
+                        callback_group = advanced_group.child('callbacks') if advanced_group else None
+                        
+                        if callback_group:
+                            success = CustomFunctionsLoader.load_custom_callback_from_file(
+                                callback_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Callback: {callback_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Callback failed: {callback_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Callback group not accessible: {callback_info['name']}")
+                    except Exception as e:
+                        reload_results.append(f"✗ Callback error: {callback_info['name']} - {e}")
+                else:
+                    reload_results.append(f"✗ Callback file not found: {file_path}")
+            
+            # Reload preprocessing
+            for prep_info in custom_functions_info.get('preprocessing', []):
+                total_attempted += 1
+                file_path = prep_info['file_path']
+                function_name = prep_info['function_name']
+                
+                if os.path.exists(file_path):
+                    try:
+                        # Find the preprocessing group
+                        basic_group = self.params.child('basic')
+                        data_group = basic_group.child('data') if basic_group else None
+                        prep_group = data_group.child('preprocessing') if data_group else None
+                        
+                        if prep_group:
+                            success = CustomFunctionsLoader.load_custom_preprocessing_from_file(
+                                prep_group, file_path, function_name
+                            )
+                            if success:
+                                reload_results.append(f"✓ Preprocessing: {prep_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Preprocessing failed: {prep_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Preprocessing group not accessible: {prep_info['name']}")
+                    except Exception as e:
+                        reload_results.append(f"✗ Preprocessing error: {prep_info['name']} - {e}")
+                else:
+                    reload_results.append(f"✗ Preprocessing file not found: {file_path}")
+            
+            # Reload optimizers
+            for opt_info in custom_functions_info.get('optimizers', []):
+                total_attempted += 1
+                function_name = opt_info['function_name']
+                
+                try:
+                    # Find the optimizer group
+                    basic_group = self.params.child('basic')
+                    model_group = basic_group.child('model') if basic_group else None
+                    optimizer_group = model_group.child('optimizer') if model_group else None
+                    
+                    if optimizer_group:
+                        # Note: For optimizers, we need the file path which might not be stored
+                        # This is a limitation of the current optimizer storage system
+                        reload_results.append(f"⚠ Optimizer: {opt_info['name']} (needs manual reload)")
+                    else:
+                        reload_results.append(f"✗ Optimizer group not accessible: {opt_info['name']}")
+                except Exception as e:
+                    reload_results.append(f"✗ Optimizer error: {opt_info['name']} - {e}")
+            
+            # Show results
+            if reload_results:
+                result_msg = f"Custom Functions Auto-Reload Results ({total_successful}/{total_attempted} successful):\n\n"
+                result_msg += "\n".join(reload_results)
+                
+                if total_successful == total_attempted:
+                    QMessageBox.information(self, "Auto-Reload Complete", result_msg)
+                else:
+                    result_msg += "\n\nSome functions failed to reload. You may need to:"
+                    result_msg += "\n• Check if the source files still exist"
+                    result_msg += "\n• Manually reload failed functions using 'Load Custom...' buttons"
+                    result_msg += "\n• Update file paths if they have changed"
+                    QMessageBox.warning(self, "Auto-Reload Partial Success", result_msg)
+            else:
+                QMessageBox.information(self, "Auto-Reload", 
+                    "No custom functions were found to reload.")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Auto-Reload Error", 
+                f"Failed to auto-reload custom functions:\n{str(e)}")
+    
+    def show_auto_reload_dialog(self):
+        """Show dialog to auto-reload custom functions from last loaded configuration."""
+        if not hasattr(self, 'last_loaded_custom_functions') or not self.last_loaded_custom_functions:
+            QMessageBox.information(self, "No Custom Functions", 
+                "No custom functions information available.\n\n"
+                "Load a configuration file that contains custom functions metadata first.")
+            return
+        
+        # Show dialog with information about what will be reloaded
+        custom_count = sum(len(funcs) for funcs in self.last_loaded_custom_functions.values())
+        if custom_count == 0:
+            QMessageBox.information(self, "No Custom Functions", 
+                "The last loaded configuration doesn't contain any custom functions.")
+            return
+        
+        info_msg = f"Found {custom_count} custom function(s) to reload:\n\n"
+        for func_type, funcs in self.last_loaded_custom_functions.items():
+            if funcs:
+                info_msg += f"• {func_type.replace('_', ' ').title()}: {len(funcs)}\n"
+                for func in funcs:
+                    info_msg += f"  - {func['name']}\n"
+        
+        info_msg += "\nProceed with auto-reload?"
+        
+        reply = QMessageBox.question(self, "Auto-Reload Custom Functions", info_msg,
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                   QMessageBox.StandardButton.Yes)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.auto_reload_custom_functions(self.last_loaded_custom_functions)
+
+    def export_shareable_package(self):
+        """Export a complete shareable package with configuration and custom functions."""
+        try:
+            # Sync current configuration
+            self.sync_aug_to_cfg()
+            
+            # Get directory to save the package
+            package_dir = QFileDialog.getExistingDirectory(
+                self, 
+                "Select Directory for Shareable Package",
+                ""
+            )
+            
+            if not package_dir:
+                return
+            
+            # Create a subdirectory with timestamp for the package
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            package_name = f"ModelGardener_Config_Package_{timestamp}"
+            full_package_path = os.path.join(package_dir, package_name)
+            
+            # Collect custom functions information
+            custom_functions_info = None
+            if hasattr(self, 'params'):
+                custom_functions_info = self.config_manager.collect_custom_functions_info(self.params)
+            
+            # Check if there are any custom functions
+            custom_count = sum(len(funcs) for funcs in (custom_functions_info or {}).values()) if custom_functions_info else 0
+            
+            if custom_count == 0:
+                reply = QMessageBox.question(
+                    self, "No Custom Functions",
+                    "No custom functions were found in the current configuration.\n\n"
+                    "Do you want to create a package with just the base configuration?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+            
+            # Create the package
+            success = self.config_manager.create_shareable_package(
+                self.gui_cfg,
+                full_package_path,
+                custom_functions_info,
+                include_readme=True
+            )
+            
+            if success:
+                # Show success message with details
+                message = f"Shareable package created successfully!\n\n"
+                message += f"Location: {full_package_path}\n\n"
+                message += "Package contents:\n"
+                message += "• model_config.json - Configuration file\n"
+                
+                if custom_count > 0:
+                    message += f"• custom_functions/ - {custom_count} custom function file(s)\n"
+                    message += "• custom_functions_manifest.json - Function metadata\n"
+                    message += "• setup_custom_functions.py - Setup script\n"
+                
+                message += "• README.md - Setup instructions\n\n"
+                message += "This package can be shared with others and easily imported into ModelGardener."
+                
+                QMessageBox.information(self, "Package Created", message)
+                
+                # Ask if user wants to open the package directory
+                reply = QMessageBox.question(
+                    self, "Open Package Directory",
+                    "Would you like to open the package directory?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes
+                )
+                
+                if reply == QMessageBox.StandardButton.Yes:
+                    try:
+                        # Open file explorer (works on Windows, macOS, and most Linux distros)
+                        import subprocess
+                        import platform
+                        
+                        if platform.system() == "Windows":
+                            subprocess.run(["explorer", full_package_path])
+                        elif platform.system() == "Darwin":  # macOS
+                            subprocess.run(["open", full_package_path])
+                        else:  # Linux and others
+                            subprocess.run(["xdg-open", full_package_path])
+                    except Exception as e:
+                        QMessageBox.information(
+                            self, "Cannot Open Directory",
+                            f"Could not automatically open the directory:\n{str(e)}\n\n"
+                            f"Please navigate to: {full_package_path}"
+                        )
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", 
+                f"Failed to create shareable package:\n{str(e)}")
 
     # data/model path
     def set_train_dir(self):
