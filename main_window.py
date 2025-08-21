@@ -56,75 +56,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("🤖 ModelGardener - TensorFlow Training GUI")
         self.resize(1600, 1000)
         
-        # Set comprehensive professional styling with consistent color scheme
-        self.setStyleSheet("""
-            /* Main window and base widget styling */
-            QMainWindow {
-                background-color: #f7f8fc;
-            }
-            QWidget {
-                font-family: 'Segoe UI', 'Arial', sans-serif;
-                color: #2c3e50;
-            }
-            
-            /* Tab widget styling */
-            QTabWidget::pane {
-                border: 1px solid #bdc3c7;
-                background-color: white;
-                border-radius: 4px;
-            }
-            QTabWidget::tab-bar {
-                alignment: left;
-            }
-            QTabBar::tab {
-                background-color: #ecf0f1;
-                color: #2c3e50;
-                border: 1px solid #bdc3c7;
-                border-bottom-color: transparent;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-radius: 4px 4px 0px 0px;
-                font-weight: 500;
-            }
-            QTabBar::tab:selected {
-                background-color: white;
-                color: #2c3e50;
-                border-bottom-color: white;
-                font-weight: 600;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #d5dbdb;
-                color: #2c3e50;
-            }
-            
-            /* Text edit and plain text edit styling */
-            QPlainTextEdit, QTextEdit {
-                background-color: white;
-                border: 1px solid #bdc3c7;
-                border-radius: 4px;
-                padding: 8px;
-                font-size: 11pt;
-                color: #2c3e50;
-                selection-background-color: #3498db;
-                selection-color: white;
-            }
-            QPlainTextEdit:focus, QTextEdit:focus {
-                border-color: #3498db;
-            }
-            
-            /* Label styling */
-            QLabel {
-                color: #2c3e50;
-                font-weight: 500;
-            }
-            
-            /* Scroll area styling */
-            QScrollArea {
-                background-color: white;
-                border: 1px solid #bdc3c7;
-                border-radius: 4px;
-            }
-        """)
 
         # initialize GUI config (comprehensive TensorFlow Models config)
         comprehensive_config = self.create_comprehensive_config()
@@ -188,7 +119,7 @@ class MainWindow(QMainWindow):
         self.tree.setParameters(self.params, showTop=False)
         
         # Apply professional styling to the parameter tree
-        self._apply_parameter_tree_styling()
+        #self._apply_parameter_tree_styling()
         
         # Set up directory parameter callbacks
         self._setup_directory_callbacks()
@@ -567,6 +498,7 @@ class MainWindow(QMainWindow):
             QTreeWidget::item {
                 padding: 6px;
                 margin: 2px;
+                height: 30px;
                 border-bottom: 1px solid #ecf0f1;
                 color: #2c3e50;
                 font-weight: 500;
