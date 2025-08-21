@@ -83,20 +83,11 @@ class MainWindow(QMainWindow):
         config_buttons_layout = QHBoxLayout()
         btn_load_config = QPushButton("Load Config")
         btn_load_config.clicked.connect(self.load_config)
-        btn_save_json = QPushButton("Save JSON")
-        btn_save_json.clicked.connect(lambda: self.save_config("json"))
-        btn_save_yaml = QPushButton("Save YAML")
-        btn_save_yaml.clicked.connect(lambda: self.save_config("yaml"))
         
-        # Add auto-reload button
-        btn_auto_reload = QPushButton("Auto-Reload Custom Functions")
-        btn_auto_reload.clicked.connect(self.show_auto_reload_dialog)
-        btn_auto_reload.setToolTip("Reload custom functions from the last loaded configuration")
-        
-        # Add export package button
-        btn_export_package = QPushButton("Export Shareable Package")
-        btn_export_package.clicked.connect(self.export_shareable_package)
-        btn_export_package.setToolTip("Create a complete shareable package with custom functions")
+        # Rename export package button to save configuration
+        btn_save_configuration = QPushButton("Save Configuration")
+        btn_save_configuration.clicked.connect(self.export_shareable_package)
+        btn_save_configuration.setToolTip("Save configuration with embedded custom functions")
         
         # Apply consistent styling to config buttons
         button_style = """
@@ -120,41 +111,34 @@ class MainWindow(QMainWindow):
         """
         
         # Auto-reload button gets a different color to distinguish it
-        auto_reload_style = """
+        save_config_style = """
             QPushButton {
                 font-family: 'Segoe UI', 'Arial', sans-serif;
                 font-size: 11pt;
                 font-weight: 500;
                 padding: 8px 16px;
-                background-color: #3498db;
+                background-color: #27ae60;
                 color: white;
                 border: none;
                 border-radius: 6px;
                 min-width: 100px;
             }
             QPushButton:hover {
-                background-color: #2980b9;
+                background-color: #229954;
             }
             QPushButton:pressed {
-                background-color: #21618c;
+                background-color: #1e8449;
             }
         """
         
         btn_load_config.setStyleSheet(button_style)
-        btn_save_json.setStyleSheet(button_style)
-        btn_save_yaml.setStyleSheet(button_style)
-        btn_export_package.setStyleSheet(button_style)
-        btn_auto_reload.setStyleSheet(auto_reload_style)
+        btn_save_configuration.setStyleSheet(save_config_style)
         
         config_buttons_layout.addWidget(btn_load_config)
-        config_buttons_layout.addWidget(btn_save_json)
-        config_buttons_layout.addWidget(btn_save_yaml)
-        config_buttons_layout.addWidget(btn_export_package)
-        config_buttons_layout.addWidget(btn_auto_reload)
+        config_buttons_layout.addWidget(btn_save_configuration)
         config_buttons_layout.addStretch()  # Add stretch to push buttons to left
         
-        # Store the auto-reload button for later use
-        self.btn_auto_reload = btn_auto_reload
+        # Store reference for later use
         self.last_loaded_custom_functions = None
         
         left_layout.addLayout(config_buttons_layout)
@@ -853,43 +837,6 @@ class MainWindow(QMainWindow):
             self.append_log(f"Could not write back tree data: {e}")
 
     # file ops
-    def save_config(self, fmt="json"):
-        """Enhanced save configuration with custom functions support."""
-        self.sync_aug_to_cfg()
-        
-        # Determine file extension
-        ext = "json" if fmt == "json" else "yaml"
-        filter_str = f"*.{ext}"
-        
-        path, _ = QFileDialog.getSaveFileName(self, "Save config", filter=filter_str)
-        if not path:
-            return
-            
-        # Ensure proper extension
-        if not path.endswith(f".{ext}"):
-            path += f".{ext}"
-        
-        try:
-            # Collect custom functions information from parameter tree
-            custom_functions_info = None
-            if hasattr(self, 'params'):
-                custom_functions_info = self.config_manager.collect_custom_functions_info(self.params)
-            
-            # Save enhanced configuration
-            success = self.config_manager.save_enhanced_config(
-                self.gui_cfg, 
-                path, 
-                custom_functions_info
-            )
-            
-            if success:
-                QMessageBox.information(self, "Saved", 
-                    f"Saved enhanced config to {path}\n\n"
-                    f"Custom functions info included: {len(custom_functions_info or {}) > 0}")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Failed to save configuration:\n{str(e)}")
-
     def load_config(self):
         """Enhanced load configuration with custom functions support."""
         path, _ = QFileDialog.getOpenFileName(self, "Load config", filter="*.json *.yaml *.yml")
@@ -1131,40 +1078,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Auto-Reload Error", 
                 f"Failed to auto-reload custom functions:\n{str(e)}")
-    
-    def show_auto_reload_dialog(self):
-        """Show dialog to auto-reload custom functions from last loaded configuration."""
-        if not hasattr(self, 'last_loaded_custom_functions') or not self.last_loaded_custom_functions:
-            QMessageBox.information(self, "No Custom Functions", 
-                "No custom functions information available.\n\n"
-                "Load a configuration file that contains custom functions metadata first.")
-            return
-        
-        # Show dialog with information about what will be reloaded
-        custom_count = sum(len(funcs) for funcs in self.last_loaded_custom_functions.values())
-        if custom_count == 0:
-            QMessageBox.information(self, "No Custom Functions", 
-                "The last loaded configuration doesn't contain any custom functions.")
-            return
-        
-        info_msg = f"Found {custom_count} custom function(s) to reload:\n\n"
-        for func_type, funcs in self.last_loaded_custom_functions.items():
-            if funcs:
-                info_msg += f"• {func_type.replace('_', ' ').title()}: {len(funcs)}\n"
-                for func in funcs:
-                    info_msg += f"  - {func['name']}\n"
-        
-        info_msg += "\nProceed with auto-reload?"
-        
-        reply = QMessageBox.question(self, "Auto-Reload Custom Functions", info_msg,
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                   QMessageBox.StandardButton.Yes)
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            self.auto_reload_custom_functions(self.last_loaded_custom_functions)
 
     def export_shareable_package(self):
-        """Export a complete shareable package with configuration and custom functions."""
+        """Save configuration with embedded custom functions and create shareable package."""
         try:
             # Sync current configuration
             self.sync_aug_to_cfg()
@@ -1172,7 +1088,7 @@ class MainWindow(QMainWindow):
             # Get directory to save the package
             package_dir = QFileDialog.getExistingDirectory(
                 self, 
-                "Select Directory for Shareable Package",
+                "Select Directory to Save Configuration",
                 ""
             )
             
@@ -1215,7 +1131,7 @@ class MainWindow(QMainWindow):
             
             if success:
                 # Show success message with details
-                message = f"Shareable package created successfully!\n\n"
+                message = f"Configuration saved successfully!\n\n"
                 message += f"Location: {full_package_path}\n\n"
                 message += "Package contents:\n"
                 message += "• model_config.json - Configuration file\n"
@@ -1226,14 +1142,14 @@ class MainWindow(QMainWindow):
                     message += "• setup_custom_functions.py - Setup script\n"
                 
                 message += "• README.md - Setup instructions\n\n"
-                message += "This package can be shared with others and easily imported into ModelGardener."
+                message += "This configuration can be shared with others and easily imported into ModelGardener."
                 
-                QMessageBox.information(self, "Package Created", message)
+                QMessageBox.information(self, "Configuration Saved", message)
                 
-                # Ask if user wants to open the package directory
+                # Ask if user wants to open the configuration directory
                 reply = QMessageBox.question(
-                    self, "Open Package Directory",
-                    "Would you like to open the package directory?",
+                    self, "Open Configuration Directory",
+                    "Would you like to open the configuration directory?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes
                 )
@@ -1258,8 +1174,8 @@ class MainWindow(QMainWindow):
                         )
             
         except Exception as e:
-            QMessageBox.critical(self, "Export Error", 
-                f"Failed to create shareable package:\n{str(e)}")
+            QMessageBox.critical(self, "Save Error", 
+                f"Failed to save configuration:\n{str(e)}")
 
     # data/model path
     def set_train_dir(self):
