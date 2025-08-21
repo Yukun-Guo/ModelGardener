@@ -400,7 +400,7 @@ class CallbacksGroup(pTypes.GroupParameter):
         """Load custom callback from metadata info."""
         try:
             file_path = callback_info.get('file_path', '')
-            function_name = callback_info.get('function_name', '')
+            function_name = callback_info.get('function_name', '') or callback_info.get('original_name', '')
             callback_type = callback_info.get('type', 'function')
             
             # Check for empty function name

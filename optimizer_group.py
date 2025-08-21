@@ -388,7 +388,7 @@ class OptimizerGroup(pTypes.GroupParameter):
         """Load custom optimizer from metadata info."""
         try:
             file_path = optimizer_info.get('file_path', '')
-            function_name = optimizer_info.get('function_name', '')
+            function_name = optimizer_info.get('function_name', '') or optimizer_info.get('original_name', '')
             optimizer_type = optimizer_info.get('type', 'function')
             
             # Check for empty function name

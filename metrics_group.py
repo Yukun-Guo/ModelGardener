@@ -1373,7 +1373,7 @@ class MetricsGroup(pTypes.GroupParameter):
         """Load custom metric from metadata info."""
         try:
             file_path = metric_info.get('file_path', '')
-            function_name = metric_info.get('function_name', '')
+            function_name = metric_info.get('function_name', '') or metric_info.get('original_name', '')
             metric_type = metric_info.get('type', 'function')
             
             # Check for empty function name

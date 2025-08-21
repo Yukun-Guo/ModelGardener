@@ -428,7 +428,7 @@ class PreprocessingGroup(pTypes.GroupParameter):
         """Load custom preprocessing from metadata info."""
         try:
             file_path = preprocessing_info.get('file_path', '')
-            function_name = preprocessing_info.get('function_name', '')
+            function_name = preprocessing_info.get('function_name', '') or preprocessing_info.get('original_name', '')
             preprocessing_type = preprocessing_info.get('type', 'function')
             
             # Check for empty function name

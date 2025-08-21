@@ -611,7 +611,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
         """Load custom loss function from metadata info."""
         try:
             file_path = loss_info.get('file_path', '')
-            function_name = loss_info.get('function_name', '')
+            function_name = loss_info.get('function_name', '') or loss_info.get('original_name', '')
             loss_type = loss_info.get('type', 'function')
             
             # Check for empty function name
