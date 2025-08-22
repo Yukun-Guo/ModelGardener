@@ -86,6 +86,16 @@ class ModelGroup(GroupParameter):
     def _update_model_parameters(self):
         """Update parameters based on the current model selection."""
         try:
+            # Preserve custom model file path if it exists
+            custom_model_file_path = None
+            try:
+                existing_custom_param = self.child('custom_model_file_path')
+                if existing_custom_param:
+                    custom_model_file_path = existing_custom_param.value()
+            except (KeyError, AttributeError):
+                # No existing custom model file path parameter
+                pass
+            
             # Clear existing parameters
             current_children = list(self.children())
             for child in current_children:
@@ -107,6 +117,17 @@ class ModelGroup(GroupParameter):
                     value='{}',
                     tip='Additional keyword arguments as JSON string (e.g., {"dropout": 0.5, "activation": "relu"})'
                 ))
+            
+            # Restore custom model file path parameter if it existed
+            if custom_model_file_path and PYQTGRAPH_AVAILABLE:
+                file_path_param = {
+                    'name': 'custom_model_file_path',
+                    'type': 'str',
+                    'value': custom_model_file_path,
+                    'readonly': True,
+                    'tip': f'Custom model file path: {os.path.basename(custom_model_file_path)}'
+                }
+                self.addChild(Parameter.create(**file_path_param))
                     
         except Exception as e:
             print(f"Error updating model parameters: {e}")
@@ -1053,16 +1074,31 @@ class ModelGroup(GroupParameter):
                     ]
                     
                     # Check if function likely returns a model
-                    if (any(param in params for param in model_indicators) or
+                    name_suggests_model = (
                         'model' in name.lower() or
                         'create' in name.lower() or
-                        'build' in name.lower()):
+                        'build' in name.lower()
+                    )
+                    
+                    has_model_params = any(param in params for param in model_indicators)
+                    
+                    # Exclude functions that clearly aren't models
+                    not_a_model = (
+                        name.startswith('helper') or
+                        name.startswith('not_a') or
+                        name.startswith('test_') or
+                        'helper' in name.lower() or
+                        len(params) == 0  # Functions with no parameters are less likely to be models
+                    )
+                    
+                    if (has_model_params or name_suggests_model) and not not_a_model:
+                        confidence = 'high' if has_model_params else 'medium'
                         model_functions.append({
                             'name': name,
                             'object': obj,
                             'parameters': params,
                             'signature': str(sig),
-                            'confidence': 'high' if any(param in params for param in ['input_shape', 'num_classes']) else 'medium'
+                            'confidence': confidence
                         })
                 
                 elif inspect.isclass(obj) and not name.startswith('_'):
@@ -1074,8 +1110,9 @@ class ModelGroup(GroupParameter):
                     
                     # Check if class inherits from keras Model or has model-like methods
                     try:
-                        is_keras_model = (hasattr(tf.keras.models, 'Model') and 
-                                        issubclass(obj, tf.keras.models.Model))
+                        is_keras_model = False
+                        if hasattr(tf, 'keras') and hasattr(tf.keras, 'models') and hasattr(tf.keras.models, 'Model'):
+                            is_keras_model = issubclass(obj, tf.keras.models.Model)
                         
                         has_call_method = hasattr(obj, '__call__') or hasattr(obj, 'call')
                         has_init_with_model_params = False
@@ -1160,114 +1197,38 @@ class ModelGroup(GroupParameter):
     def _add_custom_model_parameters(self, model_info):
         """Add parameters specific to the custom model."""
         try:
-            # Remove existing custom parameters
+            # Remove any existing custom model file path parameter
             try:
-                existing_custom = self.child('custom_model_info')
-                if existing_custom:
-                    self.removeChild(existing_custom)
-            except KeyError:
-                # No existing custom model info, which is fine
+                existing_file_path = self.child('custom_model_file_path')
+                if existing_file_path:
+                    self.removeChild(existing_file_path)
+            except (KeyError, AttributeError):
+                # No existing custom model file path, which is fine
                 pass
             
-            # Create detailed custom model info based on type
-            children = [
-                {
-                    'name': 'selected_model',
-                    'type': 'str',
-                    'value': model_info['name'],
-                    'readonly': True,
-                    'tip': f'Currently selected custom {model_info["type"]}'
-                },
-                {
-                    'name': 'model_type',
-                    'type': 'str',
-                    'value': model_info['type'],
-                    'readonly': True,
-                    'tip': 'Type of custom model (function or class)'
-                },
-                {
-                    'name': 'file_path',
-                    'type': 'str', 
-                    'value': os.path.basename(model_info['file_path']),
-                    'readonly': True,
-                    'tip': 'Source file for the custom model'
-                },
-                {
-                    'name': 'use_custom',
-                    'type': 'bool',
-                    'value': True,
-                    'tip': 'Use this custom model instead of built-in model'
-                }
-            ]
+            # Add just the file path parameter right after kwargs
+            # Find kwargs parameter to insert after it
+            kwargs_index = None
+            for i, child in enumerate(self.children()):
+                if child.name() == 'kwargs':
+                    kwargs_index = i + 1
+                    break
             
-            # Show all detected candidates
-            if hasattr(self, 'custom_model_candidates') and len(self.custom_model_candidates) > 1:
-                candidate_names = [f"{model['name']} ({model['type']})" for model in self.custom_model_candidates]
-                children.append({
-                    'name': 'available_models',
-                    'type': 'str',
-                    'value': ', '.join(candidate_names),
-                    'readonly': True,
-                    'tip': 'All detected model candidates in this file'
-                })
-            
-            # Add type-specific information
-            if model_info['type'] == 'function':
-                children.extend([
-                    {
-                        'name': 'signature',
-                        'type': 'str',
-                        'value': model_info.get('signature', 'N/A'),
-                        'readonly': True,
-                        'tip': 'Function signature'
-                    },
-                    {
-                        'name': 'parameters',
-                        'type': 'str',
-                        'value': ', '.join(model_info.get('parameters', [])),
-                        'readonly': True,
-                        'tip': 'Function parameters detected'
-                    }
-                ])
-            elif model_info['type'] == 'class':
-                children.extend([
-                    {
-                        'name': 'base_classes',
-                        'type': 'str',
-                        'value': ', '.join(model_info.get('bases', [])),
-                        'readonly': True,
-                        'tip': 'Base classes this model inherits from'
-                    },
-                    {
-                        'name': 'is_keras_model',
-                        'type': 'bool',
-                        'value': model_info.get('is_keras_model', False),
-                        'readonly': True,
-                        'tip': 'Whether this class inherits from keras.Model'
-                    }
-                ])
-            
-            # Add analysis summary
-            analysis = model_info.get('analysis', {})
-            children.append({
-                'name': 'analysis_summary',
+            file_path_param = {
+                'name': 'custom_model_file_path',
                 'type': 'str',
-                'value': f"File contains {analysis.get('functions_found', 0)} functions, {analysis.get('classes_found', 0)} classes; Found {len(self.custom_model_candidates) if hasattr(self, 'custom_model_candidates') else 0} model candidates",
+                'value': model_info['file_path'],
                 'readonly': True,
-                'tip': 'Summary of analysis performed on the custom model file'
-            })
-            
-            # Add custom model info group
-            custom_params = {
-                'name': 'custom_model_info',
-                'type': 'group',
-                'title': f"Custom Model: {model_info['name']}",
-                'children': children
+                'tip': f'Custom model: {model_info["name"]} ({model_info["type"]}) from {os.path.basename(model_info["file_path"])}'
             }
             
-            # Add the custom model parameters
             if PYQTGRAPH_AVAILABLE:
-                self.addChild(Parameter.create(**custom_params))
+                if kwargs_index is not None:
+                    # Insert after kwargs
+                    self.insertChild(kwargs_index, Parameter.create(**file_path_param))
+                else:
+                    # If no kwargs found, just append
+                    self.addChild(Parameter.create(**file_path_param))
             
         except Exception as e:
             print(f"Error adding custom model parameters: {e}")
@@ -1299,6 +1260,16 @@ class ModelGroup(GroupParameter):
         """Get the current model configuration."""
         config = {}
         
+        # Add custom model metadata if available
+        if hasattr(self, 'custom_model_path') and self.custom_model_path:
+            config['_custom_model_path'] = self.custom_model_path
+        if hasattr(self, 'custom_model_function') and self.custom_model_function:
+            config['_custom_model_info'] = {
+                'name': self.custom_model_function.get('name'),
+                'type': self.custom_model_function.get('type'),
+                'file_path': self.custom_model_function.get('file_path')
+            }
+        
         for child in self.children():
             if child.name() not in ['load_custom_model']:
                 if hasattr(child, 'value'):
@@ -1329,7 +1300,25 @@ class ModelGroup(GroupParameter):
     def set_model_config(self, config):
         """Set the model configuration."""
         try:
+            # Handle custom model loading from configuration
+            if '_custom_model_path' in config and config['_custom_model_path']:
+                custom_model_path = config['_custom_model_path']
+                if os.path.exists(custom_model_path):
+                    print(f"Restoring custom model from config: {custom_model_path}")
+                    success, model_info = self.load_custom_model_from_path(custom_model_path)
+                    if success:
+                        print(f"✅ Custom model restored from configuration: {model_info['name']}")
+                    else:
+                        print(f"❌ Failed to restore custom model: {model_info}")
+                else:
+                    print(f"❌ Custom model file not found: {custom_model_path}")
+            
+            # Set regular parameters
             for key, value in config.items():
+                # Skip internal metadata keys
+                if key.startswith('_custom_model'):
+                    continue
+                    
                 param = self.child(key)
                 if param:
                     if isinstance(value, dict) and param.hasChildren():
@@ -1349,3 +1338,5 @@ class ModelGroup(GroupParameter):
                             param.setValue(value)
         except Exception as e:
             print(f"Error setting model config: {e}")
+            import traceback
+            traceback.print_exc()
