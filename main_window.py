@@ -159,6 +159,9 @@ class MainWindow(QMainWindow):
         # Connect to parameter change signals
         self.params.sigTreeStateChanged.connect(self._on_param_changed)
         
+        # Connect to action button signals (for Load Custom Model button)
+        self._connect_action_buttons(self.params)
+        
         # Add tooltip handling using a simple approach
         try:
             # Install event filter on the parameter tree to catch mouse events
@@ -715,6 +718,43 @@ class MainWindow(QMainWindow):
             self.append_log(f"Error updating config from parameters: {e}")
             self.append_log(f"Error updating config from parameters: {e}")
 
+    def _connect_action_buttons(self, param):
+        """Recursively connect action buttons to their handlers."""
+        try:
+            if hasattr(param, 'sigActivated') and param.name() == 'load_custom_model':
+                param.sigActivated.connect(self._handle_load_custom_model)
+            
+            # Recursively connect children
+            for child in param.children():
+                self._connect_action_buttons(child)
+        except Exception as e:
+            print(f"Error connecting action buttons: {e}")
+    
+    def _handle_load_custom_model(self):
+        """Handle Load Custom Model button click."""
+        try:
+            # Find the model_parameters ModelGroup
+            model_param_group = self._find_parameter_by_name('model_parameters')
+            if model_param_group and hasattr(model_param_group, 'load_custom_model_and_update_parent'):
+                # Find the model section parameter (parent of model_parameters)
+                model_section_param = self._find_parameter_by_name('model')
+                if model_section_param:
+                    success = model_param_group.load_custom_model_and_update_parent(model_section_param)
+                    if success:
+                        # Update the GUI to reflect the changes
+                        self.gui_cfg = self.params_to_dict(self.params)
+                        self.append_log("✅ Custom model loaded and parameters updated")
+                    else:
+                        self.append_log("❌ Failed to load custom model")
+                else:
+                    self.append_log("❌ Could not find model section parameter")
+            else:
+                self.append_log("❌ Could not find model_parameters group or load method")
+        except Exception as e:
+            self.append_log(f"❌ Error handling load custom model: {e}")
+            import traceback
+            traceback.print_exc()
+
     def _handle_model_config_cascade(self, changes):
         """Handle cascade filtering when task_type, model_family changes."""
         try:
@@ -750,6 +790,11 @@ class MainWindow(QMainWindow):
                         # Get available families for the new task type
                         available_families = list(model_config.get(new_task_type, {}).keys())
                         if available_families:
+                            # Preserve any existing custom_model in the limits
+                            current_limits = model_family_param.opts.get('values', [])
+                            if 'custom_model' in current_limits and 'custom_model' not in available_families:
+                                available_families.append('custom_model')
+                            
                             # Update the limits (dropdown options) for model_family
                             model_family_param.setLimits(available_families)
                             
@@ -887,6 +932,11 @@ class MainWindow(QMainWindow):
             # Update model_family options based on current task_type
             available_families = list(model_config.get(current_task_type, {}).keys())
             if available_families:
+                # Preserve any existing custom_model in the limits
+                current_limits = model_family_param.opts.get('values', [])
+                if 'custom_model' in current_limits and 'custom_model' not in available_families:
+                    available_families.append('custom_model')
+                
                 model_family_param.setLimits(available_families)
                 
                 # Ensure current family is valid for the task
@@ -1009,6 +1059,9 @@ class MainWindow(QMainWindow):
             
             # Reconnect signals
             self.params.sigTreeStateChanged.connect(self._on_param_changed)
+            
+            # Reconnect action buttons
+            self._connect_action_buttons(self.params)
             
         except Exception as e:
             self.append_log(f"Error refreshing tree: {e}")
@@ -2172,6 +2225,20 @@ class MainWindow(QMainWindow):
                 ]
             }
         }
+        
+        # Add custom models if available
+        try:
+            # Find the model_parameters ModelGroup instance
+            model_param_group = self._find_parameter_by_name('model_parameters')
+            if model_param_group and hasattr(model_param_group, 'custom_model_candidates') and model_param_group.custom_model_candidates:
+                custom_model_names = [model['name'] for model in model_param_group.custom_model_candidates]
+                
+                # Add custom_model family to all task types
+                for task_type in model_config:
+                    model_config[task_type]['custom_model'] = custom_model_names
+        except Exception as e:
+            print(f"Note: Could not add custom models to model config: {e}")
+        
         return model_config
 
     def get_parameter_tooltip(self, param_name, section_name=None):
@@ -2581,6 +2648,16 @@ class MainWindow(QMainWindow):
                 }
             
             children = []
+            
+            # Add Load Custom Model button at the top of the model section
+            if name == 'model':
+                children.append({
+                    'name': 'load_custom_model',
+                    'type': 'action',
+                    'title': 'Load Custom Model...',
+                    'tip': 'Load a custom model from a Python file'
+                })
+            
             for key, value in data.items():
                 if isinstance(value, dict):
                     # Nested dictionary - create a group

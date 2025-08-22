@@ -91,20 +91,6 @@ class ModelGroup(GroupParameter):
             for child in current_children:
                 self.removeChild(child)
             
-            # Add custom model loader at the top
-            if PYQTGRAPH_AVAILABLE:
-                self.addChild(Parameter.create(
-                    name='load_custom_model',
-                    type='action',
-                    title='Load Custom Model...',
-                    tip='Load a custom model from a Python file'
-                ))
-                
-                # Connect the custom model button
-                custom_button_param = self.child('load_custom_model')
-                if custom_button_param:
-                    custom_button_param.sigActivated.connect(self._load_custom_model)
-            
             # Get model-specific parameters based on model_name
             model_params = self._get_model_parameters(self.model_name, self.task_type)
             
@@ -197,6 +183,52 @@ class ModelGroup(GroupParameter):
             return 'segnet'
             
         return 'unknown'
+    
+    def _get_available_model_families(self):
+        """Get list of available model families."""
+        if self.task_type == 'image_classification':
+            return ['resnet', 'efficientnet', 'mobilenet', 'vision_transformer', 'densenet', 
+                   'vgg', 'inception', 'xception', 'convnext', 'regnet', 'custom_model']
+        elif self.task_type == 'object_detection':
+            return ['yolo', 'faster_rcnn', 'ssd', 'retinanet', 'efficientdet', 'custom_model']
+        elif self.task_type == 'semantic_segmentation':
+            return ['unet', 'deeplabv3', 'pspnet', 'fcn', 'segnet', 'custom_model']
+        else:
+            return ['custom_model']
+    
+    def _get_available_models_for_family(self, family):
+        """Get list of available models for a specific family."""
+        if family == 'custom_model':
+            # Return custom model names if available
+            if hasattr(self, 'custom_model_candidates') and self.custom_model_candidates:
+                return [model['name'] for model in self.custom_model_candidates]
+            return ['Custom Model']
+        
+        # Return some common models for each family (simplified)
+        model_families = {
+            'resnet': ['ResNet50', 'ResNet101', 'ResNet152', 'ResNet50V2', 'ResNet101V2'],
+            'efficientnet': ['EfficientNetB0', 'EfficientNetB1', 'EfficientNetB2', 'EfficientNetB3', 'EfficientNetB4'],
+            'mobilenet': ['MobileNet', 'MobileNetV2', 'MobileNetV3Small', 'MobileNetV3Large'],
+            'vision_transformer': ['ViT-Base-16', 'ViT-Base-32', 'ViT-Large-16', 'ViT-Large-32'],
+            'densenet': ['DenseNet121', 'DenseNet169', 'DenseNet201'],
+            'vgg': ['VGG16', 'VGG19'],
+            'inception': ['InceptionV3', 'InceptionResNetV2'],
+            'xception': ['Xception'],
+            'convnext': ['ConvNeXtTiny', 'ConvNeXtSmall', 'ConvNeXtBase', 'ConvNeXtLarge'],
+            'regnet': ['RegNetX002', 'RegNetX004', 'RegNetX006', 'RegNetX008'],
+            'yolo': ['YOLO-v5', 'YOLO-v8', 'YOLO-v9', 'YOLO-v10'],
+            'faster_rcnn': ['Faster_R_CNN'],
+            'ssd': ['SSD_MobileNet', 'SSD_ResNet'],
+            'retinanet': ['RetinaNet'],
+            'efficientdet': ['EfficientDet-D0', 'EfficientDet-D1', 'EfficientDet-D2'],
+            'unet': ['U-Net', 'U-Net++', 'Attention-UNet'],
+            'deeplabv3': ['DeepLabV3', 'DeepLabV3+'],
+            'pspnet': ['PSPNet'],
+            'fcn': ['FCN-8s', 'FCN-16s', 'FCN-32s'],
+            'segnet': ['SegNet']
+        }
+        
+        return model_families.get(family, [family.title()])
     
     def _get_classification_parameters(self, model_name, model_family):
         """Get parameters for image classification models based on keras.applications."""
@@ -776,6 +808,149 @@ class ModelGroup(GroupParameter):
             }
         }
     
+    def load_custom_model_and_update_parent(self, parent_parameter):
+        """Load custom model and update parent-level model_family and model_name parameters."""
+        try:
+            if not PYQT5_AVAILABLE:
+                print("GUI not available - custom model loading requires PyQt5")
+                return False
+                
+            file_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "Select Custom Model File",
+                "",
+                "Python Files (*.py);;All Files (*)"
+            )
+            
+            if not file_path:
+                return False
+                
+            # Validate and load the custom model
+            success, model_info = self._validate_custom_model(file_path)
+            
+            if success:
+                self.custom_model_path = file_path
+                self.custom_model_function = model_info
+                
+                # Store custom model candidates for future reference
+                analysis = model_info.get('analysis', {})
+                self.custom_model_candidates = []
+                
+                # Collect all model candidates from analysis
+                for func in analysis.get('model_functions_details', []):
+                    self.custom_model_candidates.append({
+                        'name': func['name'],
+                        'type': 'function',
+                        'confidence': func.get('confidence', 'medium')
+                    })
+                
+                for cls in analysis.get('model_classes_details', []):
+                    self.custom_model_candidates.append({
+                        'name': cls['name'],
+                        'type': 'class',
+                        'confidence': cls.get('confidence', 'medium')
+                    })
+                
+                # Update parent-level model_family parameter
+                model_family_param = parent_parameter.child('model_family')
+                if model_family_param:
+                    current_values = list(model_family_param.opts.get('values', []))
+                    if 'custom_model' not in current_values:
+                        current_values.append('custom_model')
+                        model_family_param.setLimits(current_values)
+                    model_family_param.setValue('custom_model')
+                
+                # Update parent-level model_name parameter 
+                # Note: Don't directly set limits here - let the cascade system handle it
+                # The cascade system will call _get_available_models_for_family('custom_model')
+                model_name_param = parent_parameter.child('model_name')
+                if model_name_param:
+                    # Just set the selected model name, let cascade handle the options
+                    model_name_param.setValue(model_info['name'])
+                    # Update internal model_name
+                    self.model_name = model_info['name']
+                
+                # Update internal ModelGroup parameters to reflect the custom model
+                self._update_model_parameters()
+                
+                # Add custom model info to ModelGroup
+                self._add_custom_model_parameters(model_info)
+                
+                # Show success message
+                success_msg = f"Successfully loaded custom model!\n\n"
+                success_msg += f"Name: {model_info['name']}\n"
+                success_msg += f"Type: {model_info['type']}\n"
+                success_msg += f"File: {os.path.basename(file_path)}\n"
+                
+                if model_info['type'] == 'function':
+                    success_msg += f"Signature: {model_info.get('signature', 'N/A')}\n"
+                    success_msg += f"Parameters: {', '.join(model_info.get('parameters', []))}\n"
+                elif model_info['type'] == 'class':
+                    success_msg += f"Base classes: {', '.join(model_info.get('bases', []))}\n"
+                    success_msg += f"Keras Model: {'Yes' if model_info.get('is_keras_model', False) else 'No'}\n"
+                
+                analysis = model_info.get('analysis', {})
+                success_msg += f"\nFile Analysis:\n"
+                success_msg += f"- Functions found: {analysis.get('functions_found', 0)}\n"
+                success_msg += f"- Classes found: {analysis.get('classes_found', 0)}\n"
+                success_msg += f"- Model candidates: {analysis.get('model_functions', 0)} functions + {analysis.get('model_classes', 0)} classes\n"
+                
+                QMessageBox.information(
+                    None,
+                    "Custom Model Loaded",
+                    success_msg
+                )
+                
+                print(f"✅ Custom model loaded: model_family='custom_model', model_name='{model_info['name']}'")
+                print(f"   Available custom models: {[model['name'] for model in self.custom_model_candidates]}")
+                return True
+            else:
+                QMessageBox.warning(
+                    None,
+                    "Invalid Custom Model",
+                    f"Could not load custom model from {os.path.basename(file_path)}.\n"
+                    f"Error: {model_info}"
+                )
+                return False
+                
+        except Exception as e:
+            if PYQT5_AVAILABLE:
+                QMessageBox.critical(
+                    None,
+                    "Error Loading Custom Model",
+                    f"An error occurred while loading the custom model:\n{str(e)}"
+                )
+            else:
+                print(f"Error loading custom model: {e}")
+            return False
+
+    def load_custom_model_from_path(self, file_path):
+        """Load a custom model from a specified file path (for testing/programmatic use)."""
+        try:
+            if not os.path.exists(file_path):
+                return False, f"File not found: {file_path}"
+                
+            # Validate and load the custom model
+            success, model_info = self._validate_custom_model(file_path)
+            
+            if success:
+                self.custom_model_path = file_path
+                self.custom_model_function = model_info
+                
+                # Add custom model parameters
+                self._add_custom_model_parameters(model_info)
+                
+                print(f"✅ Successfully loaded custom model: {model_info['name']} ({model_info['type']})")
+                return True, model_info
+            else:
+                print(f"❌ Failed to validate custom model: {model_info}")
+                return False, model_info
+                
+        except Exception as e:
+            error_msg = f"Error loading custom model: {e}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
+    
     def _load_custom_model(self):
         """Load a custom model from a Python file."""
         try:
@@ -986,18 +1161,22 @@ class ModelGroup(GroupParameter):
         """Add parameters specific to the custom model."""
         try:
             # Remove existing custom parameters
-            existing_custom = self.child('custom_model_info')
-            if existing_custom:
-                self.removeChild(existing_custom)
+            try:
+                existing_custom = self.child('custom_model_info')
+                if existing_custom:
+                    self.removeChild(existing_custom)
+            except KeyError:
+                # No existing custom model info, which is fine
+                pass
             
             # Create detailed custom model info based on type
             children = [
                 {
-                    'name': 'model_name',
+                    'name': 'selected_model',
                     'type': 'str',
                     'value': model_info['name'],
                     'readonly': True,
-                    'tip': f'Name of the custom {model_info["type"]}'
+                    'tip': f'Currently selected custom {model_info["type"]}'
                 },
                 {
                     'name': 'model_type',
@@ -1020,6 +1199,17 @@ class ModelGroup(GroupParameter):
                     'tip': 'Use this custom model instead of built-in model'
                 }
             ]
+            
+            # Show all detected candidates
+            if hasattr(self, 'custom_model_candidates') and len(self.custom_model_candidates) > 1:
+                candidate_names = [f"{model['name']} ({model['type']})" for model in self.custom_model_candidates]
+                children.append({
+                    'name': 'available_models',
+                    'type': 'str',
+                    'value': ', '.join(candidate_names),
+                    'readonly': True,
+                    'tip': 'All detected model candidates in this file'
+                })
             
             # Add type-specific information
             if model_info['type'] == 'function':
@@ -1062,7 +1252,7 @@ class ModelGroup(GroupParameter):
             children.append({
                 'name': 'analysis_summary',
                 'type': 'str',
-                'value': f"File contains {analysis.get('functions_found', 0)} functions, {analysis.get('classes_found', 0)} classes",
+                'value': f"File contains {analysis.get('functions_found', 0)} functions, {analysis.get('classes_found', 0)} classes; Found {len(self.custom_model_candidates) if hasattr(self, 'custom_model_candidates') else 0} model candidates",
                 'readonly': True,
                 'tip': 'Summary of analysis performed on the custom model file'
             })
@@ -1081,6 +1271,8 @@ class ModelGroup(GroupParameter):
             
         except Exception as e:
             print(f"Error adding custom model parameters: {e}")
+            import traceback
+            traceback.print_exc()
     
     def update_model_selection(self, model_name, task_type):
         """Update the model parameters when model selection changes."""
