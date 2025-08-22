@@ -7,7 +7,7 @@ import sys
 import os
 import inspect
 import tensorflow as tf
-from tensorflow import keras
+import keras
 
 def inspect_keras_applications():
     """Inspect keras.applications models to understand their parameters."""

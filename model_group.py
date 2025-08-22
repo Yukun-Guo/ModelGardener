@@ -8,10 +8,10 @@ import importlib.util
 import inspect
 import tensorflow as tf
 
-# Try to import PyQt5 (for GUI functionality) but make it optional
+# Try to import PySide6 (for GUI functionality) but make it optional
 try:
-    from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QMessageBox, QLabel
-    from PyQt5.QtCore import Qt
+    from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QMessageBox, QLabel
+    from PySide6.QtCore import Qt
     PYQT5_AVAILABLE = True
 except ImportError:
     PYQT5_AVAILABLE = False
@@ -77,7 +77,7 @@ class ModelGroup(GroupParameter):
         self.custom_model_function = None
         
         opts['type'] = 'group'
-        opts['addText'] = "Add model parameter..."
+        # Remove the addText parameter to disable "Add model parameter" button
         super().__init__(**opts)
         
         # Initialize with default model parameters
@@ -86,22 +86,12 @@ class ModelGroup(GroupParameter):
     def _update_model_parameters(self):
         """Update parameters based on the current model selection."""
         try:
-            # Clear existing model-specific parameters but keep core ones
+            # Clear existing parameters
             current_children = list(self.children())
-            
             for child in current_children:
-                if child.name() not in ['model_family', 'model_name']:
-                    self.removeChild(child)
+                self.removeChild(child)
             
-            # Get model-specific parameters based on model_name
-            model_params = self._get_model_parameters(self.model_name, self.task_type)
-            
-            # Add model-specific parameters
-            for param_name, param_config in model_params.items():
-                if PYQTGRAPH_AVAILABLE:
-                    self.addChild(Parameter.create(name=param_name, **param_config))
-            
-            # Add custom model button
+            # Add custom model loader at the top
             if PYQTGRAPH_AVAILABLE:
                 self.addChild(Parameter.create(
                     name='load_custom_model',
@@ -114,10 +104,24 @@ class ModelGroup(GroupParameter):
                 custom_button_param = self.child('load_custom_model')
                 if custom_button_param:
                     custom_button_param.sigActivated.connect(self._load_custom_model)
+            
+            # Get model-specific parameters based on model_name
+            model_params = self._get_model_parameters(self.model_name, self.task_type)
+            
+            # Add model-specific parameters
+            for param_name, param_config in model_params.items():
+                if PYQTGRAPH_AVAILABLE:
+                    self.addChild(Parameter.create(name=param_name, **param_config))
+            
+            # Add kwargs parameter for extra parameters
+            if PYQTGRAPH_AVAILABLE:
+                self.addChild(Parameter.create(
+                    name='kwargs',
+                    type='str',
+                    value='{}',
+                    tip='Additional keyword arguments as JSON string (e.g., {"dropout": 0.5, "activation": "relu"})'
+                ))
                     
-                # Don't emit tree state change signal manually - let pyqtgraph handle it naturally
-                # The parameter changes will automatically trigger the appropriate signals
-                
         except Exception as e:
             print(f"Error updating model parameters: {e}")
             import traceback
@@ -799,12 +803,30 @@ class ModelGroup(GroupParameter):
                 # Add custom model parameters
                 self._add_custom_model_parameters(model_info)
                 
+                # Create detailed success message
+                success_msg = f"Successfully loaded custom model!\n\n"
+                success_msg += f"Name: {model_info['name']}\n"
+                success_msg += f"Type: {model_info['type']}\n"
+                success_msg += f"File: {os.path.basename(file_path)}\n"
+                
+                if model_info['type'] == 'function':
+                    success_msg += f"Signature: {model_info.get('signature', 'N/A')}\n"
+                    success_msg += f"Parameters: {', '.join(model_info.get('parameters', []))}\n"
+                elif model_info['type'] == 'class':
+                    success_msg += f"Base classes: {', '.join(model_info.get('bases', []))}\n"
+                    success_msg += f"Keras Model: {'Yes' if model_info.get('is_keras_model', False) else 'No'}\n"
+                
+                # Show analysis summary
+                analysis = model_info.get('analysis', {})
+                success_msg += f"\nFile Analysis:\n"
+                success_msg += f"- Functions found: {analysis.get('functions_found', 0)}\n"
+                success_msg += f"- Classes found: {analysis.get('classes_found', 0)}\n"
+                success_msg += f"- Model candidates: {analysis.get('model_functions', 0)} functions + {analysis.get('model_classes', 0)} classes\n"
+                
                 QMessageBox.information(
                     None,
                     "Custom Model Loaded",
-                    f"Successfully loaded custom model: {model_info['name']}\n"
-                    f"Type: {model_info['type']}\n"
-                    f"File: {os.path.basename(file_path)}"
+                    success_msg
                 )
             else:
                 QMessageBox.warning(
@@ -835,43 +857,130 @@ class ModelGroup(GroupParameter):
             # Look for functions that return keras models
             model_functions = []
             model_classes = []
+            all_functions = []
+            all_classes = []
             
             for name, obj in inspect.getmembers(module):
-                if inspect.isfunction(obj):
-                    # Check if function signature suggests it returns a model
+                if inspect.isfunction(obj) and not name.startswith('_'):
                     sig = inspect.signature(obj)
-                    # Simple heuristic: function that can take common model parameters
-                    if any(param in sig.parameters for param in ['input_shape', 'num_classes', 'inputs']):
-                        model_functions.append((name, obj))
+                    params = list(sig.parameters.keys())
+                    all_functions.append({
+                        'name': name,
+                        'object': obj,
+                        'parameters': params,
+                        'signature': str(sig)
+                    })
+                    
+                    # Enhanced heuristics for model functions
+                    model_indicators = [
+                        'input_shape', 'num_classes', 'inputs', 'classes',
+                        'model', 'architecture', 'backbone', 'encoder', 'decoder'
+                    ]
+                    
+                    # Check if function likely returns a model
+                    if (any(param in params for param in model_indicators) or
+                        'model' in name.lower() or
+                        'create' in name.lower() or
+                        'build' in name.lower()):
+                        model_functions.append({
+                            'name': name,
+                            'object': obj,
+                            'parameters': params,
+                            'signature': str(sig),
+                            'confidence': 'high' if any(param in params for param in ['input_shape', 'num_classes']) else 'medium'
+                        })
                 
-                elif inspect.isclass(obj):
-                    # Check if class inherits from keras Model
+                elif inspect.isclass(obj) and not name.startswith('_'):
+                    all_classes.append({
+                        'name': name,
+                        'object': obj,
+                        'bases': [base.__name__ for base in obj.__bases__]
+                    })
+                    
+                    # Check if class inherits from keras Model or has model-like methods
                     try:
-                        if (hasattr(tf.keras.models, 'Model') and 
-                            issubclass(obj, tf.keras.models.Model)):
-                            model_classes.append((name, obj))
-                    except:
+                        is_keras_model = (hasattr(tf.keras.models, 'Model') and 
+                                        issubclass(obj, tf.keras.models.Model))
+                        
+                        has_call_method = hasattr(obj, '__call__') or hasattr(obj, 'call')
+                        has_init_with_model_params = False
+                        
+                        if hasattr(obj, '__init__'):
+                            init_sig = inspect.signature(obj.__init__)
+                            init_params = list(init_sig.parameters.keys())
+                            has_init_with_model_params = any(param in init_params for param in 
+                                                           ['input_shape', 'num_classes', 'inputs'])
+                        
+                        if is_keras_model or (has_call_method and has_init_with_model_params):
+                            model_classes.append({
+                                'name': name,
+                                'object': obj,
+                                'bases': [base.__name__ for base in obj.__bases__],
+                                'is_keras_model': is_keras_model,
+                                'confidence': 'high' if is_keras_model else 'medium'
+                            })
+                    except Exception:
                         pass
             
+            # Prepare detailed analysis
+            analysis = {
+                'functions_found': len(all_functions),
+                'classes_found': len(all_classes),
+                'model_functions': len(model_functions),
+                'model_classes': len(model_classes),
+                'all_functions': all_functions,
+                'all_classes': all_classes,
+                'model_functions_details': model_functions,
+                'model_classes_details': model_classes
+            }
+            
+            # Return the best candidate
             if model_functions:
+                # Sort by confidence and take the best
+                best_function = sorted(model_functions, key=lambda x: x['confidence'], reverse=True)[0]
                 return True, {
-                    'name': model_functions[0][0],
+                    'name': best_function['name'],
                     'type': 'function',
-                    'object': model_functions[0][1],
-                    'file_path': file_path
+                    'object': best_function['object'],
+                    'signature': best_function['signature'],
+                    'parameters': best_function['parameters'],
+                    'file_path': file_path,
+                    'analysis': analysis
                 }
             elif model_classes:
+                # Sort by confidence and take the best
+                best_class = sorted(model_classes, key=lambda x: x['confidence'], reverse=True)[0]
                 return True, {
-                    'name': model_classes[0][0],
+                    'name': best_class['name'],
                     'type': 'class',
-                    'object': model_classes[0][1],
-                    'file_path': file_path
+                    'object': best_class['object'],
+                    'bases': best_class['bases'],
+                    'is_keras_model': best_class['is_keras_model'],
+                    'file_path': file_path,
+                    'analysis': analysis
                 }
             else:
-                return False, "No valid model function or class found. Expected function returning keras model or class inheriting from keras.Model"
+                # Provide detailed feedback about what was found
+                error_msg = f"No valid model function or class found.\n\n"
+                error_msg += f"Analysis:\n"
+                error_msg += f"- Functions found: {len(all_functions)}\n"
+                error_msg += f"- Classes found: {len(all_classes)}\n"
+                
+                if all_functions:
+                    error_msg += f"\nFunctions detected:\n"
+                    for func in all_functions[:5]:  # Show first 5
+                        error_msg += f"  • {func['name']}{func['signature']}\n"
+                
+                if all_classes:
+                    error_msg += f"\nClasses detected:\n"
+                    for cls in all_classes[:5]:  # Show first 5
+                        error_msg += f"  • {cls['name']} (bases: {cls['bases']})\n"
+                
+                error_msg += f"\nExpected: Function with parameters like 'input_shape', 'num_classes' or class inheriting from keras.Model"
+                return False, error_msg
                 
         except Exception as e:
-            return False, str(e)
+            return False, f"Error loading file: {str(e)}"
     
     def _add_custom_model_parameters(self, model_info):
         """Add parameters specific to the custom model."""
@@ -881,33 +990,89 @@ class ModelGroup(GroupParameter):
             if existing_custom:
                 self.removeChild(existing_custom)
             
-            # Add custom model info
+            # Create detailed custom model info based on type
+            children = [
+                {
+                    'name': 'model_name',
+                    'type': 'str',
+                    'value': model_info['name'],
+                    'readonly': True,
+                    'tip': f'Name of the custom {model_info["type"]}'
+                },
+                {
+                    'name': 'model_type',
+                    'type': 'str',
+                    'value': model_info['type'],
+                    'readonly': True,
+                    'tip': 'Type of custom model (function or class)'
+                },
+                {
+                    'name': 'file_path',
+                    'type': 'str', 
+                    'value': os.path.basename(model_info['file_path']),
+                    'readonly': True,
+                    'tip': 'Source file for the custom model'
+                },
+                {
+                    'name': 'use_custom',
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use this custom model instead of built-in model'
+                }
+            ]
+            
+            # Add type-specific information
+            if model_info['type'] == 'function':
+                children.extend([
+                    {
+                        'name': 'signature',
+                        'type': 'str',
+                        'value': model_info.get('signature', 'N/A'),
+                        'readonly': True,
+                        'tip': 'Function signature'
+                    },
+                    {
+                        'name': 'parameters',
+                        'type': 'str',
+                        'value': ', '.join(model_info.get('parameters', [])),
+                        'readonly': True,
+                        'tip': 'Function parameters detected'
+                    }
+                ])
+            elif model_info['type'] == 'class':
+                children.extend([
+                    {
+                        'name': 'base_classes',
+                        'type': 'str',
+                        'value': ', '.join(model_info.get('bases', [])),
+                        'readonly': True,
+                        'tip': 'Base classes this model inherits from'
+                    },
+                    {
+                        'name': 'is_keras_model',
+                        'type': 'bool',
+                        'value': model_info.get('is_keras_model', False),
+                        'readonly': True,
+                        'tip': 'Whether this class inherits from keras.Model'
+                    }
+                ])
+            
+            # Add analysis summary
+            analysis = model_info.get('analysis', {})
+            children.append({
+                'name': 'analysis_summary',
+                'type': 'str',
+                'value': f"File contains {analysis.get('functions_found', 0)} functions, {analysis.get('classes_found', 0)} classes",
+                'readonly': True,
+                'tip': 'Summary of analysis performed on the custom model file'
+            })
+            
+            # Add custom model info group
             custom_params = {
                 'name': 'custom_model_info',
                 'type': 'group',
                 'title': f"Custom Model: {model_info['name']}",
-                'children': [
-                    {
-                        'name': 'model_type',
-                        'type': 'str',
-                        'value': model_info['type'],
-                        'readonly': True,
-                        'tip': 'Type of custom model (function or class)'
-                    },
-                    {
-                        'name': 'file_path',
-                        'type': 'str', 
-                        'value': os.path.basename(model_info['file_path']),
-                        'readonly': True,
-                        'tip': 'Source file for the custom model'
-                    },
-                    {
-                        'name': 'use_custom',
-                        'type': 'bool',
-                        'value': True,
-                        'tip': 'Use this custom model instead of built-in model'
-                    }
-                ]
+                'children': children
             }
             
             # Add the custom model parameters
@@ -953,7 +1118,19 @@ class ModelGroup(GroupParameter):
                                 group_config[grandchild.name()] = grandchild.value()
                         config[child.name()] = group_config
                     else:
-                        config[child.name()] = child.value()
+                        value = child.value()
+                        # Special handling for kwargs parameter
+                        if child.name() == 'kwargs':
+                            try:
+                                import json
+                                # Parse JSON string to dict
+                                kwargs_dict = json.loads(value) if value and value.strip() else {}
+                                config[child.name()] = kwargs_dict
+                            except json.JSONDecodeError:
+                                print(f"Warning: Invalid JSON in kwargs parameter: {value}")
+                                config[child.name()] = {}
+                        else:
+                            config[child.name()] = value
         
         return config
     
@@ -970,6 +1147,13 @@ class ModelGroup(GroupParameter):
                             if subparam:
                                 subparam.setValue(subvalue)
                     else:
-                        param.setValue(value)
+                        # Special handling for kwargs parameter
+                        if key == 'kwargs' and isinstance(value, dict):
+                            import json
+                            # Convert dict back to JSON string
+                            json_string = json.dumps(value, indent=2)
+                            param.setValue(json_string)
+                        else:
+                            param.setValue(value)
         except Exception as e:
             print(f"Error setting model config: {e}")
