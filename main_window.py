@@ -27,6 +27,7 @@ from loss_functions_group import LossFunctionsGroup
 from metrics_group import MetricsGroup
 from optimizer_group import OptimizerGroup
 from data_loader_group import DataLoaderGroup
+from model_group import ModelGroup
 from config_manager import ConfigManager
 from custom_functions_loader import CustomFunctionsLoader
 from bridge_callback import BRIDGE
@@ -46,6 +47,7 @@ pTypes.registerParameterType('loss_functions_group', LossFunctionsGroup, overrid
 pTypes.registerParameterType('metrics_group', MetricsGroup, override=True)
 pTypes.registerParameterType('optimizer_group', OptimizerGroup, override=True)
 pTypes.registerParameterType('data_loader_group', DataLoaderGroup, override=True)
+pTypes.registerParameterType('model_group', ModelGroup, override=True)
 
 
 # ---------------------------
@@ -716,8 +718,9 @@ class MainWindow(QMainWindow):
             model_config = self.get_model_families_and_models()
             task_type_changed = False
             model_family_changed = False
+            model_name_changed = False
             
-            # Check if task_type or model_family changed
+            # Check if task_type, model_family, or model_name changed
             for change in changes:
                 param_obj, change_type, data = change
                 if change_type == 'value':
@@ -728,6 +731,9 @@ class MainWindow(QMainWindow):
                     elif param_name == 'model_family':
                         model_family_changed = True
                         self.append_log(f"Model family changed to: {param_obj.value()}")
+                    elif param_name == 'model_name':
+                        model_name_changed = True
+                        self.append_log(f"Model name changed to: {param_obj.value()}")
             
             # Handle task_type change - update model_family options
             if task_type_changed:
@@ -772,11 +778,36 @@ class MainWindow(QMainWindow):
                         current_model = model_name_param.value()
                         if current_model not in available_models:
                             model_name_param.setValue(available_models[0])
+                            model_name_changed = True  # Trigger model parameters update
                         
                         self.append_log(f"Updated model names for {model_family}: {available_models[:3]}...")
+            
+            # Handle model_name change - update model-specific parameters
+            if task_type_changed or model_family_changed or model_name_changed:
+                self._update_model_parameters()
                     
         except Exception as e:
             self.append_log(f"Error in model config cascade: {e}")
+
+    def _update_model_parameters(self):
+        """Update model-specific parameters when model selection changes."""
+        try:
+            # Find the parameters
+            task_param = self._find_parameter_by_name('task_type')
+            model_name_param = self._find_parameter_by_name('model_name')
+            model_params_group = self._find_parameter_by_name('model_parameters')
+            
+            if task_param and model_name_param and model_params_group:
+                task_type = task_param.value()
+                model_name = model_name_param.value()
+                
+                # Update the model parameters group
+                if hasattr(model_params_group, 'update_model_selection'):
+                    model_params_group.update_model_selection(model_name, task_type)
+                    self.append_log(f"Updated model parameters for {model_name}")
+                
+        except Exception as e:
+            self.append_log(f"Error updating model parameters: {e}")
 
     def _find_parameter_by_name(self, param_name):
         """Helper method to find a parameter by name in the parameter tree."""
@@ -1828,6 +1859,12 @@ class MainWindow(QMainWindow):
             'model': {
                 'model_family': 'resnet',
                 'model_name': 'ResNet-50',
+                'model_parameters': {
+                    'type': 'model_group',
+                    'name': 'model_parameters',
+                    'model_name': 'ResNet-50',
+                    'task_type': 'image_classification'
+                },
                 'optimizer': {
                     'type': 'optimizer_group',
                     'name': 'optimizer'
@@ -2113,6 +2150,41 @@ class MainWindow(QMainWindow):
             # Model section tooltips
             'model_family': 'Family of neural network architectures (ResNet, EfficientNet, etc.) suitable for the selected task type',
             'model_name': 'Specific model variant within the selected family (e.g., ResNet-50, EfficientNet-B0)',
+            'model_parameters': 'Model-specific configuration parameters that adapt based on the selected model architecture',
+            
+            # Model-specific parameter tooltips
+            'input_shape': 'Input tensor shape (height, width, channels) for the model',
+            'height': 'Input image height in pixels',
+            'width': 'Input image width in pixels', 
+            'channels': 'Number of input channels (1 for grayscale, 3 for RGB, 4 for RGBA)',
+            'dropout_rate': 'Dropout probability for regularization (0.0 = no dropout, 0.5 = drop 50% of neurons)',
+            'activation': 'Activation function used in the model layers',
+            'use_se': 'Enable Squeeze-and-Excitation attention mechanism',
+            'se_ratio': 'Squeeze-and-Excitation channel reduction ratio',
+            'drop_connect_rate': 'Stochastic depth drop rate for regularization',
+            'depth_divisor': 'Depth divisor for efficient channel dimensions',
+            'width_coefficient': 'Model width scaling factor (EfficientNet)',
+            'depth_coefficient': 'Model depth scaling factor (EfficientNet)',
+            'alpha': 'Width multiplier for MobileNet architectures',
+            'patch_size': 'Size of image patches for Vision Transformer',
+            'num_layers': 'Number of layers/blocks in the model',
+            'hidden_size': 'Hidden dimension size for transformer models',
+            'num_heads': 'Number of attention heads in transformer',
+            'mlp_dim': 'MLP hidden dimension in transformer blocks',
+            'anchors_per_scale': 'Number of anchors per scale level (YOLO)',
+            'iou_threshold': 'IoU threshold for non-maximum suppression',
+            'confidence_threshold': 'Confidence threshold for object detection',
+            'max_detections': 'Maximum number of detections per image',
+            'filters': 'Base number of convolutional filters',
+            'batch_norm': 'Enable batch normalization layers',
+            'output_stride': 'Output stride for semantic segmentation backbone',
+            'aspp_rates': 'Atrous Spatial Pyramid Pooling dilation rates',
+            'decoder_channels': 'Number of channels in decoder layers',
+            'anchor_sizes': 'Anchor box sizes for object detection',
+            'aspect_ratios': 'Anchor box aspect ratios',
+            'ignore_label': 'Label value to ignore in loss computation',
+            'use_auxiliary_loss': 'Use auxiliary loss for better training',
+            'load_custom_model': 'Load a custom model definition from a Python file',
             
             # Training section tooltips
             'epochs': 'Number of complete passes through the entire training dataset',
