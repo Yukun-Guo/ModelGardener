@@ -1,0 +1,49 @@
+{
+  "configuration": {
+    "basic": {
+      "task_type": "image_classification",
+      "data": {
+        "train_dir": "/path/to/training/data",
+        "val_dir": "/path/to/validation/data",
+        "data_loader": {
+          "type": "data_loader_group",
+          "name": "data_loader"
+        },
+        "preprocessing": {
+          "type": "preprocessing_group",
+          "name": "preprocessing"
+        }
+      },
+      "model": {
+        "model_family": "efficientnet",
+        "model_name": "EfficientNet-B3",
+        "optimizer": {
+          "type": "optimizer_group",
+          "name": "optimizer"
+        },
+        "loss_functions": {
+          "type": "loss_functions_group",
+          "name": "loss_functions"
+        },
+        "metrics": {
+          "type": "metrics_group",
+          "name": "metrics"
+        }
+      },
+      "training": {
+        "epochs": 100,
+        "learning_rate_type": "exponential",
+        "initial_learning_rate": 0.1,
+        "momentum": 0.9,
+        "weight_decay": 0.0001,
+        "label_smoothing": 0.0
+      },
+      "runtime": {
+        "model_dir": "./model_dir",
+        "distribution_strategy": "mirrored",
+        "mixed_precision": null,
+        "num_gpus": 0
+      }
+    }
+  }
+}

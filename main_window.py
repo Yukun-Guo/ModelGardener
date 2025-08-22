@@ -490,6 +490,9 @@ class MainWindow(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
+        # Initialize cascade filtering for model configuration (after UI is ready)
+        self._initialize_model_config_cascade()
+
         # signals
         BRIDGE.log.connect(self.append_log); BRIDGE.update_plots.connect(self.on_update_plots); BRIDGE.progress.connect(self.progress.setValue)
         BRIDGE.finished.connect(self.on_training_finished)
@@ -685,6 +688,9 @@ class MainWindow(QMainWindow):
     def _on_param_changed(self, param, changes):
         """Handle parameter changes from the ParameterTree."""
         try:
+            # Handle cascade filtering for model configuration
+            self._handle_model_config_cascade(changes)
+            
             # Update gui_cfg when parameters change
             self.gui_cfg = self.params_to_dict(self.params)
             self.append_log("Config updated from parameter tree")
@@ -703,6 +709,139 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.append_log(f"Error updating config from parameters: {e}")
             self.append_log(f"Error updating config from parameters: {e}")
+
+    def _handle_model_config_cascade(self, changes):
+        """Handle cascade filtering when task_type, model_family changes."""
+        try:
+            model_config = self.get_model_families_and_models()
+            task_type_changed = False
+            model_family_changed = False
+            
+            # Check if task_type or model_family changed
+            for change in changes:
+                param_obj, change_type, data = change
+                if change_type == 'value':
+                    param_name = param_obj.name()
+                    if param_name == 'task_type':
+                        task_type_changed = True
+                        self.append_log(f"Task type changed to: {param_obj.value()}")
+                    elif param_name == 'model_family':
+                        model_family_changed = True
+                        self.append_log(f"Model family changed to: {param_obj.value()}")
+            
+            # Handle task_type change - update model_family options
+            if task_type_changed:
+                task_param = self._find_parameter_by_name('task_type')
+                if task_param:
+                    new_task_type = task_param.value()
+                    
+                    # Get model_family parameter
+                    model_family_param = self._find_parameter_by_name('model_family')
+                    if model_family_param:
+                        # Get available families for the new task type
+                        available_families = list(model_config.get(new_task_type, {}).keys())
+                        if available_families:
+                            # Update the limits (dropdown options) for model_family
+                            model_family_param.setLimits(available_families)
+                            
+                            # Set the first family as default if current value is not available
+                            current_family = model_family_param.value()
+                            if current_family not in available_families:
+                                model_family_param.setValue(available_families[0])
+                                model_family_changed = True  # Trigger model_name update too
+                            
+                            self.append_log(f"Updated model families: {available_families}")
+            
+            # Handle model_family change - update model_name options
+            if task_type_changed or model_family_changed:
+                task_param = self._find_parameter_by_name('task_type')
+                model_family_param = self._find_parameter_by_name('model_family')
+                model_name_param = self._find_parameter_by_name('model_name')
+                
+                if task_param and model_family_param and model_name_param:
+                    task_type = task_param.value()
+                    model_family = model_family_param.value()
+                    
+                    # Get available models for the current task_type and model_family
+                    available_models = model_config.get(task_type, {}).get(model_family, [])
+                    if available_models:
+                        # Update the limits (dropdown options) for model_name
+                        model_name_param.setLimits(available_models)
+                        
+                        # Set the first model as default if current value is not available
+                        current_model = model_name_param.value()
+                        if current_model not in available_models:
+                            model_name_param.setValue(available_models[0])
+                        
+                        self.append_log(f"Updated model names for {model_family}: {available_models[:3]}...")
+                    
+        except Exception as e:
+            self.append_log(f"Error in model config cascade: {e}")
+
+    def _find_parameter_by_name(self, param_name):
+        """Helper method to find a parameter by name in the parameter tree."""
+        try:
+            def find_param_recursive(param, target_name):
+                if param.name() == target_name:
+                    return param
+                for child in param.children():
+                    result = find_param_recursive(child, target_name)
+                    if result:
+                        return result
+                return None
+            
+            return find_param_recursive(self.params, param_name)
+        except Exception as e:
+            print(f"Error finding parameter {param_name}: {e}")
+            return None
+
+    def _initialize_model_config_cascade(self):
+        """Initialize cascade filtering on startup to ensure proper parameter filtering."""
+        try:
+            self.append_log("Initializing model configuration cascade filtering...")
+            
+            # Get model configuration
+            model_config = self.get_model_families_and_models()
+            
+            # Find the parameters
+            task_param = self._find_parameter_by_name('task_type')
+            model_family_param = self._find_parameter_by_name('model_family')
+            model_name_param = self._find_parameter_by_name('model_name')
+            
+            if not (task_param and model_family_param and model_name_param):
+                self.append_log("Could not find required model configuration parameters")
+                return
+            
+            # Get current task type
+            current_task_type = task_param.value()
+            
+            # Update model_family options based on current task_type
+            available_families = list(model_config.get(current_task_type, {}).keys())
+            if available_families:
+                model_family_param.setLimits(available_families)
+                
+                # Ensure current family is valid for the task
+                current_family = model_family_param.value()
+                if current_family not in available_families:
+                    model_family_param.setValue(available_families[0])
+                    current_family = available_families[0]
+                
+                # Update model_name options based on current task_type and model_family
+                available_models = model_config.get(current_task_type, {}).get(current_family, [])
+                if available_models:
+                    model_name_param.setLimits(available_models)
+                    
+                    # Ensure current model is valid for the family
+                    current_model = model_name_param.value()
+                    if current_model not in available_models:
+                        model_name_param.setValue(available_models[0])
+                
+                self.append_log(f"Initialized filtering: {current_task_type} → {len(available_families)} families → {len(available_models)} models")
+            else:
+                self.append_log(f"No model families found for task type: {current_task_type}")
+                
+        except Exception as e:
+            self.append_log(f"Error initializing model config cascade: {e}")
         
     def _on_tree_item_clicked_direct(self, item, column):
         """Handle direct tree widget item clicks to show tooltips."""
@@ -1483,7 +1622,12 @@ class MainWindow(QMainWindow):
     # logging / plotting handlers
     def append_log(self, text):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
-        self.log_edit.appendPlainText(f"[{ts}] {text}")
+        # Check if log_edit exists (UI components may not be initialized yet)
+        if hasattr(self, 'log_edit') and self.log_edit is not None:
+            self.log_edit.appendPlainText(f"[{ts}] {text}")
+        else:
+            # Fallback to print if logging UI is not ready
+            print(f"[{ts}] {text}")
 
     def on_update_plots(self, epoch, tl, vl, ta, va):
         x = list(range(1, epoch+1))
@@ -1682,10 +1826,8 @@ class MainWindow(QMainWindow):
                 }
             },
             'model': {
-                'backbone_type': 'resnet',
-                'model_id': 50,
-                'dropout_rate': 0.0,
-                'activation': 'relu',
+                'model_family': 'resnet',
+                'model_name': 'ResNet-50',
                 'optimizer': {
                     'type': 'optimizer_group',
                     'name': 'optimizer'
@@ -1808,6 +1950,155 @@ class MainWindow(QMainWindow):
             'advanced': advanced_config
         }
 
+    def get_model_families_and_models(self):
+        """Get model families and their models organized by task type."""
+        model_config = {
+            'image_classification': {
+                'resnet': [
+                    'ResNet-18', 'ResNet-34', 'ResNet-50', 'ResNet-101', 'ResNet-152',
+                    'ResNet-200', 'ResNet-269', 'ResNet-270'
+                ],
+                'efficientnet': [
+                    'EfficientNet-B0', 'EfficientNet-B1', 'EfficientNet-B2', 'EfficientNet-B3',
+                    'EfficientNet-B4', 'EfficientNet-B5', 'EfficientNet-B6', 'EfficientNet-B7',
+                    'EfficientNetV2-S', 'EfficientNetV2-M', 'EfficientNetV2-L', 'EfficientNetV2-XL'
+                ],
+                'mobilenet': [
+                    'MobileNet-V1', 'MobileNet-V2', 'MobileNet-V3-Small', 'MobileNet-V3-Large'
+                ],
+                'vision_transformer': [
+                    'ViT-Base-16', 'ViT-Base-32', 'ViT-Large-16', 'ViT-Large-32', 'ViT-Huge-14'
+                ],
+                'densenet': [
+                    'DenseNet-121', 'DenseNet-169', 'DenseNet-201', 'DenseNet-264'
+                ],
+                'regnet': [
+                    'RegNetX-002', 'RegNetX-004', 'RegNetX-006', 'RegNetX-008', 'RegNetX-016',
+                    'RegNetX-032', 'RegNetX-040', 'RegNetX-064', 'RegNetX-080', 'RegNetX-120',
+                    'RegNetX-160', 'RegNetX-320'
+                ]
+            },
+            'semantic_segmentation': {
+                'unet': [
+                    'U-Net', 'U-Net++', 'U-Net-3+', 'Attention-U-Net'
+                ],
+                'deeplabv3': [
+                    'DeepLabV3', 'DeepLabV3+', 'DeepLabV3-ResNet50', 'DeepLabV3-ResNet101',
+                    'DeepLabV3-MobileNet'
+                ],
+                'pspnet': [
+                    'PSPNet-ResNet50', 'PSPNet-ResNet101', 'PSPNet-MobileNet'
+                ],
+                'fcn': [
+                    'FCN-8s', 'FCN-16s', 'FCN-32s'
+                ],
+                'segnet': [
+                    'SegNet', 'SegNet-VGG16', 'SegNet-ResNet'
+                ]
+            },
+            'object_detection': {
+                'yolo': [
+                    'YOLOv3', 'YOLOv4', 'YOLOv5-S', 'YOLOv5-M', 'YOLOv5-L', 'YOLOv5-X',
+                    'YOLOv8-N', 'YOLOv8-S', 'YOLOv8-M', 'YOLOv8-L', 'YOLOv8-X'
+                ],
+                'faster_rcnn': [
+                    'Faster-RCNN-ResNet50', 'Faster-RCNN-ResNet101', 'Faster-RCNN-VGG16'
+                ],
+                'ssd': [
+                    'SSD-MobileNet', 'SSD-ResNet', 'SSD-VGG16'
+                ],
+                'retinanet': [
+                    'RetinaNet-ResNet50', 'RetinaNet-ResNet101'
+                ],
+                'efficientdet': [
+                    'EfficientDet-D0', 'EfficientDet-D1', 'EfficientDet-D2', 'EfficientDet-D3',
+                    'EfficientDet-D4', 'EfficientDet-D5', 'EfficientDet-D6', 'EfficientDet-D7'
+                ]
+            },
+            'instance_segmentation': {
+                'mask_rcnn': [
+                    'Mask-RCNN-ResNet50', 'Mask-RCNN-ResNet101', 'Mask-RCNN-ResNeXt'
+                ],
+                'yolact': [
+                    'YOLACT', 'YOLACT++', 'YOLACT-Edge'
+                ],
+                'solov2': [
+                    'SOLOv2-ResNet50', 'SOLOv2-ResNet101'
+                ]
+            },
+            'image_generation': {
+                'gan': [
+                    'GAN', 'DCGAN', 'WGAN', 'WGAN-GP', 'StyleGAN', 'StyleGAN2', 'StyleGAN3'
+                ],
+                'vae': [
+                    'VAE', 'β-VAE', 'WAE', 'VQ-VAE', 'VQ-VAE2'
+                ],
+                'diffusion': [
+                    'DDPM', 'DDIM', 'Score-SDE', 'LDM', 'Stable-Diffusion'
+                ]
+            },
+            'style_transfer': {
+                'neural_style': [
+                    'Neural-Style-Transfer', 'Fast-Neural-Style', 'MSG-Net', 'AdaIN'
+                ],
+                'cyclegan': [
+                    'CycleGAN', 'DiscoGAN', 'DualGAN'
+                ]
+            },
+            'super_resolution': {
+                'srcnn': [
+                    'SRCNN', 'VDSR', 'EDSR', 'WDSR'
+                ],
+                'srgan': [
+                    'SRGAN', 'ESRGAN', 'Real-ESRGAN'
+                ],
+                'rcan': [
+                    'RCAN', 'SAN', 'HAN'
+                ]
+            },
+            'image_denoising': {
+                'dncnn': [
+                    'DnCNN', 'FFDNet', 'BM3D-Net'
+                ],
+                'restormer': [
+                    'Restormer', 'NAFNet', 'SwinIR'
+                ]
+            },
+            'depth_estimation': {
+                'monodepth': [
+                    'MonoDepth', 'MonoDepth2', 'Struct2Depth'
+                ],
+                'depthanything': [
+                    'Depth-Anything', 'MiDaS', 'DPT'
+                ]
+            },
+            'pose_estimation': {
+                'openpose': [
+                    'OpenPose', 'PoseNet', 'AlphaPose', 'HRNet'
+                ],
+                'mediapipe': [
+                    'MediaPipe-Pose', 'MediaPipe-Holistic'
+                ]
+            },
+            'face_recognition': {
+                'facenet': [
+                    'FaceNet', 'DeepFace', 'ArcFace', 'CosFace', 'SphereFace'
+                ],
+                'insightface': [
+                    'InsightFace', 'RetinaFace', 'MTCNN'
+                ]
+            },
+            'optical_flow': {
+                'flownet': [
+                    'FlowNet', 'FlowNet2.0', 'PWC-Net', 'LiteFlowNet'
+                ],
+                'raft': [
+                    'RAFT', 'GMA', 'Flow1D'
+                ]
+            }
+        }
+        return model_config
+
     def get_parameter_tooltip(self, param_name, section_name=None):
         """Get tooltip text for a parameter based on its name and section."""
         tooltips = {
@@ -1820,10 +2111,8 @@ class MainWindow(QMainWindow):
             'shuffle': 'Whether to randomly shuffle the training data order for each epoch',
             
             # Model section tooltips
-            'backbone_type': 'The neural network architecture to use as the feature extractor (ResNet, EfficientNet, etc.)',
-            'model_id': 'Specific variant of the backbone architecture (e.g., 50 for ResNet-50, 18 for ResNet-18)',
-            'dropout_rate': 'Probability of randomly setting input units to 0 during training to prevent overfitting (0.0-1.0)',
-            'activation': 'Activation function used in the neural network layers (ReLU, Swish, GELU, etc.)',
+            'model_family': 'Family of neural network architectures (ResNet, EfficientNet, etc.) suitable for the selected task type',
+            'model_name': 'Specific model variant within the selected family (e.g., ResNet-50, EfficientNet-B0)',
             
             # Training section tooltips
             'epochs': 'Number of complete passes through the entire training dataset',
@@ -2249,24 +2538,56 @@ class MainWindow(QMainWindow):
                             'value': current_value,
                             'tip': self.get_parameter_tooltip(key)
                         })
-                    elif key == 'backbone_type':
-                        values = ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet']
-                        # Ensure current value is valid, default to first item if not
-                        current_value = value if value in values else values[0]
+                    elif key == 'model_family':
+                        # Get available model families based on current task_type
+                        model_config = self.get_model_families_and_models()
+                        
+                        # Try to get task_type from the current data context or use default
+                        task_type = 'image_classification'
+                        if isinstance(data, dict) and 'task_type' in data:
+                            task_type = data['task_type']
+                        elif hasattr(self, 'comprehensive_cfg') and self.comprehensive_cfg.get('basic', {}).get('task_type'):
+                            task_type = self.comprehensive_cfg['basic']['task_type']
+                        
+                        available_families = list(model_config.get(task_type, {}).keys())
+                        if not available_families:
+                            available_families = ['resnet']  # fallback
+                        
+                        current_value = value if value in available_families else available_families[0]
                         children.append({
                             'name': key,
                             'type': 'list',
-                            'limits': values,
+                            'limits': available_families,
                             'value': current_value,
                             'tip': self.get_parameter_tooltip(key)
                         })
-                    elif key == 'activation':
-                        values = ['relu', 'swish', 'gelu', 'leaky_relu', 'tanh']
-                        current_value = value if value in values else values[0]
+                    elif key == 'model_name':
+                        # Get available models based on current task_type and model_family
+                        model_config = self.get_model_families_and_models()
+                        
+                        # Try to get task_type and model_family from context
+                        task_type = 'image_classification'
+                        model_family = 'resnet'
+                        
+                        if isinstance(data, dict):
+                            if 'task_type' in data:
+                                task_type = data['task_type']
+                            if 'model_family' in data:
+                                model_family = data['model_family']
+                        elif hasattr(self, 'comprehensive_cfg'):
+                            basic_cfg = self.comprehensive_cfg.get('basic', {})
+                            if basic_cfg.get('task_type'):
+                                task_type = basic_cfg['task_type']
+                            if basic_cfg.get('model', {}).get('model_family'):
+                                model_family = basic_cfg['model']['model_family']
+                        
+                        available_models = model_config.get(task_type, {}).get(model_family, ['ResNet-50'])
+                        current_value = value if value in available_models else available_models[0]
+                        
                         children.append({
                             'name': key,
                             'type': 'list',
-                            'limits': values,
+                            'limits': available_models,
                             'value': current_value,
                             'tip': self.get_parameter_tooltip(key)
                         })
@@ -2385,12 +2706,11 @@ class MainWindow(QMainWindow):
                             'tip': self.get_parameter_tooltip(key)
                         })
                     # Handle numeric parameters with appropriate ranges
-                    elif key in ['batch_size', 'num_classes', 'epochs', 'model_id', 'k_folds', 'random_seed']:
+                    elif key in ['batch_size', 'num_classes', 'epochs', 'k_folds', 'random_seed']:
                         limits = {
                             'batch_size': [1, 1024],
                             'num_classes': [1, 100000],
                             'epochs': [1, 1000],
-                            'model_id': [18, 152],
                             'k_folds': [2, 20],
                             'random_seed': [0, 999999]
                         }
@@ -2401,7 +2721,7 @@ class MainWindow(QMainWindow):
                             'limits': limits.get(key, [0, 1000000]),
                             'tip': self.get_parameter_tooltip(key)
                         })
-                    elif key in ['dropout_rate', 'learning_rate', 'initial_learning_rate', 'momentum', 'weight_decay', 'label_smoothing', 
+                    elif key in ['learning_rate', 'initial_learning_rate', 'momentum', 'weight_decay', 'label_smoothing', 
                                 'depth_multiplier', 'se_ratio', 'stochastic_depth_drop_rate', 'norm_momentum', 'norm_epsilon',
                                 'color_jitter', 'center_crop_fraction', 'validation_split']:
                         step = 0.01 if 'rate' in key or 'momentum' in key else 0.001
