@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
         self.tree.setParameters(self.params, showTop=False)
         
         # Apply professional styling to the parameter tree
-        #self._apply_parameter_tree_styling()
+        self._apply_parameter_tree_styling()
         
         # Set up directory parameter callbacks
         self._setup_directory_callbacks()
@@ -642,30 +642,43 @@ class MainWindow(QMainWindow):
             }
             """
             
-            self.tree.setStyleSheet(style_sheet)
+            # self.tree.setStyleSheet(style_sheet)
+            # 
+            # # Set additional properties for better appearance
+            # self.tree.setAlternatingRowColors(False)
+            # self.tree.setRootIsDecorated(True)
+            # self.tree.setIndentation(20)
+            # self.tree.setHeaderHidden(False)
             
-            # Set additional properties for better appearance
-            self.tree.setAlternatingRowColors(False)
-            self.tree.setRootIsDecorated(True)
-            self.tree.setIndentation(20)
-            self.tree.setHeaderHidden(False)
+            # # Set header styling
+            # header = self.tree.header()
+            # if header:
+            #     header.setStyleSheet("""
+            #         QHeaderView::section {
+            #             background-color: #34495e;
+            #             color: white;
+            #             padding: 8px;
+            #             border: none;
+            #             font-size: 12pt;
+            #             font-weight: 600;
+            #         }
+            #     """)
+            #     header.setDefaultSectionSize(200)
+            #     header.setStretchLastSection(True)
             
-            # Set header styling
-            header = self.tree.header()
-            if header:
-                header.setStyleSheet("""
-                    QHeaderView::section {
-                        background-color: #34495e;
-                        color: white;
-                        padding: 8px;
-                        border: none;
-                        font-size: 12pt;
-                        font-weight: 600;
-                    }
-                """)
-                header.setDefaultSectionSize(200)
-                header.setStretchLastSection(True)
-            
+            def adjust_leaf_heights(tree, height=35):
+                def _adjust(item):
+                    for col in range(tree.columnCount()):
+                        w = tree.itemWidget(item, col)
+                        if w is not None:
+                            w.setFixedHeight(height)
+                    for i in range(item.childCount()):
+                        _adjust(item.child(i))
+
+                for i in range(tree.topLevelItemCount()):
+                    _adjust(tree.topLevelItem(i))
+            self.tree.setStyleSheet("QTreeWidget::item { height: 35px; }")
+            adjust_leaf_heights(self.tree, 35)
         except Exception as e:
             print(f"Error applying parameter tree styling: {e}")
     
@@ -1655,6 +1668,7 @@ class MainWindow(QMainWindow):
         
         # Basic Configuration - Most commonly used parameters
         basic_config = {
+            'task_type': 'image_classification',
             'data': {
                 'train_dir': '',
                 'val_dir': '',
@@ -1703,6 +1717,26 @@ class MainWindow(QMainWindow):
         
         # Advanced Configuration - Expert-level parameters
         advanced_config = {
+            'cross_validation': {
+                'enabled': False,
+                'k_folds': 5,
+                'validation_split': 0.2,
+                'stratified': True,
+                'shuffle': True,
+                'random_seed': 42,
+                'save_fold_models': False,
+                'fold_models_dir': './fold_models',
+                'aggregate_metrics': True,
+                'fold_selection_metric': 'val_accuracy'
+            },
+            'augmentation': {
+                'type': 'augmentation_group',
+                'name': 'augmentation'
+            },
+            'callbacks': {
+                'type': 'callbacks_group',
+                'name': 'callbacks'
+            },
             'model_advanced': {
                 'depth_multiplier': 1.0,
                 'stem_type': 'v0',
@@ -1734,14 +1768,6 @@ class MainWindow(QMainWindow):
                 'image_field_key': 'image/encoded',
                 'label_field_key': 'image/class/label',
                 'decode_jpeg_only': True
-            },
-            'augmentation': {
-                'type': 'augmentation_group',
-                'name': 'augmentation'
-            },
-            'callbacks': {
-                'type': 'callbacks_group',
-                'name': 'callbacks'
             },
             'training_advanced': {
                 'train_tf_while_loop': True,
@@ -2038,6 +2064,22 @@ class MainWindow(QMainWindow):
             'height': 'Image height in pixels',
             'min': 'Minimum value for the range',
             'max': 'Maximum value for the range',
+            
+            # Task Type tooltips
+            'task_type': 'Type of computer vision task to perform (classification, segmentation, detection, etc.)',
+            
+            # Cross-validation tooltips
+            'cross_validation': 'K-fold cross-validation configuration for robust model evaluation',
+            'enabled': 'Enable k-fold cross-validation training and evaluation',
+            'k_folds': 'Number of folds to divide the dataset into (typically 3-10)',
+            'validation_split': 'Fraction of data to use for validation in each fold',
+            'stratified': 'Use stratified k-fold to preserve class distribution in each fold',
+            'shuffle': 'Shuffle the dataset before splitting into folds',
+            'random_seed': 'Random seed for reproducible fold splits',
+            'save_fold_models': 'Save individual models from each fold',
+            'fold_models_dir': 'Directory to save models from each fold',
+            'aggregate_metrics': 'Calculate mean and standard deviation across all folds',
+            'fold_selection_metric': 'Metric to use for selecting the best fold model',
         }
         
         # Section-specific tooltips for groups
@@ -2185,7 +2227,7 @@ class MainWindow(QMainWindow):
                             'value': value,
                             'tip': self.get_parameter_tooltip(key)
                         })
-                    elif key in ['model_dir'] and isinstance(value, str):
+                    elif key in ['model_dir', 'fold_models_dir'] and isinstance(value, str):
                         children.append({
                             'name': key,
                             'type': 'directory_only',
@@ -2193,6 +2235,20 @@ class MainWindow(QMainWindow):
                             'tip': self.get_parameter_tooltip(key)
                         })
                     # Handle choice parameters
+                    elif key == 'task_type':
+                        values = ['image_classification', 'semantic_segmentation', 'object_detection', 
+                                'instance_segmentation', 'image_generation', 'style_transfer', 
+                                'super_resolution', 'image_denoising', 'depth_estimation', 
+                                'pose_estimation', 'face_recognition', 'optical_flow']
+                        # Ensure current value is valid, default to first item if not
+                        current_value = value if value in values else values[0]
+                        children.append({
+                            'name': key,
+                            'type': 'list',
+                            'limits': values,
+                            'value': current_value,
+                            'tip': self.get_parameter_tooltip(key)
+                        })
                     elif key == 'backbone_type':
                         values = ['resnet', 'efficientnet', 'mobilenet', 'vit', 'densenet']
                         # Ensure current value is valid, default to first item if not
@@ -2308,6 +2364,16 @@ class MainWindow(QMainWindow):
                             'value': current_value,
                             'tip': self.get_parameter_tooltip(key)
                         })
+                    elif key == 'fold_selection_metric':
+                        values = ['val_accuracy', 'val_loss', 'accuracy', 'loss', 'val_precision', 'val_recall', 'val_f1_score', 'val_auc']
+                        current_value = value if value in values else values[0]
+                        children.append({
+                            'name': key,
+                            'type': 'list',
+                            'limits': values,
+                            'value': current_value,
+                            'tip': self.get_parameter_tooltip(key)
+                        })
                     elif key == 'best_checkpoint_metric_comp':
                         values = ['higher', 'lower']
                         current_value = value if value in values else values[0]
@@ -2319,12 +2385,14 @@ class MainWindow(QMainWindow):
                             'tip': self.get_parameter_tooltip(key)
                         })
                     # Handle numeric parameters with appropriate ranges
-                    elif key in ['batch_size', 'num_classes', 'epochs', 'model_id']:
+                    elif key in ['batch_size', 'num_classes', 'epochs', 'model_id', 'k_folds', 'random_seed']:
                         limits = {
                             'batch_size': [1, 1024],
                             'num_classes': [1, 100000],
                             'epochs': [1, 1000],
-                            'model_id': [18, 152]
+                            'model_id': [18, 152],
+                            'k_folds': [2, 20],
+                            'random_seed': [0, 999999]
                         }
                         children.append({
                             'name': key,
@@ -2335,7 +2403,7 @@ class MainWindow(QMainWindow):
                         })
                     elif key in ['dropout_rate', 'learning_rate', 'initial_learning_rate', 'momentum', 'weight_decay', 'label_smoothing', 
                                 'depth_multiplier', 'se_ratio', 'stochastic_depth_drop_rate', 'norm_momentum', 'norm_epsilon',
-                                'color_jitter', 'center_crop_fraction']:
+                                'color_jitter', 'center_crop_fraction', 'validation_split']:
                         step = 0.01 if 'rate' in key or 'momentum' in key else 0.001
                         limits = [0.0, 1.0] if 'rate' in key or 'momentum' in key else [0.0, 10.0]
                         if key == 'initial_learning_rate':
@@ -2347,6 +2415,9 @@ class MainWindow(QMainWindow):
                         elif key == 'weight_decay':
                             limits = [0.0, 0.01]
                             step = 1e-5
+                        elif key == 'validation_split':
+                            limits = [0.1, 0.5]
+                            step = 0.01
                         
                         children.append({
                             'name': key,
