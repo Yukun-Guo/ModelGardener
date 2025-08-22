@@ -854,7 +854,7 @@ class ModelGroup(GroupParameter):
                 # Update parent-level model_family parameter
                 model_family_param = parent_parameter.child('model_family')
                 if model_family_param:
-                    current_values = list(model_family_param.opts.get('values', []))
+                    current_values = list(model_family_param.opts.get('limits', []))
                     if 'custom_model' not in current_values:
                         current_values.append('custom_model')
                         model_family_param.setLimits(current_values)
