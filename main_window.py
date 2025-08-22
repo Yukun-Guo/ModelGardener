@@ -494,6 +494,9 @@ class MainWindow(QMainWindow):
 
         # Initialize cascade filtering for model configuration (after UI is ready)
         self._initialize_model_config_cascade()
+        
+        # Trigger initial model parameter update
+        self._update_model_parameters()
 
         # signals
         BRIDGE.log.connect(self.append_log); BRIDGE.update_plots.connect(self.on_update_plots); BRIDGE.progress.connect(self.progress.setValue)
@@ -804,7 +807,42 @@ class MainWindow(QMainWindow):
                 # Update the model parameters group
                 if hasattr(model_params_group, 'update_model_selection'):
                     model_params_group.update_model_selection(model_name, task_type)
-                    self.append_log(f"Updated model parameters for {model_name}")
+                    self.append_log(f"Updated model parameters for {model_name} ({task_type})")
+                    
+                    # Gentle UI update - just expand the section without recreating the tree
+                    try:
+                        # Find and expand the model parameters section
+                        basic_group = self.params.child('basic')
+                        if basic_group:
+                            model_group = basic_group.child('model')
+                            if model_group:
+                                model_params = model_group.child('model_parameters')
+                                if model_params:
+                                    # Gently expand the model parameters section
+                                    model_params.setOpts(expanded=True)
+                                    
+                        self.append_log(f"Updated model parameters - {len(model_params_group.children())} parameters available")
+                        
+                    except Exception as refresh_error:
+                        self.append_log(f"Warning: UI update failed: {refresh_error}")
+                        
+                else:
+                    # If the model_params_group doesn't have the method, it might be a regular parameter
+                    # In that case, we need to find the actual ModelGroup instance
+                    self.append_log(f"Warning: model_parameters group doesn't have update_model_selection method")
+                    self.append_log(f"Model parameters group type: {type(model_params_group)}")
+                    
+                    # Try to access it as a model group directly
+                    basic_group = self.params.child('basic')
+                    if basic_group:
+                        model_group = basic_group.child('model')
+                        if model_group:
+                            model_params = model_group.child('model_parameters')
+                            if model_params and hasattr(model_params, 'update_model_selection'):
+                                model_params.update_model_selection(model_name, task_type)
+                                self.append_log(f"Updated model parameters via direct access for {model_name}")
+                                # Just expand, don't recreate the tree
+                                model_params.setOpts(expanded=True)
                 
         except Exception as e:
             self.append_log(f"Error updating model parameters: {e}")
@@ -2530,6 +2568,16 @@ class MainWindow(QMainWindow):
                     'name': data.get('name', name),
                     'type': 'data_loader_group',
                     'tip': self.get_parameter_tooltip('data_loader')
+                }
+            
+            # Check if this is a special model group type
+            if data.get('type') == 'model_group':
+                return {
+                    'name': data.get('name', name),
+                    'type': 'model_group',
+                    'model_name': data.get('model_name', 'ResNet-50'),
+                    'task_type': data.get('task_type', 'image_classification'),
+                    'tip': self.get_parameter_tooltip('model_parameters')
                 }
             
             children = []

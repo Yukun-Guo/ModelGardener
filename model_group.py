@@ -71,8 +71,8 @@ class ModelGroup(GroupParameter):
     """
     
     def __init__(self, **opts):
-        self.model_name = opts.get('value', {}).get('model_name', 'ResNet-50')
-        self.task_type = opts.get('value', {}).get('task_type', 'image_classification')
+        self.model_name = opts.get('model_name', 'ResNet-50')
+        self.task_type = opts.get('task_type', 'image_classification')
         self.custom_model_path = None
         self.custom_model_function = None
         
@@ -88,6 +88,7 @@ class ModelGroup(GroupParameter):
         try:
             # Clear existing model-specific parameters but keep core ones
             current_children = list(self.children())
+            
             for child in current_children:
                 if child.name() not in ['model_family', 'model_name']:
                     self.removeChild(child)
@@ -113,180 +114,236 @@ class ModelGroup(GroupParameter):
                 custom_button_param = self.child('load_custom_model')
                 if custom_button_param:
                     custom_button_param.sigActivated.connect(self._load_custom_model)
+                    
+                # Don't emit tree state change signal manually - let pyqtgraph handle it naturally
+                # The parameter changes will automatically trigger the appropriate signals
                 
         except Exception as e:
             print(f"Error updating model parameters: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _get_model_parameters(self, model_name, task_type):
-        """Get model-specific parameters based on model name and task type."""
+        """Get model-specific parameters based on actual keras.applications and other model implementations."""
         params = {}
         
-        # Common parameters for all models
-        params['input_shape'] = {
-            'type': 'group',
-            'children': [
-                {'name': 'height', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image height'},
-                {'name': 'width', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image width'},
-                {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
-            ]
-        }
+        # Get the model family from the model name
+        model_family = self._get_model_family_from_name(model_name)
         
-        params['num_classes'] = {
-            'type': 'int',
-            'value': 1000,
-            'limits': [1, 50000],
-            'tip': 'Number of output classes for classification'
-        }
-        
-        # Model family specific parameters
-        if 'resnet' in model_name.lower():
-            params.update(self._get_resnet_parameters(model_name))
-        elif 'efficientnet' in model_name.lower():
-            params.update(self._get_efficientnet_parameters(model_name))
-        elif 'mobilenet' in model_name.lower():
-            params.update(self._get_mobilenet_parameters(model_name))
-        elif 'vit' in model_name.lower() or 'vision_transformer' in model_name.lower():
-            params.update(self._get_vit_parameters(model_name))
-        elif 'yolo' in model_name.lower():
-            params.update(self._get_yolo_parameters(model_name))
-        elif 'unet' in model_name.lower():
-            params.update(self._get_unet_parameters(model_name))
-        elif 'deeplabv3' in model_name.lower():
-            params.update(self._get_deeplab_parameters(model_name))
-        
-        # Task-specific parameters
-        if task_type == 'object_detection':
-            params.update(self._get_detection_parameters())
+        if task_type == 'image_classification':
+            params.update(self._get_classification_parameters(model_name, model_family))
+        elif task_type == 'object_detection':
+            params.update(self._get_detection_parameters(model_name, model_family))
         elif task_type == 'semantic_segmentation':
-            params.update(self._get_segmentation_parameters())
+            params.update(self._get_segmentation_parameters(model_name, model_family))
+        else:
+            # Default parameters for other tasks
+            params.update(self._get_default_parameters())
             
         return params
     
-    def _get_resnet_parameters(self, model_name):
-        """ResNet-specific parameters."""
-        return {
-            'dropout_rate': {
-                'type': 'float',
-                'value': 0.0,
-                'limits': [0.0, 0.9],
-                'step': 0.05,
-                'tip': 'Dropout rate before final classification layer'
+    def _get_model_family_from_name(self, model_name):
+        """Extract model family from model name."""
+        model_name_lower = model_name.lower()
+        
+        # Classification families
+        if 'resnet' in model_name_lower:
+            return 'resnet'
+        elif 'efficientnet' in model_name_lower:
+            return 'efficientnet'
+        elif 'mobilenet' in model_name_lower:
+            return 'mobilenet'
+        elif 'vit' in model_name_lower or 'vision' in model_name_lower:
+            return 'vision_transformer'
+        elif 'densenet' in model_name_lower:
+            return 'densenet'
+        elif 'vgg' in model_name_lower:
+            return 'vgg'
+        elif 'inception' in model_name_lower:
+            return 'inception'
+        elif 'xception' in model_name_lower:
+            return 'xception'
+        elif 'convnext' in model_name_lower:
+            return 'convnext'
+        elif 'regnet' in model_name_lower:
+            return 'regnet'
+        
+        # Detection families
+        elif 'yolo' in model_name_lower:
+            return 'yolo'
+        elif 'faster' in model_name_lower and 'rcnn' in model_name_lower:
+            return 'faster_rcnn'
+        elif 'ssd' in model_name_lower:
+            return 'ssd'
+        elif 'retinanet' in model_name_lower:
+            return 'retinanet'
+        elif 'efficientdet' in model_name_lower:
+            return 'efficientdet'
+            
+        # Segmentation families
+        elif 'unet' in model_name_lower or 'u-net' in model_name_lower:
+            return 'unet'
+        elif 'deeplab' in model_name_lower:
+            return 'deeplabv3'
+        elif 'pspnet' in model_name_lower:
+            return 'pspnet'
+        elif 'fcn' in model_name_lower:
+            return 'fcn'
+        elif 'segnet' in model_name_lower:
+            return 'segnet'
+            
+        return 'unknown'
+    
+    def _get_classification_parameters(self, model_name, model_family):
+        """Get parameters for image classification models based on keras.applications."""
+        # Common parameters for all classification models (based on keras.applications inspection)
+        params = {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
             },
-            'activation': {
-                'type': 'list',
-                'value': 'relu',
-                'limits': ['relu', 'swish', 'gelu', 'mish'],
-                'tip': 'Activation function for the model'
-            },
-            'use_se': {
+            'include_top': {
                 'type': 'bool',
-                'value': False,
-                'tip': 'Use Squeeze-and-Excitation blocks'
+                'value': True,
+                'tip': 'Whether to include the fully-connected layer at the top of the network'
             },
-            'se_ratio': {
-                'type': 'float',
-                'value': 0.25,
-                'limits': [0.0, 1.0],
-                'step': 0.05,
-                'tip': 'Squeeze-and-Excitation ratio (only if use_se is True)'
+            'weights': {
+                'type': 'list',
+                'value': 'imagenet',
+                'values': ['imagenet', 'None'],
+                'tip': 'Pre-trained weights to load'
+            },
+            'pooling': {
+                'type': 'list',
+                'value': 'None',
+                'values': ['None', 'avg', 'max'],
+                'tip': 'Pooling mode for feature extraction when include_top is False'
+            },
+            'classes': {
+                'type': 'int',
+                'value': 1000,
+                'limits': [1, 100000],
+                'tip': 'Number of classes for classification'
+            },
+            'classifier_activation': {
+                'type': 'list',
+                'value': 'softmax',
+                'values': ['softmax', 'sigmoid', 'linear', 'None'],
+                'tip': 'Activation function for the classification layer'
             }
         }
+        
+        # Add model family specific parameters
+        if model_family == 'mobilenet':
+            params.update(self._get_mobilenet_specific_params(model_name))
+        elif model_family == 'efficientnet':
+            params.update(self._get_efficientnet_specific_params())
+        elif model_family == 'vision_transformer':
+            params.update(self._get_vit_specific_params())
+        elif model_family == 'convnext':
+            params.update(self._get_convnext_specific_params())
+        elif model_family == 'regnet':
+            params.update(self._get_regnet_specific_params())
+            
+        return params
     
-    def _get_efficientnet_parameters(self, model_name):
-        """EfficientNet-specific parameters."""
+    def _get_mobilenet_specific_params(self, model_name):
+        """Get MobileNet-specific parameters."""
+        params = {
+            'alpha': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.25, 0.35, 0.5, 0.75, 1.0, 1.3, 1.4],
+                'tip': 'Width multiplier for the model'
+            }
+        }
+        
+        if 'v1' in model_name.lower() or 'MobileNet' == model_name:
+            params.update({
+                'depth_multiplier': {
+                    'type': 'list',
+                    'value': 1,
+                    'values': [1, 2, 3, 4],
+                    'tip': 'Depth multiplier for depthwise convolution'
+                },
+                'dropout': {
+                    'type': 'float',
+                    'value': 0.001,
+                    'limits': [0.0, 0.9],
+                    'step': 0.001,
+                    'tip': 'Dropout rate'
+                }
+            })
+        elif 'v3' in model_name.lower():
+            params.update({
+                'minimalistic': {
+                    'type': 'bool',
+                    'value': False,
+                    'tip': 'Use minimalistic version of the model'
+                },
+                'dropout_rate': {
+                    'type': 'float',
+                    'value': 0.2,
+                    'limits': [0.0, 0.9],
+                    'step': 0.05,
+                    'tip': 'Dropout rate'
+                },
+                'include_preprocessing': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Whether to include preprocessing in the model'
+                }
+            })
+        
+        return params
+    
+    def _get_efficientnet_specific_params(self):
+        """Get EfficientNet-specific parameters."""
         return {
-            'dropout_rate': {
-                'type': 'float',
-                'value': 0.2,
-                'limits': [0.0, 0.9],
-                'step': 0.05,
-                'tip': 'Dropout rate in the final classification layer'
-            },
             'drop_connect_rate': {
                 'type': 'float',
                 'value': 0.2,
-                'limits': [0.0, 0.9],
+                'limits': [0.0, 0.8],
                 'step': 0.05,
                 'tip': 'Drop connect rate for stochastic depth'
-            },
-            'depth_divisor': {
-                'type': 'int',
-                'value': 8,
-                'limits': [1, 16],
-                'tip': 'Depth divisor for channel dimensions'
-            },
-            'width_coefficient': {
-                'type': 'float',
-                'value': 1.0,
-                'limits': [0.5, 2.0],
-                'step': 0.1,
-                'tip': 'Width scaling coefficient'
-            },
-            'depth_coefficient': {
-                'type': 'float',
-                'value': 1.0,
-                'limits': [0.5, 2.0],
-                'step': 0.1,
-                'tip': 'Depth scaling coefficient'
             }
         }
     
-    def _get_mobilenet_parameters(self, model_name):
-        """MobileNet-specific parameters."""
-        return {
-            'alpha': {
-                'type': 'float',
-                'value': 1.0,
-                'limits': [0.35, 1.4],
-                'step': 0.05,
-                'tip': 'Width multiplier (alpha parameter)'
-            },
-            'dropout': {
-                'type': 'float',
-                'value': 0.001,
-                'limits': [0.0, 0.9],
-                'step': 0.001,
-                'tip': 'Dropout rate'
-            },
-            'depth_multiplier': {
-                'type': 'int',
-                'value': 1,
-                'limits': [1, 4],
-                'tip': 'Depth multiplier for depthwise convolution'
-            }
-        }
-    
-    def _get_vit_parameters(self, model_name):
-        """Vision Transformer-specific parameters."""
+    def _get_vit_specific_params(self):
+        """Get Vision Transformer specific parameters."""
         return {
             'patch_size': {
-                'type': 'int',
+                'type': 'list',
                 'value': 16,
-                'limits': [8, 32],
+                'values': [8, 16, 32],
                 'tip': 'Size of image patches'
             },
             'num_layers': {
-                'type': 'int',
+                'type': 'list',
                 'value': 12,
-                'limits': [6, 24],
+                'values': [6, 12, 24],
                 'tip': 'Number of transformer layers'
             },
-            'hidden_size': {
-                'type': 'int',
-                'value': 768,
-                'limits': [256, 1536],
-                'tip': 'Hidden size of transformer'
-            },
             'num_heads': {
-                'type': 'int',
+                'type': 'list',
                 'value': 12,
-                'limits': [4, 24],
+                'values': [4, 8, 12, 16],
                 'tip': 'Number of attention heads'
             },
+            'hidden_size': {
+                'type': 'list',
+                'value': 768,
+                'values': [256, 384, 768, 1024],
+                'tip': 'Hidden size of transformer'
+            },
             'mlp_dim': {
-                'type': 'int',
+                'type': 'list',
                 'value': 3072,
-                'limits': [1024, 6144],
+                'values': [1024, 3072, 4096],
                 'tip': 'MLP hidden dimension'
             },
             'dropout_rate': {
@@ -295,53 +352,281 @@ class ModelGroup(GroupParameter):
                 'limits': [0.0, 0.5],
                 'step': 0.05,
                 'tip': 'Dropout rate'
+            },
+            'attention_dropout_rate': {
+                'type': 'float',
+                'value': 0.0,
+                'limits': [0.0, 0.3],
+                'step': 0.05,
+                'tip': 'Attention dropout rate'
+            },
+            'representation_size': {
+                'type': 'list',
+                'value': 0,
+                'values': [0, 768, 1024],
+                'tip': 'Size of representation layer (0 to disable)'
             }
         }
     
-    def _get_yolo_parameters(self, model_name):
-        """YOLO-specific parameters."""
+    def _get_convnext_specific_params(self):
+        """Get ConvNeXt specific parameters."""
         return {
-            'anchors_per_scale': {
+            'drop_path_rate': {
+                'type': 'float',
+                'value': 0.0,
+                'limits': [0.0, 0.5],
+                'step': 0.05,
+                'tip': 'Drop path rate for stochastic depth'
+            }
+        }
+    
+    def _get_regnet_specific_params(self):
+        """Get RegNet specific parameters."""
+        return {
+            'width_coefficient': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.5, 1.0, 1.5, 2.0],
+                'tip': 'Width scaling coefficient'
+            },
+            'depth_coefficient': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.5, 1.0, 1.5, 2.0],
+                'tip': 'Depth scaling coefficient'
+            }
+        }
+    
+    def _get_detection_parameters(self, model_name, model_family):
+        """Get parameters for object detection models."""
+        # Common detection parameters
+        params = {
+            'input_size': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 416, 'limits': [320, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 416, 'limits': [320, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
                 'type': 'int',
-                'value': 3,
-                'limits': [1, 5],
-                'tip': 'Number of anchors per scale'
+                'value': 80,
+                'limits': [1, 10000],
+                'tip': 'Number of object classes'
             },
             'iou_threshold': {
                 'type': 'float',
                 'value': 0.5,
                 'limits': [0.1, 0.9],
                 'step': 0.05,
-                'tip': 'IoU threshold for NMS'
+                'tip': 'IoU threshold for non-maximum suppression'
             },
             'confidence_threshold': {
                 'type': 'float',
                 'value': 0.5,
                 'limits': [0.1, 0.9],
                 'step': 0.05,
-                'tip': 'Confidence threshold for detection'
+                'tip': 'Confidence threshold for detections'
+            }
+        }
+        
+        # Add family-specific parameters
+        if model_family == 'yolo':
+            params.update(self._get_yolo_specific_params(model_name))
+        elif model_family in ['faster_rcnn', 'ssd', 'retinanet']:
+            params.update(self._get_rcnn_ssd_specific_params(model_family))
+        elif model_family == 'efficientdet':
+            params.update(self._get_efficientdet_specific_params())
+            
+        return params
+    
+    def _get_yolo_specific_params(self, model_name):
+        """Get YOLO-specific parameters."""
+        params = {
+            'anchors': {
+                'type': 'str',
+                'value': '10,13,16,30,33,23,30,61,62,45,59,119,116,90,156,198,373,326',
+                'tip': 'Anchor boxes (comma-separated)'
             },
-            'max_detections': {
+            'anchor_masks': {
+                'type': 'str', 
+                'value': '0,1,2,3,4,5,6,7,8',
+                'tip': 'Anchor masks for different scales'
+            },
+            'max_boxes_per_class': {
+                'type': 'int',
+                'value': 20,
+                'limits': [1, 100],
+                'tip': 'Maximum boxes per class'
+            },
+            'max_total_size': {
                 'type': 'int',
                 'value': 100,
                 'limits': [10, 1000],
-                'tip': 'Maximum number of detections per image'
+                'tip': 'Maximum total detections'
+            }
+        }
+        
+        # Version-specific parameters
+        if 'v8' in model_name.lower():
+            params.update({
+                'use_ultralytics_format': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use Ultralytics YOLOv8 format'
+                }
+            })
+        elif 'v5' in model_name.lower():
+            params.update({
+                'focus_layer': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use Focus layer in the model'
+                }
+            })
+        elif 'v4' in model_name.lower():
+            params.update({
+                'use_csp': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use CSP (Cross Stage Partial) connections'
+                }
+            })
+        
+        return params
+    
+    def _get_rcnn_ssd_specific_params(self, model_family):
+        """Get Faster R-CNN, SSD, RetinaNet specific parameters."""
+        params = {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2'],
+                'tip': 'Backbone network architecture'
+            },
+            'aspect_ratios': {
+                'type': 'str',
+                'value': '0.5,1.0,2.0',
+                'tip': 'Anchor aspect ratios (comma-separated)'
+            }
+        }
+        
+        if model_family == 'faster_rcnn':
+            params.update({
+                'include_mask': {
+                    'type': 'bool',
+                    'value': False,
+                    'tip': 'Include mask prediction (Mask R-CNN)'
+                },
+                'anchor_scale': {
+                    'type': 'float',
+                    'value': 8.0,
+                    'limits': [2.0, 16.0],
+                    'step': 0.5,
+                    'tip': 'Anchor scale factor'
+                }
+            })
+        elif model_family == 'retinanet':
+            params.update({
+                'focal_loss_alpha': {
+                    'type': 'float',
+                    'value': 0.25,
+                    'limits': [0.1, 0.5],
+                    'step': 0.05,
+                    'tip': 'Focal loss alpha parameter'
+                },
+                'focal_loss_gamma': {
+                    'type': 'float',
+                    'value': 2.0,
+                    'limits': [0.5, 5.0],
+                    'step': 0.1,
+                    'tip': 'Focal loss gamma parameter'
+                }
+            })
+        elif model_family == 'ssd':
+            params.update({
+                'scales': {
+                    'type': 'str',
+                    'value': '0.2,0.34,0.48,0.62,0.76,0.9',
+                    'tip': 'Multi-scale anchor sizes'
+                },
+                'clip_boxes': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Clip bounding boxes to image boundaries'
+                }
+            })
+        
+        return params
+    
+    def _get_efficientdet_specific_params(self):
+        """Get EfficientDet-specific parameters."""
+        return {
+            'model_name': {
+                'type': 'list',
+                'value': 'efficientdet-d0',
+                'limits': [f'efficientdet-d{i}' for i in range(8)],
+                'tip': 'EfficientDet variant'
+            },
+            'mixed_precision': {
+                'type': 'bool',
+                'value': False,
+                'tip': 'Use mixed precision training'
             }
         }
     
-    def _get_unet_parameters(self, model_name):
-        """U-Net-specific parameters."""
+    def _get_segmentation_parameters(self, model_name, model_family):
+        """Get parameters for semantic segmentation models."""
+        # Common segmentation parameters
+        params = {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 256, 'limits': [128, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 256, 'limits': [128, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
+                'type': 'int',
+                'value': 21,
+                'limits': [1, 1000],
+                'tip': 'Number of segmentation classes'
+            },
+            'activation': {
+                'type': 'list',
+                'value': 'softmax',
+                'values': ['softmax', 'sigmoid', 'relu'],
+                'tip': 'Output activation function'
+            }
+        }
+        
+        # Add family-specific parameters
+        if model_family == 'unet':
+            params.update(self._get_unet_specific_params())
+        elif model_family == 'deeplabv3':
+            params.update(self._get_deeplab_specific_params())
+        elif model_family == 'pspnet':
+            params.update(self._get_pspnet_specific_params())
+        elif model_family in ['fcn', 'segnet']:
+            params.update(self._get_fcn_segnet_specific_params(model_family))
+            
+        return params
+    
+    def _get_unet_specific_params(self):
+        """Get U-Net specific parameters."""
         return {
             'filters': {
-                'type': 'int',
+                'type': 'list',
                 'value': 64,
-                'limits': [16, 256],
-                'tip': 'Number of filters in the first layer'
+                'values': [16, 32, 64, 128, 256],
+                'tip': 'Base number of filters'
             },
             'num_layers': {
-                'type': 'int',
+                'type': 'list',
                 'value': 4,
-                'limits': [3, 6],
+                'values': [3, 4, 5, 6],
                 'tip': 'Number of encoder/decoder layers'
             },
             'dropout_rate': {
@@ -351,69 +636,139 @@ class ModelGroup(GroupParameter):
                 'step': 0.05,
                 'tip': 'Dropout rate'
             },
-            'batch_norm': {
+            'batch_normalization': {
                 'type': 'bool',
                 'value': True,
                 'tip': 'Use batch normalization'
             },
-            'activation': {
-                'type': 'list',
-                'value': 'relu',
-                'limits': ['relu', 'leaky_relu', 'swish', 'gelu'],
-                'tip': 'Activation function'
-            }
-        }
-    
-    def _get_deeplab_parameters(self, model_name):
-        """DeepLab-specific parameters."""
-        return {
-            'output_stride': {
-                'type': 'int',
-                'value': 16,
-                'limits': [8, 32],
-                'tip': 'Output stride for the backbone'
-            },
-            'aspp_rates': {
-                'type': 'str',
-                'value': '6,12,18',
-                'tip': 'ASPP dilation rates (comma-separated)'
-            },
-            'decoder_channels': {
-                'type': 'int',
-                'value': 256,
-                'limits': [64, 512],
-                'tip': 'Number of channels in decoder'
-            }
-        }
-    
-    def _get_detection_parameters(self):
-        """Object detection-specific parameters."""
-        return {
-            'anchor_sizes': {
-                'type': 'str',
-                'value': '32,64,128,256,512',
-                'tip': 'Anchor sizes (comma-separated)'
-            },
-            'aspect_ratios': {
-                'type': 'str',
-                'value': '0.5,1.0,2.0',
-                'tip': 'Anchor aspect ratios (comma-separated)'
-            }
-        }
-    
-    def _get_segmentation_parameters(self):
-        """Semantic segmentation-specific parameters."""
-        return {
-            'ignore_label': {
-                'type': 'int',
-                'value': 255,
-                'limits': [0, 255],
-                'tip': 'Label value to ignore in loss calculation'
-            },
-            'use_auxiliary_loss': {
+            'use_attention': {
                 'type': 'bool',
                 'value': False,
-                'tip': 'Use auxiliary loss for training'
+                'tip': 'Use attention gates'
+            },
+            'deep_supervision': {
+                'type': 'bool',
+                'value': False,
+                'tip': 'Use deep supervision'
+            }
+        }
+    
+    def _get_deeplab_specific_params(self):
+        """Get DeepLabV3/V3+ specific parameters."""
+        return {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2', 'xception'],
+                'tip': 'Backbone network'
+            },
+            'output_stride': {
+                'type': 'list',
+                'value': 16,
+                'values': [8, 16, 32],
+                'tip': 'Output stride for the backbone'
+            },
+            'atrous_rates': {
+                'type': 'str',
+                'value': '6,12,18',
+                'tip': 'ASPP atrous rates (comma-separated)'
+            },
+            'aspp_dropout': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.0, 0.9],
+                'step': 0.05,
+                'tip': 'ASPP dropout rate'
+            },
+            'decoder_channels': {
+                'type': 'list',
+                'value': 256,
+                'values': [64, 128, 256, 512],
+                'tip': 'Number of decoder channels'
+            }
+        }
+    
+    def _get_pspnet_specific_params(self):
+        """Get PSPNet specific parameters."""
+        return {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2'],
+                'tip': 'Backbone network'
+            },
+            'pyramid_bins': {
+                'type': 'str',
+                'value': '1,2,3,6',
+                'tip': 'Pyramid pooling bins (comma-separated)'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.1,
+                'limits': [0.0, 0.5],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            },
+            'aux_loss': {
+                'type': 'bool',
+                'value': True,
+                'tip': 'Use auxiliary loss'
+            }
+        }
+    
+    def _get_fcn_segnet_specific_params(self, model_family):
+        """Get FCN/SegNet specific parameters."""
+        params = {
+            'backbone': {
+                'type': 'list',
+                'value': 'vgg16' if model_family == 'fcn' else 'vgg16',
+                'values': ['vgg16', 'resnet50', 'resnet101'] if model_family == 'fcn' else ['vgg16', 'resnet'],
+                'tip': 'Backbone network'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.0, 0.9],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            }
+        }
+        
+        if model_family == 'fcn':
+            params.update({
+                'skip_connections': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use skip connections'
+                }
+            })
+        elif model_family == 'segnet':
+            params.update({
+                'decoder_use_batchnorm': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use batch normalization in decoder'
+                }
+            })
+        
+        return params
+    
+    def _get_default_parameters(self):
+        """Get default parameters for unknown models."""
+        return {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
+                'type': 'int',
+                'value': 1000,
+                'limits': [1, 50000],
+                'tip': 'Number of output classes'
             }
         }
     
@@ -564,9 +919,24 @@ class ModelGroup(GroupParameter):
     
     def update_model_selection(self, model_name, task_type):
         """Update the model parameters when model selection changes."""
-        self.model_name = model_name
-        self.task_type = task_type
-        self._update_model_parameters()
+        try:
+            # Check if anything actually changed
+            if self.model_name != model_name or self.task_type != task_type:
+                old_model = self.model_name
+                old_task = self.task_type
+                
+                self.model_name = model_name
+                self.task_type = task_type
+                
+                print(f"ModelGroup: Updating from {old_model} ({old_task}) to {model_name} ({task_type})")
+                self._update_model_parameters()
+                print(f"ModelGroup: Updated successfully, now has {len(self.children())} parameters")
+            else:
+                print(f"ModelGroup: No change needed - already {model_name} ({task_type})")
+        except Exception as e:
+            print(f"Error in update_model_selection: {e}")
+            import traceback
+            traceback.print_exc()
     
     def get_model_config(self):
         """Get the current model configuration."""
