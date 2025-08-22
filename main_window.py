@@ -688,7 +688,7 @@ class MainWindow(QMainWindow):
 
                 for i in range(tree.topLevelItemCount()):
                     _adjust(tree.topLevelItem(i))
-            self.tree.setStyleSheet("QTreeWidget::item { height: 35px; }")
+            self.tree.setStyleSheet("QTreeWidget {font-size: 12pt;} QTreeWidget::item { height: 35px; }")
             adjust_leaf_heights(self.tree, 35)
         except Exception as e:
             print(f"Error applying parameter tree styling: {e}")
@@ -1207,11 +1207,44 @@ class MainWindow(QMainWindow):
                 
                 # Apply configuration to model groups
                 if model_group:
+                    original_basic_config = self.original_gui_cfg.get('basic', {})
+                    original_model_config = original_basic_config.get('model', {})
+                    
+                    # Apply configuration to the model_parameters group (actual ModelGroup instance)
+                    model_parameters_group = model_group.child('model_parameters')
+                    if model_parameters_group and hasattr(model_parameters_group, 'set_model_config'):
+                        original_model_parameters_config = original_model_config.get('model_parameters', {})
+                        if original_model_parameters_config:
+                            model_parameters_group.set_model_config(original_model_parameters_config)
+                            
+                            # Check if a custom model was loaded and update parent parameters
+                            custom_info = original_model_parameters_config.get('custom_info')
+                            if custom_info:
+                                model_name = custom_info.get('name')
+                                if model_name:
+                                    # Update parent-level parameters
+                                    model_family_param = model_group.child('model_family')
+                                    model_name_param = model_group.child('model_name')
+                                    
+                                    if model_family_param:
+                                        # Ensure custom_model is in the options
+                                        current_limits = model_family_param.opts.get('limits', [])
+                                        if 'custom_model' not in current_limits:
+                                            new_limits = list(current_limits) + ['custom_model']
+                                            model_family_param.setLimits(new_limits)
+                                        model_family_param.setValue('custom_model')
+                                        self.append_log(f"Updated model_family to: custom_model")
+                                    
+                                    if model_name_param:
+                                        # Set model name to the custom model name
+                                        model_name_param.setValue(model_name)
+                                        self.append_log(f"Updated model_name to: {model_name}")
+                                    
+                                    self.append_log(f"✅ UI parameters updated for custom model: {model_name}")
+                    
                     # Apply configuration to optimizer group
                     optimizer_group = model_group.child('optimizer')
                     if optimizer_group and hasattr(optimizer_group, 'set_optimizer_config'):
-                        original_basic_config = self.original_gui_cfg.get('basic', {})
-                        original_model_config = original_basic_config.get('model', {})
                         original_optimizer_config = original_model_config.get('optimizer', {})
                         
                         if original_optimizer_config:
@@ -1437,6 +1470,40 @@ class MainWindow(QMainWindow):
                             
                 except Exception as e:
                     reload_results.append(f"✗ Preprocessing error: {prep_info['name']} - {e}")
+            
+            # Reload models
+            for model_info in custom_functions_info.get('models', []):
+                total_attempted += 1
+                
+                try:
+                    # Find the model_parameters group (the actual ModelGroup instance)
+                    basic_group = self.params.child('basic')
+                    model_group = basic_group.child('model') if basic_group else None
+                    model_parameters_group = model_group.child('model_parameters') if model_group else None
+                    
+                    if model_parameters_group and hasattr(model_parameters_group, 'load_custom_model_from_metadata'):
+                        success = model_parameters_group.load_custom_model_from_metadata(model_info)
+                        if success:
+                            reload_results.append(f"✓ Model: {model_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Model failed: {model_info['name']}")
+                    else:
+                        # Fallback - try to load using file path
+                        file_path = model_info['file_path']
+                        
+                        if os.path.exists(file_path) and model_parameters_group:
+                            success, _ = model_parameters_group.load_custom_model_from_path(file_path)
+                            if success:
+                                reload_results.append(f"✓ Model: {model_info['name']}")
+                                total_successful += 1
+                            else:
+                                reload_results.append(f"✗ Model failed: {model_info['name']}")
+                        else:
+                            reload_results.append(f"✗ Model file not found or group not accessible: {model_info['name']}")
+                            
+                except Exception as e:
+                    reload_results.append(f"✗ Model error: {model_info['name']} - {e}")
             
             # Reload optimizers
             for opt_info in custom_functions_info.get('optimizers', []):
@@ -3024,6 +3091,12 @@ class MainWindow(QMainWindow):
                     result[child_name] = self.extract_preprocessing_config(child)
                 elif isinstance(child, CallbacksGroup):
                     result[child_name] = self.extract_callbacks_config(child)
+                elif hasattr(child, 'get_model_config'):
+                    # Special handling for ModelGroup with custom models
+                    result[child_name] = child.get_model_config()
+                elif hasattr(child, 'get_data_loader_config'):
+                    # Special handling for DataLoaderGroup with custom data loaders
+                    result[child_name] = child.get_data_loader_config()
                 elif child.hasChildren():
                     # Handle special group parameters like image_size or crop_area_range
                     if child_name == 'image_size' and len(child.children()) == 2:

@@ -7,6 +7,7 @@ import sys
 import importlib.util
 import inspect
 import tensorflow as tf
+import keras
 
 # Try to import PySide6 (for GUI functionality) but make it optional
 try:
@@ -1111,8 +1112,8 @@ class ModelGroup(GroupParameter):
                     # Check if class inherits from keras Model or has model-like methods
                     try:
                         is_keras_model = False
-                        if hasattr(tf, 'keras') and hasattr(tf.keras, 'models') and hasattr(tf.keras.models, 'Model'):
-                            is_keras_model = issubclass(obj, tf.keras.models.Model)
+                        if hasattr(keras, 'models') and hasattr(keras.models, 'Model'):
+                            is_keras_model = issubclass(obj, keras.models.Model)
                         
                         has_call_method = hasattr(obj, '__call__') or hasattr(obj, 'call')
                         has_init_with_model_params = False
@@ -1260,16 +1261,6 @@ class ModelGroup(GroupParameter):
         """Get the current model configuration."""
         config = {}
         
-        # Add custom model metadata if available
-        if hasattr(self, 'custom_model_path') and self.custom_model_path:
-            config['_custom_model_path'] = self.custom_model_path
-        if hasattr(self, 'custom_model_function') and self.custom_model_function:
-            config['_custom_model_info'] = {
-                'name': self.custom_model_function.get('name'),
-                'type': self.custom_model_function.get('type'),
-                'file_path': self.custom_model_function.get('file_path')
-            }
-        
         for child in self.children():
             if child.name() not in ['load_custom_model']:
                 if hasattr(child, 'value'):
@@ -1295,28 +1286,40 @@ class ModelGroup(GroupParameter):
                         else:
                             config[child.name()] = value
         
+        # Add custom model metadata if available (after regular config to maintain consistency with other groups)
+        if (hasattr(self, 'custom_model_path') and self.custom_model_path and 
+            hasattr(self, 'custom_model_function') and self.custom_model_function):
+            # Add custom model information for configuration collection
+            config['custom_info'] = {
+                'name': self.custom_model_function.get('name'),
+                'file_path': self.custom_model_function.get('file_path'),
+                'function_name': self.custom_model_function.get('name'),  # For consistency with other groups
+                'type': self.custom_model_function.get('type', 'function')
+            }
+        
         return config
     
     def set_model_config(self, config):
         """Set the model configuration."""
         try:
-            # Handle custom model loading from configuration
-            if '_custom_model_path' in config and config['_custom_model_path']:
-                custom_model_path = config['_custom_model_path']
-                if os.path.exists(custom_model_path):
-                    print(f"Restoring custom model from config: {custom_model_path}")
-                    success, model_info = self.load_custom_model_from_path(custom_model_path)
+            # Handle custom model loading from configuration first
+            custom_info = config.get('custom_info')
+            if custom_info:
+                file_path = custom_info.get('file_path')
+                if file_path and os.path.exists(file_path):
+                    print(f"Restoring custom model from config: {file_path}")
+                    success, model_info = self.load_custom_model_from_path(file_path)
                     if success:
                         print(f"✅ Custom model restored from configuration: {model_info['name']}")
                     else:
                         print(f"❌ Failed to restore custom model: {model_info}")
                 else:
-                    print(f"❌ Custom model file not found: {custom_model_path}")
+                    print(f"❌ Custom model file not found: {file_path}")
             
             # Set regular parameters
             for key, value in config.items():
-                # Skip internal metadata keys
-                if key.startswith('_custom_model'):
+                # Skip custom info and internal metadata keys
+                if key in ['custom_info'] or key.startswith('_custom_model'):
                     continue
                     
                 param = self.child(key)
@@ -1340,3 +1343,39 @@ class ModelGroup(GroupParameter):
             print(f"Error setting model config: {e}")
             import traceback
             traceback.print_exc()
+    
+    def load_custom_model_from_metadata(self, model_info):
+        """Load custom model from metadata info (for consistency with other groups)."""
+        try:
+            file_path = model_info.get('file_path', '')
+            function_name = model_info.get('function_name', '') or model_info.get('name', '')
+            model_type = model_info.get('type', 'function')
+            
+            if not function_name:
+                print(f"Warning: Empty function name in custom model metadata for {file_path}")
+                return False
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom model file not found: {file_path}")
+                return False
+            
+            # Use existing load_custom_model_from_path method
+            success, loaded_model_info = self.load_custom_model_from_path(file_path)
+            
+            if success:
+                # Validate that we loaded the expected model
+                if loaded_model_info.get('name') == function_name:
+                    print(f"Successfully loaded custom model: {function_name}")
+                    return True
+                else:
+                    print(f"Warning: Loaded model '{loaded_model_info.get('name')}' but expected '{function_name}'")
+                    return True  # Still successful, just different model selected
+            else:
+                print(f"Failed to load custom model from metadata: {loaded_model_info}")
+                return False
+                
+        except Exception as e:
+            print(f"Error loading custom model from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False

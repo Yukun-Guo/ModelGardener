@@ -410,6 +410,7 @@ class ConfigManager:
             'optimizers': [],
             'loss_functions': [],
             'metrics': [],
+            'models': [],  # Add custom models collection
             'augmentations': [],
             'callbacks': [],
             'preprocessing': []
@@ -435,6 +436,20 @@ class ConfigManager:
                 # Model related custom functions
                 model_group = basic_group.child('model')
                 if model_group:
+                    # The actual ModelGroup instance is under 'model_parameters'
+                    model_parameters_group = model_group.child('model_parameters')
+                    if (model_parameters_group and 
+                        hasattr(model_parameters_group, 'custom_model_path') and 
+                        hasattr(model_parameters_group, 'custom_model_function')):
+                        if (model_parameters_group.custom_model_path and 
+                            model_parameters_group.custom_model_function):
+                            custom_info['models'].append({
+                                'name': model_parameters_group.custom_model_function.get('name'),
+                                'file_path': model_parameters_group.custom_model_function.get('file_path'),
+                                'function_name': model_parameters_group.custom_model_function.get('name'),
+                                'type': model_parameters_group.custom_model_function.get('type', 'function')
+                            })
+                    
                     # Optimizers
                     optimizer_group = model_group.child('optimizer')
                     if optimizer_group and hasattr(optimizer_group, '_custom_optimizer_metadata'):
