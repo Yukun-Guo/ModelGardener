@@ -1985,18 +1985,52 @@ class MainWindow(QMainWindow):
         
         os.makedirs(model_dir, exist_ok=True)
         self.start_tensorboard(model_dir)
-        # start trainer thread that runs train_lib.run_experiment
-        self.append_log("Launching tf-models-official trainer thread...")
-        t = TFModelsTrainerThread(self.gui_cfg, exp_name=self.experiment_name, resume_ckpt=self.resume_ckpt_path)
-        self.trainer_thread = t
-        t.start()
-        self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
+        
+        # Use enhanced trainer for comprehensive training
+        from enhanced_trainer import EnhancedTrainer
+        
+        try:
+            # Get custom functions if loaded
+            custom_functions = {}
+            if hasattr(self, 'config_manager') and self.config_manager:
+                try:
+                    custom_functions = self.config_manager.get_all_custom_functions()
+                    self.append_log(f"Collected {len([f for funcs in custom_functions.values() for f in funcs])} custom functions")
+                except Exception as e:
+                    self.append_log(f"Warning: Could not collect custom functions: {str(e)}")
+                    custom_functions = {}
+            
+            # Create enhanced trainer
+            self.enhanced_trainer = EnhancedTrainer(self.gui_cfg, custom_functions)
+            
+            # Start enhanced training process
+            self.append_log("Starting enhanced training process...")
+            self.enhanced_trainer.start_training()
+            
+            self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
+            
+        except Exception as e:
+            self.append_log(f"Failed to start enhanced training: {str(e)}")
+            # Fallback to original training method
+            self.append_log("Falling back to tf-models-official trainer...")
+            t = TFModelsTrainerThread(self.gui_cfg, exp_name=self.experiment_name, resume_ckpt=self.resume_ckpt_path)
+            self.trainer_thread = t
+            t.start()
+            self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
 
     def stop_training(self):
-        if self.trainer_thread:
+        # Try to stop enhanced trainer first
+        if hasattr(self, 'enhanced_trainer') and self.enhanced_trainer:
+            self.append_log("Requested stop — enhanced trainer will attempt graceful stop.")
+            self.enhanced_trainer.stop_training()
+        # Fallback to original trainer thread
+        elif self.trainer_thread:
             self.append_log("Requested stop — trainer thread will attempt graceful stop.")
             self.trainer_thread.stop()
-            self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
+        else:
+            self.append_log("No active training process to stop.")
+        
+        self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
 
     def on_training_finished(self):
         self.append_log("Training finished (thread signalled).")

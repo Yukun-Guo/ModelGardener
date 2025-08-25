@@ -551,6 +551,138 @@ class ConfigManager:
         
         return custom_info
     
+    def get_all_custom_functions(self) -> Dict[str, Any]:
+        """
+        Get all loaded custom functions organized by type for the enhanced trainer.
+        
+        Returns:
+            Dict containing loaded custom functions organized by type
+        """
+        custom_functions = {
+            'data_loaders': {},
+            'models': {},
+            'optimizers': {},
+            'loss_functions': {},
+            'metrics': {},
+            'callbacks': {},
+            'preprocessing': {},
+            'augmentations': {},
+            'training_loops': {}
+        }
+        
+        if not self.main_window or not hasattr(self.main_window, 'params'):
+            return custom_functions
+        
+        try:
+            # Get parameter tree
+            params = self.main_window.params
+            
+            # Get basic configuration groups
+            basic_group = params.child('basic')
+            if basic_group:
+                # Data loaders
+                try:
+                    data_group = basic_group.child('data')
+                    if data_group:
+                        data_loader_group = data_group.child('data_loader')
+                        if data_loader_group and hasattr(data_loader_group, '_custom_data_loaders'):
+                            custom_functions['data_loaders'] = data_loader_group._custom_data_loaders
+                except:
+                    pass  # data_loader group doesn't exist
+                
+                # Model related custom functions
+                try:
+                    model_group = basic_group.child('model')
+                    if model_group:
+                        # Custom models - get from model_parameters group
+                        try:
+                            model_parameters_group = model_group.child('model_parameters')
+                            if (model_parameters_group and 
+                                hasattr(model_parameters_group, 'custom_models')):
+                                custom_functions['models'] = getattr(model_parameters_group, 'custom_models', {})
+                        except:
+                            pass  # model_parameters doesn't exist
+                        
+                        # Optimizers
+                        try:
+                            optimizer_group = model_group.child('optimizer')
+                            if optimizer_group and hasattr(optimizer_group, '_custom_optimizers'):
+                                custom_functions['optimizers'] = optimizer_group._custom_optimizers
+                        except:
+                            pass  # optimizer group doesn't exist
+                        
+                        # Loss functions  
+                        try:
+                            loss_group = model_group.child('loss_functions')
+                            if loss_group and hasattr(loss_group, '_custom_loss_functions'):
+                                custom_functions['loss_functions'] = loss_group._custom_loss_functions
+                        except:
+                            pass  # loss_functions group doesn't exist
+                        
+                        # Metrics
+                        try:
+                            metrics_group = model_group.child('metrics')
+                            if metrics_group and hasattr(metrics_group, '_custom_metric_functions'):
+                                custom_functions['metrics'] = metrics_group._custom_metric_functions
+                        except:
+                            pass  # metrics group doesn't exist
+                except:
+                    pass  # model group doesn't exist
+                
+                # Training loops
+                try:
+                    training_group = basic_group.child('training')
+                    if training_group:
+                        training_loop_group = training_group.child('training_loop')
+                        if training_loop_group and hasattr(training_loop_group, '_custom_training_strategies'):
+                            custom_functions['training_loops'] = training_loop_group._custom_training_strategies
+                except:
+                    pass  # training_loop group doesn't exist
+            
+            # Get advanced configuration groups
+            advanced_group = params.child('advanced')
+            if advanced_group:
+                # Callbacks
+                try:
+                    callbacks_group = advanced_group.child('callbacks')
+                    if callbacks_group and hasattr(callbacks_group, '_custom_callbacks'):
+                        custom_functions['callbacks'] = callbacks_group._custom_callbacks
+                except:
+                    pass  # callbacks group doesn't exist
+                
+                # Augmentations
+                try:
+                    augmentation_group = advanced_group.child('augmentation')
+                    if augmentation_group and hasattr(augmentation_group, '_custom_augmentations'):
+                        custom_functions['augmentations'] = augmentation_group._custom_augmentations
+                except:
+                    pass  # augmentation group doesn't exist
+                
+                # Preprocessing - might be under different structure
+                try:
+                    preprocessing_group = advanced_group.child('preprocessing')
+                    if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
+                        custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
+                except:
+                    pass  # preprocessing group doesn't exist
+            
+            # Also check for preprocessing under basic->data structure
+            try:
+                basic_group = params.child('basic')
+                if basic_group:
+                    data_group = basic_group.child('data')
+                    if data_group:
+                        preprocessing_group = data_group.child('preprocessing')
+                        if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
+                            custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
+            except:
+                pass  # preprocessing not found in data group either
+        
+        except Exception as e:
+            print(f"Error collecting custom functions: {e}")
+        
+        return custom_functions
+    
     def restore_custom_functions(self, custom_functions_info: Dict[str, Any], 
                                 parameter_tree) -> List[str]:
         """
