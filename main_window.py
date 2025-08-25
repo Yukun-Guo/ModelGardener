@@ -1983,12 +1983,23 @@ class MainWindow(QMainWindow):
         # sync GUI config from parameter tree
         self.write_back_tree()
         
-        # Get model_dir from new config structure
-        runtime_cfg = self.gui_cfg.get("callbacks", {})
-        model_dir = runtime_cfg.get("Tensorboard", "./logs/tensrboard")
+        # Get TensorBoard log directory from callbacks configuration
+        callbacks_cfg = self.gui_cfg.get("callbacks", {})
+        tensorboard_cfg = callbacks_cfg.get("TensorBoard", {})
         
-        os.makedirs(model_dir, exist_ok=True)
-        self.start_tensorboard(model_dir)
+        if tensorboard_cfg.get('enabled', True):
+            log_dir = tensorboard_cfg.get('log_dir', './logs/tensorboard')
+            
+            # Only modify path if it's a simple relative path without ./ prefix
+            # Respect the user's configured path from GUI
+            runtime_cfg = self.gui_cfg.get("runtime", {})
+            model_dir = runtime_cfg.get("model_dir", "./model_dir")
+            
+            if not os.path.isabs(log_dir) and not log_dir.startswith('./'):
+                log_dir = os.path.join(model_dir, log_dir)
+            
+            os.makedirs(log_dir, exist_ok=True)
+            self.start_tensorboard(log_dir)
         
         # Use enhanced trainer for comprehensive training
         from enhanced_trainer import EnhancedTrainer

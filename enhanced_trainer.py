@@ -695,28 +695,105 @@ class TrainingController(QThread):
         qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=10)
         callbacks.append(qt_callback)
         
-        # Add model checkpoint callback
+        # Process callback configurations from GUI
+        callbacks_config = self.config.get('callbacks', {})
         runtime_config = self.config.get('runtime', {})
         model_dir = runtime_config.get('model_dir', './model_dir')
         os.makedirs(model_dir, exist_ok=True)
         
-        checkpoint_callback = keras.callbacks.ModelCheckpoint(
-            filepath=os.path.join(model_dir, 'checkpoint-{epoch:03d}.keras'),
-            save_best_only=True,
-            monitor='val_loss' if self.val_dataset else 'loss',
-            mode='min',
-            save_freq='epoch'
-        )
-        callbacks.append(checkpoint_callback)
-        
-        # Add early stopping if validation data is available
-        if self.val_dataset:
+        # Early Stopping callback
+        early_stopping_config = callbacks_config.get('Early Stopping', {})
+        if early_stopping_config.get('enabled', False):
             early_stopping = keras.callbacks.EarlyStopping(
-                monitor='val_loss',
-                patience=10,
-                restore_best_weights=True
+                monitor=early_stopping_config.get('monitor', 'val_loss'),
+                patience=early_stopping_config.get('patience', 10),
+                min_delta=early_stopping_config.get('min_delta', 0.001),
+                mode=early_stopping_config.get('mode', 'min'),
+                restore_best_weights=early_stopping_config.get('restore_best_weights', True)
             )
             callbacks.append(early_stopping)
+            BRIDGE.log.emit(f"Added Early Stopping callback (monitor: {early_stopping_config.get('monitor', 'val_loss')})")
+        
+        # Model Checkpoint callback
+        checkpoint_config = callbacks_config.get('Model Checkpoint', {})
+        if checkpoint_config.get('enabled', True):
+            filepath = checkpoint_config.get('filepath', './logs/checkpoints/model-{epoch:02d}-{val_loss:.2f}.keras')
+            # Ensure the filepath is relative to model_dir if it's not an absolute path
+            if not os.path.isabs(filepath):
+                filepath = os.path.join(model_dir, os.path.basename(filepath))
+            
+            # Ensure checkpoint directory exists
+            checkpoint_dir = os.path.dirname(filepath)
+            os.makedirs(checkpoint_dir, exist_ok=True)
+            
+            checkpoint_callback = keras.callbacks.ModelCheckpoint(
+                filepath=filepath,
+                monitor=checkpoint_config.get('monitor', 'val_loss'),
+                save_best_only=checkpoint_config.get('save_best_only', False),
+                save_weights_only=checkpoint_config.get('save_weights_only', False),
+                mode=checkpoint_config.get('mode', 'min'),
+                save_freq='epoch' if checkpoint_config.get('period', 1) == 1 else checkpoint_config.get('period', 1)
+            )
+            callbacks.append(checkpoint_callback)
+            BRIDGE.log.emit(f"Added Model Checkpoint callback (filepath: {filepath})")
+        
+        # TensorBoard callback
+        tensorboard_config = callbacks_config.get('TensorBoard', {})
+        if tensorboard_config.get('enabled', True):
+            log_dir = tensorboard_config.get('log_dir', './logs/tensorboard')
+            # Only make absolute if it's a relative path without ./ prefix
+            # Respect the user's configured path from GUI
+            if not os.path.isabs(log_dir) and not log_dir.startswith('./'):
+                log_dir = os.path.join(model_dir, log_dir)
+            
+            os.makedirs(log_dir, exist_ok=True)
+            
+            tensorboard_callback = keras.callbacks.TensorBoard(
+                log_dir=log_dir,
+                histogram_freq=tensorboard_config.get('histogram_freq', 1),
+                write_graph=tensorboard_config.get('write_graph', True),
+                write_images=tensorboard_config.get('write_images', False),
+                update_freq=tensorboard_config.get('update_freq', 'epoch')
+            )
+            callbacks.append(tensorboard_callback)
+            BRIDGE.log.emit(f"Added TensorBoard callback (log_dir: {log_dir})")
+        
+        # CSV Logger callback
+        csv_config = callbacks_config.get('CSV Logger', {})
+        if csv_config.get('enabled', True):
+            filename = csv_config.get('filename', './logs/training_log.csv')
+            # Ensure the filename is relative to model_dir if it's not an absolute path
+            if not os.path.isabs(filename):
+                filename = os.path.join(model_dir, os.path.basename(filename))
+            
+            # Ensure log directory exists
+            log_dir = os.path.dirname(filename)
+            os.makedirs(log_dir, exist_ok=True)
+            
+            csv_callback = keras.callbacks.CSVLogger(
+                filename=filename,
+                separator=csv_config.get('separator', ','),
+                append=csv_config.get('append', False)
+            )
+            callbacks.append(csv_callback)
+            BRIDGE.log.emit(f"Added CSV Logger callback (filename: {filename})")
+        
+        # Learning Rate Scheduler callback
+        lr_config = callbacks_config.get('Learning Rate Scheduler', {})
+        if lr_config.get('enabled', False):
+            scheduler_type = lr_config.get('scheduler_type', 'ReduceLROnPlateau')
+            
+            if scheduler_type == 'ReduceLROnPlateau':
+                lr_callback = keras.callbacks.ReduceLROnPlateau(
+                    monitor=lr_config.get('monitor', 'val_loss'),
+                    factor=lr_config.get('factor', 0.5),
+                    patience=lr_config.get('patience', 5),
+                    min_lr=lr_config.get('min_lr', 1e-7),
+                    mode='min'
+                )
+                callbacks.append(lr_callback)
+                BRIDGE.log.emit(f"Added ReduceLROnPlateau callback")
+            # Add other scheduler types as needed
         
         # Add custom callbacks if available
         custom_callbacks = self.custom_functions.get('callbacks', {})
