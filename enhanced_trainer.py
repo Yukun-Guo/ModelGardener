@@ -23,7 +23,7 @@ import keras
 import numpy as np
 
 try:
-    from PySide6.QtCore import QObject, QThread, pyqtSignal
+    from PySide6.QtCore import QObject, QThread, Signal
     PYSIDE6_AVAILABLE = True
 except ImportError:
     # Fallback for environments without PySide6
@@ -36,7 +36,7 @@ except ImportError:
         def isRunning(self): return False
         def wait(self, timeout=0): pass
         def terminate(self): pass
-    def pyqtSignal(*args): return lambda: None
+    def Signal(*args): return lambda: None
 
 from bridge_callback import BRIDGE, QtBridgeCallback
 
@@ -171,8 +171,8 @@ class DatasetLoader:
     def _load_image_dataset(self, data_dir: str, batch_size: int, image_size: List[int], split: str) -> tf.data.Dataset:
         """Load image dataset from directory structure."""
         try:
-            # Use tf.keras.utils.image_dataset_from_directory
-            dataset = tf.keras.utils.image_dataset_from_directory(
+            # Use keras.utils.image_dataset_from_directory
+            dataset = keras.utils.image_dataset_from_directory(
                 data_dir,
                 validation_split=0.0,  # We assume separate train/val dirs
                 subset=None,
@@ -386,12 +386,12 @@ class ModelBuilder:
         """Build ResNet model."""
         # Map model names to Keras applications
         resnet_models = {
-            'ResNet-50': tf.keras.applications.ResNet50,
-            'ResNet-101': tf.keras.applications.ResNet101,
-            'ResNet-152': tf.keras.applications.ResNet152,
+            'ResNet-50': keras.applications.ResNet50,
+            'ResNet-101': keras.applications.ResNet101,
+            'ResNet-152': keras.applications.ResNet152,
         }
         
-        ResNetClass = resnet_models.get(model_name, tf.keras.applications.ResNet50)
+        ResNetClass = resnet_models.get(model_name, keras.applications.ResNet50)
         
         base_model = ResNetClass(
             weights=None,
@@ -402,22 +402,22 @@ class ModelBuilder:
         # Add custom head
         inputs = base_model.input
         x = base_model.output
-        x = tf.keras.layers.GlobalAveragePooling2D()(x)
-        x = tf.keras.layers.Dropout(0.2)(x)
-        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        x = keras.layers.GlobalAveragePooling2D()(x)
+        x = keras.layers.Dropout(0.2)(x)
+        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
         
-        model = tf.keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
+        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
         return model
     
     def _build_efficientnet(self, input_shape: Tuple[int, ...], num_classes: int, model_name: str) -> keras.Model:
         """Build EfficientNet model."""
         efficientnet_models = {
-            'EfficientNet-B0': tf.keras.applications.EfficientNetB0,
-            'EfficientNet-B1': tf.keras.applications.EfficientNetB1,
-            'EfficientNet-B2': tf.keras.applications.EfficientNetB2,
+            'EfficientNet-B0': keras.applications.EfficientNetB0,
+            'EfficientNet-B1': keras.applications.EfficientNetB1,
+            'EfficientNet-B2': keras.applications.EfficientNetB2,
         }
         
-        EfficientNetClass = efficientnet_models.get(model_name, tf.keras.applications.EfficientNetB0)
+        EfficientNetClass = efficientnet_models.get(model_name, keras.applications.EfficientNetB0)
         
         base_model = EfficientNetClass(
             weights=None,
@@ -427,21 +427,21 @@ class ModelBuilder:
         
         inputs = base_model.input
         x = base_model.output
-        x = tf.keras.layers.GlobalAveragePooling2D()(x)
-        x = tf.keras.layers.Dropout(0.2)(x)
-        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        x = keras.layers.GlobalAveragePooling2D()(x)
+        x = keras.layers.Dropout(0.2)(x)
+        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
         
-        model = tf.keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
+        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
         return model
     
     def _build_vgg(self, input_shape: Tuple[int, ...], num_classes: int, model_name: str) -> keras.Model:
         """Build VGG model."""
         vgg_models = {
-            'VGG-16': tf.keras.applications.VGG16,
-            'VGG-19': tf.keras.applications.VGG19,
+            'VGG-16': keras.applications.VGG16,
+            'VGG-19': keras.applications.VGG19,
         }
         
-        VGGClass = vgg_models.get(model_name, tf.keras.applications.VGG16)
+        VGGClass = vgg_models.get(model_name, keras.applications.VGG16)
         
         base_model = VGGClass(
             weights=None,
@@ -451,11 +451,11 @@ class ModelBuilder:
         
         inputs = base_model.input
         x = base_model.output
-        x = tf.keras.layers.GlobalAveragePooling2D()(x)
-        x = tf.keras.layers.Dropout(0.5)(x)
-        outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+        x = keras.layers.GlobalAveragePooling2D()(x)
+        x = keras.layers.Dropout(0.5)(x)
+        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
         
-        model = tf.keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
+        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
         return model
     
     def _compile_model(self, model: keras.Model) -> keras.Model:
@@ -495,14 +495,14 @@ class ModelBuilder:
         learning_rate = training_config.get('initial_learning_rate', 0.001)
         
         if selected_optimizer == 'Adam':
-            return tf.keras.optimizers.Adam(learning_rate=learning_rate)
+            return keras.optimizers.Adam(learning_rate=learning_rate)
         elif selected_optimizer == 'SGD':
             momentum = training_config.get('momentum', 0.9)
-            return tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=momentum)
+            return keras.optimizers.SGD(learning_rate=learning_rate, momentum=momentum)
         elif selected_optimizer == 'RMSprop':
-            return tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+            return keras.optimizers.RMSprop(learning_rate=learning_rate)
         else:
-            return tf.keras.optimizers.Adam(learning_rate=learning_rate)
+            return keras.optimizers.Adam(learning_rate=learning_rate)
     
     def _build_loss_function(self):
         """Build loss function from configuration."""
@@ -554,9 +554,9 @@ class ModelBuilder:
 class TrainingController(QThread):
     """Controls the training process with progress tracking."""
     
-    progress_updated = pyqtSignal(int)
-    log_updated = pyqtSignal(str)
-    training_finished = pyqtSignal()
+    progress_updated = Signal(int)
+    log_updated = Signal(str)
+    training_finished = Signal()
     
     def __init__(self, config: Dict[str, Any], custom_functions: Dict[str, Any] = None):
         super().__init__()
@@ -700,7 +700,7 @@ class TrainingController(QThread):
         model_dir = runtime_config.get('model_dir', './model_dir')
         os.makedirs(model_dir, exist_ok=True)
         
-        checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        checkpoint_callback = keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(model_dir, 'checkpoint-{epoch:03d}.keras'),
             save_best_only=True,
             monitor='val_loss' if self.val_dataset else 'loss',
@@ -711,7 +711,7 @@ class TrainingController(QThread):
         
         # Add early stopping if validation data is available
         if self.val_dataset:
-            early_stopping = tf.keras.callbacks.EarlyStopping(
+            early_stopping = keras.callbacks.EarlyStopping(
                 monitor='val_loss',
                 patience=10,
                 restore_best_weights=True

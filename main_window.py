@@ -34,6 +34,7 @@ from custom_functions_loader import CustomFunctionsLoader
 from bridge_callback import BRIDGE
 from trainer_thread import TFModelsTrainerThread
 import pyqtgraph.parametertree.parameterTypes as pTypes
+from pyqtgraph.dockarea import Dock, DockArea
 import numpy as np
 import cv2
 import albumentations as A
@@ -487,15 +488,18 @@ class MainWindow(QMainWindow):
         right_widget.setLayout(right_layout)
 
         # Connect button handlers for new UI elements
-        self._connect_tab_handlers()
+        self._connect_tab_handlers()        
+        
+        # set a docked layout
+        dock_left =Dock("Configuration", size=(400, 800),hideTitle=True)
+        dock_right = Dock("Training & Tools", size=(800, 800),hideTitle=True)
+        dock_left.addWidget(left_widget)
+        dock_right.addWidget(right_widget)
+        dock_area = DockArea()
+        dock_area.addDock(dock_left, 'left')    
+        dock_area.addDock(dock_right, 'right')
 
-        # main layout
-        main_layout = QHBoxLayout()
-        main_layout.addWidget(left_widget, stretch=1)
-        main_layout.addWidget(right_widget, stretch=2)
-        container = QWidget()
-        container.setLayout(main_layout)
-        self.setCentralWidget(container)
+        self.setCentralWidget(dock_area)
 
         # Initialize cascade filtering for model configuration (after UI is ready)
         self._initialize_model_config_cascade()
@@ -1980,8 +1984,8 @@ class MainWindow(QMainWindow):
         self.write_back_tree()
         
         # Get model_dir from new config structure
-        runtime_cfg = self.gui_cfg.get("runtime", {})
-        model_dir = runtime_cfg.get("model_dir", "./model_dir")
+        runtime_cfg = self.gui_cfg.get("callbacks", {})
+        model_dir = runtime_cfg.get("Tensorboard", "./logs/tensrboard")
         
         os.makedirs(model_dir, exist_ok=True)
         self.start_tensorboard(model_dir)
@@ -2216,7 +2220,7 @@ class MainWindow(QMainWindow):
                 }
             },
             'runtime': {
-                'model_dir': './model_dir',
+                'model_dir': './logs',
                 'distribution_strategy': 'mirrored',
                 'mixed_precision': None,
                 'num_gpus': 0
@@ -2233,7 +2237,7 @@ class MainWindow(QMainWindow):
                 'shuffle': True,
                 'random_seed': 42,
                 'save_fold_models': False,
-                'fold_models_dir': './fold_models',
+                'fold_models_dir': './logs/fold_models',
                 'aggregate_metrics': True,
                 'fold_selection_metric': 'val_accuracy'
             },

@@ -37,7 +37,7 @@ class CallbacksGroup(pTypes.GroupParameter):
                 'name': 'Learning Rate Scheduler',
                 'type': 'group',
                 'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable learning rate scheduling'},
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable learning rate scheduling'},
                     {'name': 'scheduler_type', 'type': 'list', 'limits': ['ReduceLROnPlateau', 'StepLR', 'ExponentialLR', 'CosineAnnealingLR'], 'value': 'ReduceLROnPlateau', 'tip': 'Type of learning rate scheduler'},
                     {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
                     {'name': 'factor', 'type': 'float', 'value': 0.5, 'limits': (0.01, 1.0), 'tip': 'Factor by which learning rate is reduced'},
@@ -53,9 +53,9 @@ class CallbacksGroup(pTypes.GroupParameter):
                 'type': 'group',
                 'children': [
                     {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable model checkpointing'},
-                    {'name': 'filepath', 'type': 'str', 'value': './checkpoints/model-{epoch:02d}-{val_loss:.2f}.keras', 'tip': 'Path template for checkpoint files'},
+                    {'name': 'filepath', 'type': 'str', 'value': './logs/checkpoints/model-{epoch:02d}-{val_loss:.2f}.keras', 'tip': 'Path template for checkpoint files'},
                     {'name': 'monitor', 'type': 'list', 'limits': ['val_loss', 'val_accuracy', 'loss', 'accuracy'], 'value': 'val_loss', 'tip': 'Metric to monitor'},
-                    {'name': 'save_best_only', 'type': 'bool', 'value': True, 'tip': 'Save only the best model'},
+                    {'name': 'save_best_only', 'type': 'bool', 'value': False, 'tip': 'Save only the best model'},
                     {'name': 'save_weights_only', 'type': 'bool', 'value': False, 'tip': 'Save only model weights (not full model)'},
                     {'name': 'mode', 'type': 'list', 'limits': ['min', 'max', 'auto'], 'value': 'min', 'tip': 'Direction of improvement'},
                     {'name': 'period', 'type': 'int', 'value': 1, 'limits': (1, 100), 'tip': 'Interval between checkpoints'}
@@ -77,7 +77,7 @@ class CallbacksGroup(pTypes.GroupParameter):
                 'name': 'TensorBoard',
                 'type': 'group',
                 'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable TensorBoard logging'},
+                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable TensorBoard logging'},
                     {'name': 'log_dir', 'type': 'str', 'value': './logs/tensorboard', 'tip': 'Directory for TensorBoard logs'},
                     {'name': 'histogram_freq', 'type': 'int', 'value': 1, 'limits': (0, 100), 'tip': 'Frequency for histogram computation'},
                     {'name': 'write_graph', 'type': 'bool', 'value': True, 'tip': 'Write model graph to TensorBoard'},
