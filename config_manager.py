@@ -413,7 +413,8 @@ class ConfigManager:
             'models': [],  # Add custom models collection
             'augmentations': [],
             'callbacks': [],
-            'preprocessing': []
+            'preprocessing': [],
+            'training_loops': []  # Add training loops collection
         }
         
         try:
@@ -480,6 +481,20 @@ class ConfigManager:
                                 'name': name,
                                 'file_path': info['file_path'],
                                 'function_name': info['function_name'],
+                                'type': info['type']
+                            })
+                
+                # Training loops
+                training_group = basic_group.child('training')
+                if training_group:
+                    training_loop_group = training_group.child('training_loop')
+                    if training_loop_group and hasattr(training_loop_group, '_custom_training_strategies'):
+                        for name, info in training_loop_group._custom_training_strategies.items():
+                            custom_info['training_loops'].append({
+                                'name': name,
+                                'file_path': info['file_path'],
+                                'function_name': info['function_name'] if info.get('type') == 'function' else None,
+                                'class_name': info['class_name'] if info.get('type') == 'class' else None,
                                 'type': info['type']
                             })
             

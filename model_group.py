@@ -959,6 +959,30 @@ class ModelGroup(GroupParameter):
                 self.custom_model_path = file_path
                 self.custom_model_function = model_info
                 
+                # IMPORTANT: Populate custom_model_candidates for UI integration
+                # This is required for get_model_families_and_models() to work correctly
+                analysis = model_info.get('analysis', {})
+                self.custom_model_candidates = []
+                
+                # Collect all model candidates from analysis
+                for func in analysis.get('model_functions_details', []):
+                    self.custom_model_candidates.append({
+                        'name': func['name'],
+                        'type': 'function',
+                        'confidence': func.get('confidence', 'medium'),
+                        'file_path': file_path
+                    })
+                
+                for cls in analysis.get('model_classes_details', []):
+                    self.custom_model_candidates.append({
+                        'name': cls['name'],
+                        'type': 'class',
+                        'confidence': cls.get('confidence', 'medium'),
+                        'file_path': file_path
+                    })
+                
+                print(f"✅ Custom model candidates populated: {[model['name'] for model in self.custom_model_candidates]}")
+                
                 # Add custom model parameters
                 self._add_custom_model_parameters(model_info)
                 

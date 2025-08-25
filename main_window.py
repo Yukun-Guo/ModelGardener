@@ -28,6 +28,7 @@ from metrics_group import MetricsGroup
 from optimizer_group import OptimizerGroup
 from data_loader_group import DataLoaderGroup
 from model_group import ModelGroup
+from training_loop_group import TrainingLoopGroup
 from config_manager import ConfigManager
 from custom_functions_loader import CustomFunctionsLoader
 from bridge_callback import BRIDGE
@@ -47,6 +48,7 @@ pTypes.registerParameterType('loss_functions_group', LossFunctionsGroup, overrid
 pTypes.registerParameterType('metrics_group', MetricsGroup, override=True)
 pTypes.registerParameterType('optimizer_group', OptimizerGroup, override=True)
 pTypes.registerParameterType('data_loader_group', DataLoaderGroup, override=True)
+pTypes.registerParameterType('training_loop_group', TrainingLoopGroup, override=True)
 pTypes.registerParameterType('model_group', ModelGroup, override=True)
 
 
@@ -1136,9 +1138,52 @@ class MainWindow(QMainWindow):
                 # Ask user if they want to auto-reload custom functions
                 info_msg = f"Loaded: {path}"
                 info_msg += f"\n\nFound {custom_count} custom function(s) to reload:"
+                
+                # Count functions by type with better labels
+                function_type_labels = {
+                    'loss_functions': 'Loss Functions',
+                    'models': 'Models',
+                    'optimizers': 'Optimizers', 
+                    'metrics': 'Metrics',
+                    'callbacks': 'Callbacks',
+                    'augmentations': 'Augmentations',
+                    'preprocessing': 'Preprocessing',
+                    'data_loaders': 'Data Loaders'
+                }
+                
                 for func_type, funcs in custom_functions_info.items():
                     if funcs:
-                        info_msg += f"\n- {func_type.replace('_', ' ').title()}: {len(funcs)}"
+                        func_label = function_type_labels.get(func_type, func_type.replace('_', ' ').title())
+                        
+                        # For models, show actual detected count instead of metadata count
+                        if func_type == 'models' and len(funcs) == 1:
+                            # Check the actual model file to detect all models
+                            model_info = funcs[0]
+                            file_path = model_info.get('file_path', '')
+                            if file_path and os.path.exists(file_path):
+                                try:
+                                    # Use the same analysis logic as the ModelGroup to detect actual models
+                                    from model_group import ModelGroup
+                                    temp_group = ModelGroup(name='temp', type='group')
+                                    success, model_analysis = temp_group._validate_custom_model(file_path)
+                                    
+                                    if success and 'analysis' in model_analysis:
+                                        analysis = model_analysis['analysis']
+                                        total_models = (len(analysis.get('model_functions_details', [])) + 
+                                                      len(analysis.get('model_classes_details', [])))
+                                        if total_models > 1:
+                                            info_msg += f"\n- {func_label}: {total_models}"
+                                        else:
+                                            info_msg += f"\n- {func_label}: {len(funcs)}"
+                                    else:
+                                        info_msg += f"\n- {func_label}: {len(funcs)}"
+                                except Exception:
+                                    # Fallback to metadata count if analysis fails
+                                    info_msg += f"\n- {func_label}: {len(funcs)}"
+                            else:
+                                info_msg += f"\n- {func_label}: {len(funcs)}"
+                        else:
+                            info_msg += f"\n- {func_label}: {len(funcs)}"
                 
                 info_msg += "\n\nCustom functions must be loaded before applying configuration."
                 info_msg += "\nAuto-reload custom functions now?"
@@ -1222,25 +1267,53 @@ class MainWindow(QMainWindow):
                             if custom_info:
                                 model_name = custom_info.get('name')
                                 if model_name:
+                                    # After loading custom model, we need to refresh the model dropdowns
+                                    # because custom_model_candidates should now be populated
+                                    self.append_log(f"🔄 Refreshing model dropdowns for custom model: {model_name}")
+                                    
+                                    # Get updated model configuration including newly loaded custom models
+                                    model_config = self.get_model_families_and_models()
+                                    
                                     # Update parent-level parameters
                                     model_family_param = model_group.child('model_family')
                                     model_name_param = model_group.child('model_name')
+                                    task_param = self._find_parameter_by_name('task_type')
                                     
-                                    if model_family_param:
-                                        # Ensure custom_model is in the options
-                                        current_limits = model_family_param.opts.get('limits', [])
-                                        if 'custom_model' not in current_limits:
-                                            new_limits = list(current_limits) + ['custom_model']
-                                            model_family_param.setLimits(new_limits)
+                                    if model_family_param and task_param:
+                                        current_task = task_param.value()
+                                        
+                                        # Update model_family dropdown to include custom_model option
+                                        available_families = list(model_config.get(current_task, {}).keys())
+                                        if 'custom_model' not in available_families:
+                                            available_families.append('custom_model')
+                                        
+                                        # Update the limits (dropdown options)
+                                        model_family_param.setLimits(available_families)
                                         model_family_param.setValue('custom_model')
-                                        self.append_log(f"Updated model_family to: custom_model")
+                                        self.append_log(f"Updated model_family dropdown and set to: custom_model")
                                     
-                                    if model_name_param:
-                                        # Set model name to the custom model name
-                                        model_name_param.setValue(model_name)
-                                        self.append_log(f"Updated model_name to: {model_name}")
+                                    if model_name_param and task_param:
+                                        current_task = task_param.value()
+                                        
+                                        # Get custom model names from the updated configuration
+                                        custom_model_names = model_config.get(current_task, {}).get('custom_model', [])
+                                        if custom_model_names:
+                                            # Update model_name dropdown with custom model options
+                                            model_name_param.setLimits(custom_model_names)
+                                            
+                                            # Set to the loaded custom model name if it's in the list
+                                            if model_name in custom_model_names:
+                                                model_name_param.setValue(model_name)
+                                                self.append_log(f"Updated model_name dropdown and set to: {model_name}")
+                                            else:
+                                                # Set to first available custom model
+                                                model_name_param.setValue(custom_model_names[0])
+                                                self.append_log(f"Set model_name to first custom model: {custom_model_names[0]}")
                                     
-                                    self.append_log(f"✅ UI parameters updated for custom model: {model_name}")
+                                    self.append_log(f"✅ UI dropdowns updated for custom model: {model_name}")
+                                    
+                                    # Trigger model parameters update to ensure everything is in sync
+                                    self._update_model_parameters()
                     
                     # Apply configuration to optimizer group
                     optimizer_group = model_group.child('optimizer')
@@ -1265,6 +1338,18 @@ class MainWindow(QMainWindow):
                         
                         if original_metrics_config:
                             metrics_group.set_metrics_config(original_metrics_config)
+                
+                # Apply configuration to training loop groups
+                training_group = basic_group.child('training')
+                if training_group:
+                    training_loop_group = training_group.child('training_loop')
+                    if training_loop_group and hasattr(training_loop_group, 'set_training_loop_config'):
+                        original_basic_config = self.original_gui_cfg.get('basic', {})
+                        original_training_config = original_basic_config.get('training', {})
+                        original_training_loop_config = original_training_config.get('training_loop', {})
+                        
+                        if original_training_loop_config:
+                            training_loop_group.set_training_loop_config(original_training_loop_config)
             
             # Apply configuration to advanced groups
             if advanced_group:
@@ -1472,8 +1557,9 @@ class MainWindow(QMainWindow):
                     reload_results.append(f"✗ Preprocessing error: {prep_info['name']} - {e}")
             
             # Reload models
+            models_in_config = len(custom_functions_info.get('models', []))
             for model_info in custom_functions_info.get('models', []):
-                total_attempted += 1
+                # Don't increment total_attempted here - we'll count actual models loaded
                 
                 try:
                     # Find the model_parameters group (the actual ModelGroup instance)
@@ -1484,10 +1570,21 @@ class MainWindow(QMainWindow):
                     if model_parameters_group and hasattr(model_parameters_group, 'load_custom_model_from_metadata'):
                         success = model_parameters_group.load_custom_model_from_metadata(model_info)
                         if success:
-                            reload_results.append(f"✓ Model: {model_info['name']}")
-                            total_successful += 1
+                            # List each model individually like loss functions
+                            if hasattr(model_parameters_group, 'custom_model_candidates'):
+                                for model_candidate in model_parameters_group.custom_model_candidates:
+                                    model_type = model_candidate.get('type', 'function')
+                                    model_name = model_candidate.get('name', 'unknown')
+                                    reload_results.append(f"✓ Model {model_type}: {model_name} (custom)")
+                                    total_attempted += 1
+                                    total_successful += 1
+                            else:
+                                reload_results.append(f"✓ Model: {model_info['name']} (custom)")
+                                total_attempted += 1
+                                total_successful += 1
                         else:
                             reload_results.append(f"✗ Model failed: {model_info['name']}")
+                            total_attempted += 1
                     else:
                         # Fallback - try to load using file path
                         file_path = model_info['file_path']
@@ -1495,12 +1592,24 @@ class MainWindow(QMainWindow):
                         if os.path.exists(file_path) and model_parameters_group:
                             success, _ = model_parameters_group.load_custom_model_from_path(file_path)
                             if success:
-                                reload_results.append(f"✓ Model: {model_info['name']}")
-                                total_successful += 1
+                                # List each model individually like loss functions
+                                if hasattr(model_parameters_group, 'custom_model_candidates'):
+                                    for model_candidate in model_parameters_group.custom_model_candidates:
+                                        model_type = model_candidate.get('type', 'function')
+                                        model_name = model_candidate.get('name', 'unknown')
+                                        reload_results.append(f"✓ Model {model_type}: {model_name} (custom)")
+                                        total_attempted += 1
+                                        total_successful += 1
+                                else:
+                                    reload_results.append(f"✓ Model: {model_info['name']} (custom)")
+                                    total_attempted += 1
+                                    total_successful += 1
                             else:
                                 reload_results.append(f"✗ Model failed: {model_info['name']}")
+                                total_attempted += 1
                         else:
                             reload_results.append(f"✗ Model file not found or group not accessible: {model_info['name']}")
+                            total_attempted += 1
                             
                 except Exception as e:
                     reload_results.append(f"✗ Model error: {model_info['name']} - {e}")
@@ -1565,6 +1674,30 @@ class MainWindow(QMainWindow):
                             
                 except Exception as e:
                     reload_results.append(f"✗ Metric error: {metric_info['name']} - {e}")
+            
+            # Reload training loops
+            for training_loop_info in custom_functions_info.get('training_loops', []):
+                total_attempted += 1
+                
+                try:
+                    # Find the training loop group
+                    basic_group = self.params.child('basic')
+                    training_group = basic_group.child('training') if basic_group else None
+                    training_loop_group = training_group.child('training_loop') if training_group else None
+                    
+                    if training_loop_group and hasattr(training_loop_group, 'load_custom_training_loop_from_metadata'):
+                        success = training_loop_group.load_custom_training_loop_from_metadata(training_loop_info)
+                        if success:
+                            reload_results.append(f"✓ Training loop: {training_loop_info['name']}")
+                            total_successful += 1
+                        else:
+                            reload_results.append(f"✗ Training loop failed: {training_loop_info['name']}")
+                    else:
+                        # Fallback message - training loop groups might not have metadata support yet
+                        reload_results.append(f"⚠ Training loop: {training_loop_info['name']} (needs manual reload)")
+                        
+                except Exception as e:
+                    reload_results.append(f"✗ Training loop error: {training_loop_info['name']} - {e}")
             
             # Show results
             if reload_results:
@@ -2042,7 +2175,11 @@ class MainWindow(QMainWindow):
                 'initial_learning_rate': 0.1,
                 'momentum': 0.9,
                 'weight_decay': 1e-4,
-                'label_smoothing': 0.0
+                'label_smoothing': 0.0,
+                'training_loop': {
+                    'type': 'training_loop_group',
+                    'name': 'training_loop'
+                }
             },
             'runtime': {
                 'model_dir': './model_dir',
@@ -2365,6 +2502,32 @@ class MainWindow(QMainWindow):
             'momentum': 'SGD momentum factor - helps accelerate gradients in relevant directions (typically 0.9)',
             'weight_decay': 'L2 regularization strength to prevent overfitting by penalizing large weights',
             'label_smoothing': 'Technique to prevent overconfident predictions by softening target labels (0.0-0.3)',
+            'training_loop': 'Configure custom training loop strategies and advanced training techniques',
+            
+            # Training Loop tooltips
+            'selected_strategy': 'Training strategy/loop type - select from built-in options or load custom training loops',
+            'use_distributed': 'Enable distributed training across multiple devices for faster training',
+            'mixed_precision': 'Enable automatic mixed precision training to reduce memory usage and speed up training',
+            'gradient_accumulation_steps': 'Number of steps to accumulate gradients before applying updates (simulates larger batch size)',
+            'gradient_clipping': 'Maximum gradient norm to prevent gradient explosion (0 to disable)',
+            'warmup_steps': 'Number of steps to gradually increase learning rate from 0 to base rate',
+            'initial_resolution': 'Starting image resolution for progressive training',
+            'final_resolution': 'Final image resolution for progressive training',
+            'progression_schedule': 'How to progress resolution: linear, exponential',
+            'difficulty_metric': 'Metric to determine sample difficulty for curriculum learning',
+            'curriculum_schedule': 'How to schedule curriculum progression: linear, exponential',
+            'easy_samples_ratio': 'Initial ratio of easy samples to start curriculum learning with',
+            'adversarial_method': 'Adversarial attack method for adversarial training (FGSM, PGD, C&W)',
+            'epsilon': 'Maximum perturbation magnitude for adversarial examples',
+            'adversarial_ratio': 'Ratio of adversarial examples to include in training batches',
+            'pretext_task': 'Self-supervised pretext task (rotation, jigsaw, colorization, contrastive)',
+            'pretraining_epochs': 'Number of epochs for self-supervised pretraining phase',
+            'fine_tuning_lr': 'Learning rate for supervised fine-tuning after pretraining',
+            'inner_steps': 'Number of inner loop optimization steps for meta-learning',
+            'inner_lr': 'Learning rate for inner loop in meta-learning',
+            'meta_lr': 'Learning rate for meta optimization in meta-learning',
+            'logging_steps': 'Number of steps between training progress logs',
+            'save_steps': 'Number of steps between checkpoint saves',
             
             # Runtime section tooltips
             'model_dir': 'Directory where model checkpoints and training outputs will be saved',
@@ -2702,6 +2865,14 @@ class MainWindow(QMainWindow):
                     'name': data.get('name', name),
                     'type': 'data_loader_group',
                     'tip': self.get_parameter_tooltip('data_loader')
+                }
+            
+            # Check if this is a special training loop group type
+            if data.get('type') == 'training_loop_group':
+                return {
+                    'name': data.get('name', name),
+                    'type': 'training_loop_group',
+                    'tip': self.get_parameter_tooltip('training_loop')
                 }
             
             # Check if this is a special model group type
@@ -3097,6 +3268,9 @@ class MainWindow(QMainWindow):
                 elif hasattr(child, 'get_data_loader_config'):
                     # Special handling for DataLoaderGroup with custom data loaders
                     result[child_name] = child.get_data_loader_config()
+                elif hasattr(child, 'get_training_loop_config'):
+                    # Special handling for TrainingLoopGroup with custom training loops
+                    result[child_name] = child.get_training_loop_config()
                 elif child.hasChildren():
                     # Handle special group parameters like image_size or crop_area_range
                     if child_name == 'image_size' and len(child.children()) == 2:
