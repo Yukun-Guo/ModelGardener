@@ -144,7 +144,7 @@ class DatasetLoader:
     def _load_builtin_dataset(self, split: str, data_config: Dict[str, Any], loader_type: str) -> tf.data.Dataset:
         """Load dataset using built-in loaders."""
         # Get directory path
-        dir_key = f"{split}_dir" if split in ['train', 'val'] else 'train_dir'
+        dir_key = f"{split}_data" if split in ['train', 'val'] else 'train_data'
         data_dir = data_config.get(dir_key, '')
         
         if not data_dir or not os.path.exists(data_dir):
@@ -274,7 +274,7 @@ class DatasetLoader:
         
         # Add common parameters
         data_config = self.config.get('data', {})
-        dir_key = f"{split}_dir" if split in ['train', 'val'] else 'train_dir'
+        dir_key = f"{split}_data" if split in ['train', 'val'] else 'train_data'
         data_dir = data_config.get(dir_key, '')
         
         args['data_dir'] = data_dir
@@ -612,7 +612,7 @@ class TrainingController(QThread):
         
         # Load validation dataset if available
         data_config = self.config.get('data', {})
-        if data_config.get('val_dir'):
+        if data_config.get('val_data'):
             self.val_dataset = dataset_loader.load_dataset('val')
             BRIDGE.log.emit("Validation dataset loaded successfully")
         else:

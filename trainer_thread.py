@@ -124,8 +124,8 @@ class TFModelsTrainerThread(threading.Thread):
                 data = gui_cfg['data']
                 
                 # Training data
-                if data.get('train_dir'):
-                    exp_cfg.task.train_data.input_path = data['train_dir']
+                if data.get('train_data'):
+                    exp_cfg.task.train_data.input_path = data['train_data']
                 if data.get('batch_size'):
                     exp_cfg.task.train_data.global_batch_size = int(data['batch_size'])
                 if data.get('image_size') and isinstance(data['image_size'], list) and len(data['image_size']) >= 2:
@@ -135,8 +135,8 @@ class TFModelsTrainerThread(threading.Thread):
                     exp_cfg.task.model.input_size = [size, size]
                     
                 # Validation data
-                if data.get('val_dir'):
-                    exp_cfg.task.validation_data.input_path = data['val_dir']
+                if data.get('val_data'):
+                    exp_cfg.task.validation_data.input_path = data['val_data']
                     exp_cfg.task.validation_data.global_batch_size = int(data.get('batch_size', 32))
                 
                 # Number of classes

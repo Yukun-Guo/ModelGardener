@@ -1819,16 +1819,16 @@ class MainWindow(QMainWindow):
                 f"Failed to save configuration:\n{str(e)}")
 
     # data/model path
-    def set_train_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "Select train_dir")
+    def set_train_data(self):
+        d = QFileDialog.getExistingDirectory(self, "Select train_data")
         if d:
-            self.gui_cfg["data"]["train_dir"] = d
+            self.gui_cfg["data"]["train_data"] = d
             self.refresh_tree()
 
-    def set_val_dir(self):
-        d = QFileDialog.getExistingDirectory(self, "Select val_dir")
+    def set_val_data(self):
+        d = QFileDialog.getExistingDirectory(self, "Select val_data")
         if d:
-            self.gui_cfg["data"]["val_dir"] = d
+            self.gui_cfg["data"]["val_data"] = d
             self.refresh_tree()
 
     def choose_checkpoint(self):
@@ -2170,8 +2170,8 @@ class MainWindow(QMainWindow):
         basic_config = {
             'task_type': 'image_classification',
             'data': {
-                'train_dir': '',
-                'val_dir': '',
+                'train_data': '',
+                'val_data': '',
                 'data_loader': {
                     'type': 'data_loader_group',
                     'name': 'data_loader'
@@ -2483,8 +2483,8 @@ class MainWindow(QMainWindow):
         """Get tooltip text for a parameter based on its name and section."""
         tooltips = {
             # Data section tooltips
-            'train_dir': 'Path to the directory containing training data files (images, TFRecords, etc.)',
-            'val_dir': 'Path to the directory containing validation/test data files',
+            'train_data': 'Path to the directory containing training data files (images, TFRecords, etc.)',
+            'val_data': 'Path to the directory containing validation/test data files',
             'image_size': 'Input image dimensions [width, height] - images will be resized to this size',
             'batch_size': 'Number of samples processed together in each training step. Larger values use more memory but may train faster',
             'num_classes': 'Number of different classes/categories in your dataset (e.g., 1000 for ImageNet)',
@@ -2978,7 +2978,7 @@ class MainWindow(QMainWindow):
                         })
                 else:
                     # Handle special directory/file parameters
-                    if key in ['train_dir', 'val_dir'] and isinstance(value, str):
+                    if key in ['train_data', 'val_data'] and isinstance(value, str):
                         children.append({
                             'name': key,
                             'type': 'directory',
