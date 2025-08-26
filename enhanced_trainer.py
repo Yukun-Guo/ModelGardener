@@ -692,7 +692,10 @@ class TrainingController(QThread):
         else:
             total_steps = epochs * 100  # Rough estimate
         
-        qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=5)  # Log every 5 batches for better real-time feedback
+        qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=5)
+        # Pass steps_per_epoch information to callback if available
+        if steps_per_epoch:
+            qt_callback._steps_per_epoch = steps_per_epoch
         callbacks.append(qt_callback)
         
         # Process callback configurations from GUI
@@ -827,15 +830,14 @@ class TrainingController(QThread):
         """Run standard model.fit() training loop."""
         BRIDGE.log.emit(f"Starting standard training for {epochs} epochs")
         
-        # Use log capture to redirect training output to logs
-        with LogCapture("[TRAINING] "):
-            history = self.model.fit(
-                self.train_dataset,
-                validation_data=self.val_dataset,
-                epochs=epochs,
-                callbacks=callbacks,
-                verbose=1
-            )
+        # Run training without log capture - let callbacks handle logging
+        history = self.model.fit(
+            self.train_dataset,
+            validation_data=self.val_dataset,
+            epochs=epochs,
+            callbacks=callbacks,
+            verbose=0  # Set to 0 to suppress default keras output, use callback logging instead
+        )
         
         BRIDGE.log.emit("Standard training completed")
         

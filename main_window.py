@@ -561,6 +561,7 @@ class MainWindow(QMainWindow):
         BRIDGE.log.connect(self.append_log, Qt.ConnectionType.QueuedConnection)
         BRIDGE.update_plots.connect(self.on_update_plots, Qt.ConnectionType.QueuedConnection)
         BRIDGE.progress.connect(self.progress.setValue, Qt.ConnectionType.QueuedConnection)
+        BRIDGE.progress_bar.connect(self.update_progress_bar, Qt.ConnectionType.QueuedConnection)
         BRIDGE.finished.connect(self.on_training_finished, Qt.ConnectionType.QueuedConnection)
 
         # Setup UI refresh timer for better log display during training
@@ -2023,6 +2024,83 @@ class MainWindow(QMainWindow):
         else:
             # Fallback to print if logging UI is not ready
             print(f"[{ts}] {text}")
+            
+    def update_progress_bar(self, step_info, current_step, total_steps, metrics):
+        """Update progress bar in place without appending new lines."""
+        if not hasattr(self, 'log_edit') or self.log_edit is None:
+            return
+            
+        # Create progress bar text
+        progress_text = self._create_progress_bar_text(step_info, current_step, total_steps, metrics)
+        
+        # Get current text content
+        current_text = self.log_edit.toPlainText()
+        lines = current_text.split('\n')
+        
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        progress_line = f"[{ts}] [TRAINING] {progress_text}"
+        
+        # Check if we need to update the last line or add a new one
+        if (lines and 
+            lines[-1].strip() and 
+            '[TRAINING]' in lines[-1] and 
+            ('━' in lines[-1] or current_step == 1)):
+            # Update the last progress line in place
+            lines[-1] = progress_line
+            updated_text = '\n'.join(lines)
+            self.log_edit.setPlainText(updated_text)
+        else:
+            # Add new progress line
+            if current_step == 1:
+                # Add epoch header for first step
+                epoch_header = f"[{ts}] [TRAINING] {step_info}"
+                self.log_edit.appendPlainText(epoch_header)
+            self.log_edit.appendPlainText(progress_line)
+        
+        # Scroll to bottom and update UI
+        scrollbar = self.log_edit.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        from PySide6.QtCore import QCoreApplication
+        QCoreApplication.processEvents()
+        
+    def _create_progress_bar_text(self, step_info, current_step, total_steps, metrics):
+        """Create colored progress bar text similar to Keras output."""
+        # Progress calculation
+        progress = min(current_step / max(total_steps, 1), 1.0)
+        filled_chars = int(progress * 20)  # 20 character progress bar
+        empty_chars = 20 - filled_chars
+        
+        # Create progress bar with Unicode blocks
+        filled_bar = "█" * filled_chars
+        empty_bar = "░" * empty_chars
+        
+        # Format step info
+        step_text = f"{current_step}/{total_steps}"
+        
+        # Format timing estimate (simplified)
+        if current_step < total_steps:
+            time_info = "running..."
+        else:
+            time_info = "completed"
+            
+        # Format metrics
+        metrics_text = ""
+        if metrics:
+            metric_parts = []
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    if 'loss' in key.lower():
+                        metric_parts.append(f"{key}: {value:.4f}")
+                    elif 'acc' in key.lower() or 'accuracy' in key.lower():
+                        metric_parts.append(f"{key}: {value:.4f}")
+                    else:
+                        metric_parts.append(f"{key}: {value:.4f}")
+            metrics_text = " - " + " - ".join(metric_parts) if metric_parts else ""
+        
+        # Combine all parts
+        progress_text = f"{step_text} [{filled_bar}{empty_bar}] {time_info}{metrics_text}"
+        
+        return progress_text
 
     def _refresh_ui_during_training(self):
         """Periodic UI refresh during training to ensure responsiveness."""
