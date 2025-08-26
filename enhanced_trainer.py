@@ -692,7 +692,7 @@ class TrainingController(QThread):
         else:
             total_steps = epochs * 100  # Rough estimate
         
-        qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=10)
+        qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=5)  # Log every 5 batches for better real-time feedback
         callbacks.append(qt_callback)
         
         # Process callback configurations from GUI

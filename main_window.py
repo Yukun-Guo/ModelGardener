@@ -556,9 +556,18 @@ class MainWindow(QMainWindow):
         # Trigger initial model parameter update
         self._update_model_parameters()
 
-        # signals
-        BRIDGE.log.connect(self.append_log); BRIDGE.update_plots.connect(self.on_update_plots); BRIDGE.progress.connect(self.progress.setValue)
-        BRIDGE.finished.connect(self.on_training_finished)
+        # signals - use Qt::QueuedConnection for thread-safe communication
+        from PySide6.QtCore import QCoreApplication
+        BRIDGE.log.connect(self.append_log, Qt.ConnectionType.QueuedConnection)
+        BRIDGE.update_plots.connect(self.on_update_plots, Qt.ConnectionType.QueuedConnection)
+        BRIDGE.progress.connect(self.progress.setValue, Qt.ConnectionType.QueuedConnection)
+        BRIDGE.finished.connect(self.on_training_finished, Qt.ConnectionType.QueuedConnection)
+
+        # Setup UI refresh timer for better log display during training
+        self.ui_refresh_timer = QTimer()
+        self.ui_refresh_timer.timeout.connect(self._refresh_ui_during_training)
+        self.ui_refresh_timer.setSingleShot(False)
+        self.ui_refresh_timer.setInterval(100)  # Refresh every 100ms during training
 
         # state
         self.resume_ckpt_path = None
@@ -2003,9 +2012,31 @@ class MainWindow(QMainWindow):
         # Check if log_edit exists (UI components may not be initialized yet)
         if hasattr(self, 'log_edit') and self.log_edit is not None:
             self.log_edit.appendPlainText(f"[{ts}] {text}")
+            # Force immediate update of the log display
+            self.log_edit.repaint()
+            # Ensure the latest log entry is visible by scrolling to bottom
+            scrollbar = self.log_edit.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+            # Process pending events to update UI immediately
+            from PySide6.QtCore import QCoreApplication
+            QCoreApplication.processEvents()
         else:
             # Fallback to print if logging UI is not ready
             print(f"[{ts}] {text}")
+
+    def _refresh_ui_during_training(self):
+        """Periodic UI refresh during training to ensure responsiveness."""
+        try:
+            from PySide6.QtCore import QCoreApplication
+            QCoreApplication.processEvents()
+            # Also ensure log widget stays scrolled to bottom
+            if hasattr(self, 'log_edit') and self.log_edit is not None:
+                scrollbar = self.log_edit.verticalScrollBar()
+                if scrollbar.value() > scrollbar.maximum() - 50:  # Only auto-scroll if near bottom
+                    scrollbar.setValue(scrollbar.maximum())
+        except Exception as e:
+            # Don't let UI refresh errors interrupt training
+            pass
 
     def on_update_plots(self, epoch, tl, vl, ta, va):
         x = list(range(1, epoch+1))
@@ -2222,6 +2253,10 @@ class MainWindow(QMainWindow):
             self.append_log("Starting enhanced training process...")
             self.enhanced_trainer.start_training()
             
+            # Start UI refresh timer for better log display during training
+            if hasattr(self, 'ui_refresh_timer'):
+                self.ui_refresh_timer.start()
+            
             # Schedule TensorBoard refresh after training starts generating data
             if tensorboard_cfg.get('enabled', True):
                 self._schedule_tensorboard_refresh()
@@ -2236,6 +2271,10 @@ class MainWindow(QMainWindow):
             self.trainer_thread = t
             t.start()
             
+            # Start UI refresh timer for fallback method too
+            if hasattr(self, 'ui_refresh_timer'):
+                self.ui_refresh_timer.start()
+            
             # Schedule TensorBoard refresh for fallback method too
             if tensorboard_cfg.get('enabled', True):
                 self._schedule_tensorboard_refresh()
@@ -2244,6 +2283,10 @@ class MainWindow(QMainWindow):
 
     def stop_training(self):
         """Stop training and perform comprehensive resource cleanup."""
+        # Stop UI refresh timer
+        if hasattr(self, 'ui_refresh_timer') and self.ui_refresh_timer.isActive():
+            self.ui_refresh_timer.stop()
+        
         # Try to stop enhanced trainer first
         if hasattr(self, 'enhanced_trainer') and self.enhanced_trainer:
             self.append_log("Requested stop — enhanced trainer will attempt graceful stop.")
@@ -2431,6 +2474,10 @@ class MainWindow(QMainWindow):
             self.append_log(f"⚠️ Reference reset warning: {str(e)}")
 
     def on_training_finished(self):
+        # Stop UI refresh timer when training is finished
+        if hasattr(self, 'ui_refresh_timer') and self.ui_refresh_timer.isActive():
+            self.ui_refresh_timer.stop()
+        
         self.append_log("Training finished (thread signalled).")
         self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
         self.progress.setValue(100)
