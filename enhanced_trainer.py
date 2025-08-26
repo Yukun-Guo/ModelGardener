@@ -831,12 +831,12 @@ class TrainingController(QThread):
         BRIDGE.log.emit(f"Starting standard training for {epochs} epochs")
         
         # Run training without log capture - let callbacks handle logging
-        history = self.model.fit(
+        self.model.fit(
             self.train_dataset,
             validation_data=self.val_dataset,
             epochs=epochs,
             callbacks=callbacks,
-            verbose=0  # Set to 0 to suppress default keras output, use callback logging instead
+            verbose=1
         )
         
         BRIDGE.log.emit("Standard training completed")
