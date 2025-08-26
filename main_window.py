@@ -235,6 +235,8 @@ class MainWindow(QMainWindow):
         self.btn_start.clicked.connect(self.start_training)
         self.btn_stop = QPushButton("⏹ Stop Training")
         self.btn_stop.clicked.connect(self.stop_training)
+        self.btn_cleanup = QPushButton("🧹 Clean Resources")
+        self.btn_cleanup.clicked.connect(self.cleanup_training_resources)
         
         # Style start button with subtle success accent
         start_button_style = control_button_style + """
@@ -272,12 +274,59 @@ class MainWindow(QMainWindow):
             }
         """
         
+        # Style cleanup button with subtle info accent
+        cleanup_button_style = control_button_style + """
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+            QPushButton:disabled {
+                background-color: #95a5a6;
+                color: #bdc3c7;
+            }
+        """
+        
         self.btn_start.setStyleSheet(start_button_style)
         self.btn_stop.setStyleSheet(stop_button_style)
+        self.btn_cleanup.setStyleSheet(cleanup_button_style)
         
         training_buttons_layout.addWidget(self.btn_start)
         training_buttons_layout.addWidget(self.btn_stop)
+        training_buttons_layout.addWidget(self.btn_cleanup)
         control_panel_layout.addLayout(training_buttons_layout)
+        
+        # TensorBoard control button
+        tensorboard_buttons_layout = QHBoxLayout()
+        self.btn_tensorboard = QPushButton("📊 Start TensorBoard")
+        self.btn_tensorboard.clicked.connect(self.manual_start_tensorboard)
+        
+        # Style TensorBoard button with subtle orange accent
+        tensorboard_button_style = control_button_style + """
+            QPushButton {
+                background-color: #f39c12;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+            QPushButton:pressed {
+                background-color: #d35400;
+            }
+            QPushButton:disabled {
+                background-color: #95a5a6;
+                color: #bdc3c7;
+            }
+        """
+        
+        self.btn_tensorboard.setStyleSheet(tensorboard_button_style)
+        tensorboard_buttons_layout.addWidget(self.btn_tensorboard)
+        control_panel_layout.addLayout(tensorboard_buttons_layout)
         
         # Checkpoint and model directory buttons
         path_buttons_layout = QHBoxLayout()
@@ -513,6 +562,9 @@ class MainWindow(QMainWindow):
 
         # state
         self.resume_ckpt_path = None
+        
+        # Initialize button states (no training running initially)
+        self.btn_stop.setEnabled(False)
 
     def closeEvent(self, event):
         """Handle window closing to clean up resources."""
@@ -1969,14 +2021,162 @@ class MainWindow(QMainWindow):
     def start_tensorboard(self, model_dir):
         try:
             port = 6006
-            if self.tb_proc and getattr(self.tb_proc, "poll", None) is None and self.tb_proc.poll() is None:
-                pass
+            
+            # Check if we have a running TensorBoard process
+            tb_running = (hasattr(self, 'tb_proc') and 
+                         self.tb_proc and 
+                         self.tb_proc.poll() is None)
+            
+            if tb_running:
+                self.append_log(f"TensorBoard already running -> {model_dir}")
             else:
-                self.tb_proc = subprocess.Popen(["tensorboard", "--logdir", model_dir, "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Prepare log directory structure to avoid TensorBoard errors
+                self._prepare_tensorboard_logs(model_dir)
+                
+                # Start new TensorBoard process
+                self.append_log(f"Starting TensorBoard -> {model_dir}")
+                
+                # Get the python executable path to ensure we use the correct tensorboard
+                import sys
+                python_path = sys.executable
+                tensorboard_path = python_path.replace('/python', '/tensorboard')
+                
+                # Try different ways to start tensorboard
+                try:
+                    # First try with full path
+                    self.tb_proc = subprocess.Popen(
+                        [tensorboard_path, "--logdir", model_dir, "--port", str(port), "--reload_interval", "1"], 
+                        stdout=subprocess.DEVNULL, 
+                        stderr=subprocess.DEVNULL
+                    )
+                except FileNotFoundError:
+                    # Fallback to python -m tensorboard
+                    self.tb_proc = subprocess.Popen(
+                        [python_path, "-m", "tensorboard.main", "--logdir", model_dir, "--port", str(port), "--reload_interval", "1"], 
+                        stdout=subprocess.DEVNULL, 
+                        stderr=subprocess.DEVNULL
+                    )
+                
+                # Wait a moment for TensorBoard to start
+                import time
+                time.sleep(4)  # Increased wait time for better startup
+                
+                # Verify the process started successfully
+                if self.tb_proc.poll() is None:
+                    self.append_log(f"✅ TensorBoard started successfully (PID: {self.tb_proc.pid})")
+                    self.append_log("📊 TensorBoard will show data once training begins generating logs")
+                else:
+                    self.append_log(f"❌ TensorBoard failed to start (exit code: {self.tb_proc.poll()})")
+            
+            # Set the URL regardless (in case TensorBoard was started externally)
             self.tb_view.setUrl(f"http://localhost:{port}")
-            self.append_log(f"TensorBoard -> {model_dir}")
+            
+        except FileNotFoundError:
+            self.append_log("❌ TensorBoard not found. Please install: pip install tensorboard")
         except Exception as e:
-            self.append_log(f"Failed to start TensorBoard: {e}")
+            self.append_log(f"❌ Failed to start TensorBoard: {e}")
+
+    def _prepare_tensorboard_logs(self, log_dir):
+        """Prepare TensorBoard log directory structure to avoid initial loading errors."""
+        try:
+            import os
+            
+            # Create log directory structure
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Create subdirectories that TensorBoard expects
+            train_dir = os.path.join(log_dir, "train")
+            val_dir = os.path.join(log_dir, "validation")
+            os.makedirs(train_dir, exist_ok=True)
+            os.makedirs(val_dir, exist_ok=True)
+            
+            # Create a simple initial event file to prevent TensorBoard errors
+            try:
+                import tensorflow as tf
+                
+                # Create minimal event files to prevent "no data" errors
+                with tf.summary.create_file_writer(train_dir).as_default():
+                    tf.summary.scalar('info/status', 0, step=0)
+                    tf.summary.text('info/message', 'Training not started yet...', step=0)
+                
+                with tf.summary.create_file_writer(val_dir).as_default():
+                    tf.summary.scalar('info/status', 0, step=0)
+                    tf.summary.text('info/message', 'Validation not started yet...', step=0)
+                
+                self.append_log("📁 TensorBoard log structure prepared")
+                
+            except ImportError:
+                # If TensorFlow is not available, just create the directories
+                self.append_log("📁 TensorBoard directories created (TensorFlow not available for initial logs)")
+            except Exception as tf_error:
+                self.append_log(f"⚠️ Could not create initial TensorBoard logs: {tf_error}")
+                
+        except Exception as e:
+            self.append_log(f"⚠️ Warning preparing TensorBoard logs: {e}")
+
+    def manual_start_tensorboard(self):
+        """Manually start TensorBoard with configured log directory."""
+        try:
+            # Get TensorBoard log directory from callbacks configuration
+            callbacks_cfg = self.gui_cfg.get("callbacks", {})
+            tensorboard_cfg = callbacks_cfg.get("TensorBoard", {})
+            
+            if tensorboard_cfg.get('enabled', True):
+                log_dir = tensorboard_cfg.get('log_dir', './logs/tensorboard')
+                
+                # Ensure log directory exists
+                import os
+                os.makedirs(log_dir, exist_ok=True)
+
+                self.btn_tensorboard.setText("📊 Starting TensorBoard...")
+                QApplication.processEvents()
+                # Start TensorBoard
+                self.start_tensorboard(log_dir)
+                
+                # Update button text
+                self.btn_tensorboard.setText("📊 TensorBoard Running")
+                
+                
+            else:
+                self.append_log("⚠️ TensorBoard is disabled in callbacks configuration")
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "TensorBoard Disabled", 
+                    "TensorBoard is currently disabled in the callbacks configuration.\n"
+                    "Please enable it in the callbacks settings first.")
+        except Exception as e:
+            self.append_log(f"❌ Failed to manually start TensorBoard: {e}")
+
+    def refresh_tensorboard_view(self):
+        """Refresh TensorBoard view to reload data after training starts."""
+        try:
+            if hasattr(self, 'tb_view') and self.tb_view:
+                current_url = self.tb_view.url().toString()
+                # Add a timestamp parameter to force refresh
+                import time
+                timestamp = int(time.time())
+                refresh_url = f"{current_url.split('?')[0]}?t={timestamp}"
+                self.tb_view.setUrl(refresh_url)
+                self.append_log("🔄 TensorBoard view refreshed")
+        except Exception as e:
+            self.append_log(f"⚠️ Could not refresh TensorBoard view: {e}")
+
+    def _schedule_tensorboard_refresh(self):
+        """Schedule TensorBoard view refresh after training starts generating data."""
+        try:
+            from PySide6.QtCore import QTimer
+            
+            # Create a timer to refresh TensorBoard after training generates some data
+            if not hasattr(self, 'tb_refresh_timer'):
+                self.tb_refresh_timer = QTimer()
+                self.tb_refresh_timer.setSingleShot(True)
+                self.tb_refresh_timer.timeout.connect(self.refresh_tensorboard_view)
+            
+            # Refresh after 30 seconds to allow training to generate initial logs
+            self.tb_refresh_timer.start(30000)  # 30 seconds
+            self.append_log("⏰ Scheduled TensorBoard refresh in 30 seconds...")
+            
+        except Exception as e:
+            self.append_log(f"⚠️ Could not schedule TensorBoard refresh: {e}")
 
     # training controls
     def start_training(self):
@@ -1999,7 +2199,7 @@ class MainWindow(QMainWindow):
                 log_dir = os.path.join(model_dir, log_dir)
             
             os.makedirs(log_dir, exist_ok=True)
-            self.start_tensorboard(log_dir)
+            # self.start_tensorboard(log_dir)
         
         # Use enhanced trainer for comprehensive training
         from enhanced_trainer import EnhancedTrainer
@@ -2022,6 +2222,10 @@ class MainWindow(QMainWindow):
             self.append_log("Starting enhanced training process...")
             self.enhanced_trainer.start_training()
             
+            # Schedule TensorBoard refresh after training starts generating data
+            if tensorboard_cfg.get('enabled', True):
+                self._schedule_tensorboard_refresh()
+            
             self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
             
         except Exception as e:
@@ -2031,9 +2235,15 @@ class MainWindow(QMainWindow):
             t = TFModelsTrainerThread(self.gui_cfg, exp_name=self.experiment_name, resume_ckpt=self.resume_ckpt_path)
             self.trainer_thread = t
             t.start()
+            
+            # Schedule TensorBoard refresh for fallback method too
+            if tensorboard_cfg.get('enabled', True):
+                self._schedule_tensorboard_refresh()
+            
             self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
 
     def stop_training(self):
+        """Stop training and perform comprehensive resource cleanup."""
         # Try to stop enhanced trainer first
         if hasattr(self, 'enhanced_trainer') and self.enhanced_trainer:
             self.append_log("Requested stop — enhanced trainer will attempt graceful stop.")
@@ -2045,7 +2255,180 @@ class MainWindow(QMainWindow):
         else:
             self.append_log("No active training process to stop.")
         
+        # Perform resource cleanup
+        self.cleanup_training_resources()
+        
         self.btn_start.setEnabled(True); self.btn_stop.setEnabled(False)
+
+    def cleanup_training_resources(self):
+        """Comprehensive cleanup of training resources including TensorBoard and GPU memory."""
+        try:
+            self.append_log("🧹 Cleaning up training resources...")
+            
+            # 1. Stop TensorBoard process
+            self._cleanup_tensorboard()
+            
+            # 2. Clear GPU memory
+            self._cleanup_gpu_memory()
+            
+            # 3. Clear Python objects and garbage collection
+            self._cleanup_python_objects()
+            
+            # 4. Reset trainer references
+            self._reset_trainer_references()
+            
+            self.append_log("✅ Resource cleanup completed")
+            
+        except Exception as e:
+            self.append_log(f"⚠️ Warning during resource cleanup: {str(e)}")
+
+    def _cleanup_tensorboard(self):
+        """Stop TensorBoard process and free port 6006."""
+        try:
+            # Stop our own TensorBoard process
+            if hasattr(self, 'tb_proc') and self.tb_proc:
+                try:
+                    if self.tb_proc.poll() is None:  # Process is still running
+                        self.append_log(f"🔴 Terminating TensorBoard process {self.tb_proc.pid}")
+                        self.tb_proc.terminate()
+                        
+                        # Wait for graceful termination
+                        import time
+                        time.sleep(2)
+                        
+                        # Check if it's still running
+                        if self.tb_proc.poll() is None:
+                            self.append_log(f"🔴 Force killing TensorBoard process {self.tb_proc.pid}")
+                            self.tb_proc.kill()
+                            self.tb_proc.wait(timeout=5)
+                        
+                        self.append_log("🔴 TensorBoard process terminated")
+                    else:
+                        self.append_log("🔴 TensorBoard process was already stopped")
+                        
+                except Exception as e:
+                    # Force kill if terminate didn't work
+                    try:
+                        self.append_log(f"🔴 Force killing TensorBoard process (error: {e})")
+                        self.tb_proc.kill()
+                        self.tb_proc.wait(timeout=5)
+                        self.append_log("🔴 TensorBoard process force killed")
+                    except Exception as kill_e:
+                        self.append_log(f"⚠️ Could not kill TensorBoard process: {kill_e}")
+                finally:
+                    self.tb_proc = None
+                    self.append_log("🔄 TensorBoard process reference cleared")
+            
+            # Kill any remaining TensorBoard processes on port 6006
+            import subprocess
+            try:
+                # Find processes using port 6006
+                result = subprocess.run(['lsof', '-t', '-i', ':6006'], capture_output=True, text=True)
+                if result.stdout.strip():
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        if pid:
+                            subprocess.run(['kill', '-TERM', pid], capture_output=True)
+                            self.append_log(f"🔴 Killed TensorBoard process {pid}")
+            except Exception as e:
+                # Fallback: kill all tensorboard processes
+                try:
+                    subprocess.run(['pkill', '-f', 'tensorboard'], capture_output=True)
+                    self.append_log("🔴 Killed all TensorBoard processes")
+                except:
+                    pass
+                    
+        except Exception as e:
+            self.append_log(f"⚠️ TensorBoard cleanup warning: {str(e)}")
+
+    def _cleanup_gpu_memory(self):
+        """Clear GPU memory and reset TensorFlow/PyTorch GPU state."""
+        try:
+            import gc
+            
+            # Clear TensorFlow GPU memory
+            try:
+                import tensorflow as tf
+                if tf.config.list_physical_devices('GPU'):
+                    # Clear TF session
+                    tf.keras.backend.clear_session()
+                    
+                    # Reset memory growth (if set)
+                    gpus = tf.config.experimental.list_physical_devices('GPU')
+                    if gpus:
+                        for gpu in gpus:
+                            try:
+                                # Reset memory
+                                tf.config.experimental.reset_memory_stats(gpu)
+                            except:
+                                pass
+                    
+                    self.append_log("🎮 TensorFlow GPU memory cleared")
+            except Exception as e:
+                self.append_log(f"⚠️ TensorFlow GPU cleanup warning: {str(e)}")
+            
+            # Clear PyTorch GPU memory (if PyTorch is available)
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    self.append_log("🎮 PyTorch GPU cache cleared")
+            except ImportError:
+                pass  # PyTorch not available
+            except Exception as e:
+                self.append_log(f"⚠️ PyTorch GPU cleanup warning: {str(e)}")
+            
+            # Force garbage collection
+            gc.collect()
+            self.append_log("🗑️ Python garbage collection completed")
+            
+        except Exception as e:
+            self.append_log(f"⚠️ GPU cleanup warning: {str(e)}")
+
+    def _cleanup_python_objects(self):
+        """Clear large Python objects and force garbage collection."""
+        try:
+            import gc
+            
+            # Clear trainer objects
+            if hasattr(self, 'enhanced_trainer'):
+                self.enhanced_trainer = None
+            
+            if hasattr(self, 'trainer_thread'):
+                self.trainer_thread = None
+            
+            # Force multiple garbage collection cycles
+            for i in range(3):
+                collected = gc.collect()
+                if i == 0:
+                    self.append_log(f"🗑️ Collected {collected} Python objects")
+            
+        except Exception as e:
+            self.append_log(f"⚠️ Object cleanup warning: {str(e)}")
+
+    def _reset_trainer_references(self):
+        """Reset all trainer-related references and UI state."""
+        try:
+            # Reset progress
+            if hasattr(self, 'progress'):
+                self.progress.setValue(0)
+            
+            # Clear any cached models or datasets
+            if hasattr(self, 'current_model'):
+                self.current_model = None
+            
+            if hasattr(self, 'current_dataset'):
+                self.current_dataset = None
+            
+            # Reset TensorBoard button text
+            if hasattr(self, 'btn_tensorboard'):
+                self.btn_tensorboard.setText("📊 Start TensorBoard")
+            
+            self.append_log("🔄 Trainer references reset")
+            
+        except Exception as e:
+            self.append_log(f"⚠️ Reference reset warning: {str(e)}")
 
     def on_training_finished(self):
         self.append_log("Training finished (thread signalled).")
