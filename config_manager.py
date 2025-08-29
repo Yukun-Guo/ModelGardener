@@ -939,7 +939,7 @@ class ConfigManager:
             os.makedirs(package_path, exist_ok=True)
             
             # Save enhanced configuration
-            config_file_path = os.path.join(package_path, 'model_config.json')
+            config_file_path = os.path.join(package_path, 'model_config.yaml')
             success = self.save_enhanced_config(config_data, config_file_path, custom_functions_info)
             
             if not success:
