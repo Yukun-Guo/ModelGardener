@@ -964,7 +964,7 @@ if __name__ == "__main__":
             '{{LEARNING_RATE}}': str(learning_rate),
             '{{LOSS_FUNCTION}}': loss_function,
             '{{METRICS}}': metrics,
-            '{{CV_ENABLED}}': str(cv_enabled).lower(),
+            '{{CV_ENABLED}}': str(cv_enabled),
             '{{K_FOLDS}}': str(k_folds),
             '{{CUSTOM_IMPORTS}}': self._generate_custom_imports(custom_functions),
             '{{CUSTOM_LOADER_CALLS}}': self._generate_custom_loader_calls(custom_functions),
@@ -1008,19 +1008,20 @@ if __name__ == "__main__":
     def _generate_custom_loader_calls(self, custom_functions: Dict[str, Any]) -> str:
         """Generate custom function loader calls."""
         if not custom_functions:
-            return "# No custom functions to load"
+            return """    # No custom functions to load
+    custom_functions = None"""
         
         return """
-# Load custom functions if available
-custom_functions = {}
-try:
-    from custom_functions_loader import CustomFunctionsLoader
-    loader = CustomFunctionsLoader()
-    custom_functions = loader.load_from_directory('src')
-except ImportError:
-    print("Custom functions loader not found, using built-in functions only")
-except Exception as e:
-    print(f"Error loading custom functions: {e}")
+    # Load custom functions if available
+    custom_functions = {}
+    try:
+        from custom_functions_loader import CustomFunctionsLoader
+        loader = CustomFunctionsLoader()
+        custom_functions = loader.load_from_directory('src')
+    except ImportError:
+        print("Custom functions loader not found, using built-in functions only")
+    except Exception as e:
+        print(f"Error loading custom functions: {e}")
 """
     
     def _get_train_template(self) -> str:
@@ -1052,7 +1053,7 @@ def create_data_generators(train_dir, val_dir, batch_size=32, img_height=224, im
     """Create data generators for training and validation."""
     
     # Data augmentation and preprocessing
-    train_datagen = keras.preprocessing.image.ImageDataGenerator(
+    train_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
         rescale=1./255,
         rotation_range=20,
         width_shift_range=0.2,
@@ -1061,7 +1062,7 @@ def create_data_generators(train_dir, val_dir, batch_size=32, img_height=224, im
         fill_mode='nearest'
     )
     
-    val_datagen = keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
+    val_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
     
     train_generator = train_datagen.flow_from_directory(
         train_dir,
@@ -1090,34 +1091,34 @@ def build_model(model_family, model_name, input_shape, num_classes, custom_funct
     
     # Built-in models
     if model_family.lower() == 'resnet':
-        base_model = keras.applications.ResNet50(
+        base_model = tf.keras.applications.ResNet50(
             weights='imagenet' if input_shape[-1] == 3 else None,
             include_top=False,
             input_shape=input_shape
         )
     elif model_family.lower() == 'efficientnet':
-        base_model = keras.applications.EfficientNetB0(
+        base_model = tf.keras.applications.EfficientNetB0(
             weights='imagenet' if input_shape[-1] == 3 else None,
             include_top=False,
             input_shape=input_shape
         )
     else:
         # Default to a simple CNN
-        base_model = keras.Sequential([
-            keras.layers.Conv2D(32, 3, activation='relu', input_shape=input_shape),
-            keras.layers.MaxPooling2D(),
-            keras.layers.Conv2D(64, 3, activation='relu'),
-            keras.layers.MaxPooling2D(),
-            keras.layers.Conv2D(64, 3, activation='relu'),
+        base_model = tf.keras.Sequential([
+            tf.keras.layers.Conv2D(32, 3, activation='relu', input_shape=input_shape),
+            tf.keras.layers.MaxPooling2D(),
+            tf.keras.layers.Conv2D(64, 3, activation='relu'),
+            tf.keras.layers.MaxPooling2D(),
+            tf.keras.layers.Conv2D(64, 3, activation='relu'),
         ])
     
     # Add classification head
-    model = keras.Sequential([
+    model = tf.keras.Sequential([
         base_model,
-        keras.layers.GlobalAveragePooling2D(),
-        keras.layers.Dense(128, activation='relu'),
-        keras.layers.Dropout(0.2),
-        keras.layers.Dense(num_classes, activation='softmax')
+        tf.keras.layers.GlobalAveragePooling2D(),
+        tf.keras.layers.Dense(128, activation='relu'),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.Dense(num_classes, activation='softmax')
     ])
     
     return model
@@ -1128,11 +1129,11 @@ def compile_model(model, optimizer='{{OPTIMIZER}}', learning_rate={{LEARNING_RAT
     
     # Create optimizer
     if optimizer.lower() == 'adam':
-        opt = keras.optimizers.Adam(learning_rate=learning_rate)
+        opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     elif optimizer.lower() == 'sgd':
-        opt = keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
+        opt = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
     else:
-        opt = keras.optimizers.Adam(learning_rate=learning_rate)
+        opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     
     # Convert loss function name
     if loss.lower() in ['categorical crossentropy', 'categorical_crossentropy']:
@@ -1144,10 +1145,17 @@ def compile_model(model, optimizer='{{OPTIMIZER}}', learning_rate={{LEARNING_RAT
     
     # Convert metrics
     metrics_list = []
-    if metrics.lower() == 'accuracy':
-        metrics_list = ['accuracy']
+    if isinstance(metrics, list):
+        for metric in metrics:
+            if metric.lower() == 'accuracy':
+                metrics_list.append('accuracy')
+            else:
+                metrics_list.append(metric.lower())
     else:
-        metrics_list = [metrics.lower()]
+        if metrics.lower() == 'accuracy':
+            metrics_list = ['accuracy']
+        else:
+            metrics_list = [metrics.lower()]
     
     model.compile(optimizer=opt, loss=loss_fn, metrics=metrics_list)
     return model
@@ -1158,7 +1166,7 @@ def create_callbacks(model_dir):
     
     # Model checkpoint
     checkpoint_path = os.path.join(model_dir, 'best_model.h5')
-    callbacks.append(keras.callbacks.ModelCheckpoint(
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
         checkpoint_path,
         monitor='val_loss',
         save_best_only=True,
@@ -1167,14 +1175,14 @@ def create_callbacks(model_dir):
     ))
     
     # Early stopping
-    callbacks.append(keras.callbacks.EarlyStopping(
+    callbacks.append(tf.keras.callbacks.EarlyStopping(
         monitor='val_loss',
         patience=10,
         restore_best_weights=True
     ))
     
     # Reduce learning rate on plateau
-    callbacks.append(keras.callbacks.ReduceLROnPlateau(
+    callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
         patience=5,
@@ -1258,7 +1266,7 @@ def train_model():
         
         # For now, train normally but save multiple models
         for fold in range(k_folds):
-            print(f"\n📊 Training fold {fold + 1}/{k_folds}")
+            print(f"📊 Training fold {fold + 1}/{k_folds}")
             fold_model_dir = os.path.join(model_dir, f"fold_{fold + 1}")
             os.makedirs(fold_model_dir, exist_ok=True)
             
@@ -1329,7 +1337,7 @@ def load_config(config_path):
 
 def create_test_generator(test_dir, batch_size=32, img_height=224, img_width=224):
     """Create test data generator."""
-    test_datagen = keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
+    test_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
     
     test_generator = test_datagen.flow_from_directory(
         test_dir,
