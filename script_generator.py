@@ -120,19 +120,19 @@ class ScriptGenerator:
                 ('Custom_load_cifar10_npz_data', 'custom_data_loaders.py')
             ],
             'example_custom_loss_functions.py': [
-                ('custom_focal_loss', 'custom_loss_functions.py')
+                ('dice_loss', 'custom_loss_functions.py')
             ],
             'example_custom_optimizers.py': [
-                ('custom_sgd_with_warmup', 'custom_optimizers.py')
+                ('adaptive_adam', 'custom_optimizers.py')
             ],
             'example_custom_metrics.py': [
-                ('custom_f1_score', 'custom_metrics.py')
+                ('balanced_accuracy', 'custom_metrics.py')
             ],
             'example_custom_callbacks.py': [
-                ('LossThresholdStopping', 'custom_callbacks.py')
+                ('MemoryUsageMonitor', 'custom_callbacks.py')
             ],
             'example_custom_augmentations.py': [
-                ('random_pixelate', 'custom_augmentations.py')
+                ('color_shift', 'custom_augmentations.py')
             ],
             'example_custom_preprocessing.py': [
                 ('adaptive_histogram_equalization', 'custom_preprocessing.py')
@@ -185,7 +185,8 @@ class ScriptGenerator:
             print(f"⚠️ Function {function_name} not found in {source_file}")
             return None
         
-        # Find the end of the function
+        # Find the end of the function by looking for the next function/class definition
+        # or end of file, considering proper indentation
         function_end = len(lines)
         indent_level = len(lines[function_start]) - len(lines[function_start].lstrip())
         
@@ -193,28 +194,60 @@ class ScriptGenerator:
             line = lines[i]
             if line.strip():  # Non-empty line
                 current_indent = len(line) - len(line.lstrip())
-                if current_indent <= indent_level and not line.strip().startswith(('"""', "'''", '#')):
-                    # Check if this is another function or class definition
-                    if line.strip().startswith(('def ', 'class ', 'if __name__')):
-                        function_end = i
-                        break
+                # If we find a line at the same or lower indentation level that starts a new definition
+                if (current_indent <= indent_level and 
+                    (line.strip().startswith(('def ', 'class ', 'if __name__')) or
+                     (current_indent == 0 and not line.strip().startswith(('#', '"""', "'''"))
+                      and not line.strip().startswith(('import ', 'from '))))):
+                    function_end = i
+                    break
         
-        # Extract the function and necessary imports
+        # Extract just the function content
         function_lines = lines[function_start:function_end]
         
-        # Get imports from the beginning of the file
+        # Get only the essential imports (not docstrings or comments)
         import_lines = []
+        in_module_docstring = False
+        docstring_quote = None
+        
         for line in lines[:function_start]:
-            if (line.strip().startswith(('import ', 'from ')) or 
-                line.strip().startswith('"""') or 
-                line.strip().startswith("'''") or 
-                not line.strip()):
-                import_lines.append(line)
-            elif line.strip().startswith('#'):
+            stripped_line = line.strip()
+            
+            # Handle module-level docstrings
+            if not in_module_docstring:
+                if stripped_line.startswith('"""') or stripped_line.startswith("'''"):
+                    docstring_quote = stripped_line[:3]
+                    if len(stripped_line) > 3 and stripped_line.endswith(docstring_quote):
+                        # Single line docstring, skip it
+                        continue
+                    else:
+                        # Multi-line docstring starts
+                        in_module_docstring = True
+                        continue
+            else:
+                # We're inside a module docstring
+                if docstring_quote in stripped_line:
+                    in_module_docstring = False
+                    docstring_quote = None
+                continue
+            
+            # Only keep import statements and essential blank lines
+            if (stripped_line.startswith(('import ', 'from ')) or 
+                (not stripped_line and import_lines and 
+                 import_lines[-1].strip().startswith(('import ', 'from ')))):
                 import_lines.append(line)
         
-        # Combine imports and function
-        result_lines = import_lines + [''] + function_lines
+        # Clean up trailing blank lines from imports
+        while import_lines and not import_lines[-1].strip():
+            import_lines.pop()
+        
+        # Combine imports and function with proper spacing
+        result_lines = []
+        if import_lines:
+            result_lines.extend(import_lines)
+            result_lines.append('')  # Blank line after imports
+        
+        result_lines.extend(function_lines)
         
         return '\n'.join(result_lines)
 

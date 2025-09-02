@@ -1,0 +1,318 @@
+# ModelGardener Configuration Template - Ready to run with custom functions and sample data
+
+# INSTRUCTIONS:
+# 1. Sample data has been copied to ./data/ directory with 3 classes
+# 2. Custom functions are configured in metadata section below
+# 3. Modify parameters below to customize training behavior
+# 4. Run training with: python train.py
+
+# AVAILABLE OPTIONS REFERENCE:
+# - Optimizers: [Adam, SGD, RMSprop, Adagrad, AdamW, Adadelta, Adamax, Nadam, FTRL]
+# - Loss Functions: [Categorical Crossentropy, Sparse Categorical Crossentropy, Binary Crossentropy, Mean Squared Error, Mean Absolute Error, Focal Loss, Huber Loss]
+# - Metrics: [Accuracy, Categorical Accuracy, Sparse Categorical Accuracy, Top-K Categorical Accuracy, Precision, Recall, F1 Score, AUC, Mean Squared Error, Mean Absolute Error]
+# - Training Loops: [Standard Training, Progressive Training, Curriculum Learning, Adversarial Training, Self-Supervised Training]
+
+configuration:
+  task_type: image_classification
+  data:
+    train_dir: ./data
+    val_dir: ./data
+    data_loader:
+      selected_data_loader: Custom_load_cifar10_npz_data
+      use_for_train: true
+      use_for_val: true
+      parameters:
+        batch_size: 32
+        shuffle: True
+        buffer_size: 1000
+        npz_file_path: ./data/cifar10.npz
+    preprocessing:
+      Resizing:
+        enabled: False
+        target_size:
+          width: 32
+          height: 32
+          depth: 1
+        interpolation: bilinear
+        preserve_aspect_ratio: True
+        data_format: 2D
+      Normalization:
+        enabled: True
+        method: zero-center
+        min_value: 0.0
+        max_value: 1.0
+        mean:
+          r: 0.485
+          g: 0.456
+          b: 0.406
+        std:
+          r: 0.229
+          g: 0.224
+          b: 0.225
+        axis: -1
+        epsilon: 1e-07
+      # Custom preprocessing functions (disabled by default)
+      Adaptive Histogram Equalization (custom):
+        enabled: False
+        function_name: adaptive_histogram_equalization
+        file_path: ./custom_modules/custom_preprocessing.py
+        clip_limit: 2.0
+        tile_grid_size: 8
+      Edge Enhancement (custom):
+        enabled: False
+        function_name: edge_enhancement
+        file_path: ./custom_modules/custom_preprocessing.py
+        strength: 1.5
+        blur_radius: 3
+      Gamma Correction (custom):
+        enabled: False
+        function_name: gamma_correction
+        file_path: ./custom_modules/custom_preprocessing.py
+        gamma: 1.2
+        gain: 1.0
+    augmentation:
+      # Built-in augmentation options
+      Horizontal Flip:
+        enabled: False
+        probability: 0.5
+      Vertical Flip:
+        enabled: False
+        probability: 0.5
+      Rotation:
+        enabled: False
+        angle_range: 15.0
+        probability: 0.5
+      Gaussian Noise:
+        enabled: False
+        std_dev: 0.1
+        probability: 0.5
+      Brightness:
+        enabled: False
+        delta_range: 0.2
+        probability: 0.5
+      Contrast:
+        enabled: False
+        factor_range:
+        - 0.8
+        - 1.2
+        probability: 0.5
+      # Custom augmentation functions (disabled by default)
+      Color Shift (custom):
+        enabled: False
+        function_name: color_shift
+        file_path: ./custom_modules/custom_augmentations.py
+        hue_shift: 20
+        saturation_scale: 1.2
+        value_scale: 1.1
+        probability: 0.6
+      Random Blur (custom):
+        enabled: False
+        function_name: random_blur
+        file_path: ./custom_modules/custom_augmentations.py
+        max_kernel_size: 5
+        probability: 0.5
+      Noise Injection (custom):
+        enabled: False
+        function_name: noise_injection
+        file_path: ./custom_modules/custom_augmentations.py
+        noise_type: gaussian
+        intensity: 0.1
+        probability: 0.4
+  model:
+    model_family: custom_model
+    model_name: create_simple_cnn
+    model_parameters:
+      input_shape:
+        width: 32
+        height: 32
+        channels: 3
+      num_classes: 10
+      dropout_rate: 0.5
+      custom_model_file_path: ./custom_modules/custom_models.py
+      custom_info:
+        file_path: ./custom_modules/custom_models.py
+        type: function
+    optimizer:
+      # Available optimizers: [Adam, SGD, RMSprop, Adagrad, AdamW, Adadelta, Adamax, Nadam, FTRL]
+      Optimizer Selection:
+        selected_optimizer: Adam
+        learning_rate: 0.001
+        beta_1: 0.9
+        beta_2: 0.999
+        epsilon: 1e-07
+        amsgrad: False
+    loss_functions:
+      # Available loss functions: [Categorical Crossentropy, Sparse Categorical Crossentropy, Binary Crossentropy, Mean Squared Error, Mean Absolute Error, Focal Loss, Huber Loss]
+      Model Output Configuration:
+        num_outputs: 1
+        output_names: main_output
+        loss_strategy: single_loss_all_outputs
+      Loss Selection:
+        selected_loss: Categorical Crossentropy
+        loss_weight: 1.0
+        from_logits: False
+        label_smoothing: 0.0
+        reduction: sum_over_batch_size
+    metrics:
+      # Available metrics: [Accuracy, Categorical Accuracy, Sparse Categorical Accuracy, Top-K Categorical Accuracy, Precision, Recall, F1 Score, AUC, Mean Squared Error, Mean Absolute Error]
+      Model Output Configuration:
+        num_outputs: 1
+        output_names: main_output
+        metrics_strategy: shared_metrics_all_outputs
+      Metrics Selection:
+        selected_metrics: Accuracy
+    callbacks:
+      Early Stopping:
+        enabled: False
+        monitor: val_loss
+        patience: 10
+        min_delta: 0.001
+        mode: min
+        restore_best_weights: True
+      Learning Rate Scheduler:
+        enabled: False
+        scheduler_type: ReduceLROnPlateau
+        monitor: val_loss
+        factor: 0.5
+        patience: 5
+        min_lr: 1e-07
+      Model Checkpoint:
+        enabled: True
+        monitor: val_loss
+        save_best_only: True
+        save_weights_only: False
+        mode: min
+        save_freq: epoch
+      # Custom callback (disabled - file not included in this template)
+      # To add: Create ./custom_modules/custom_callbacks.py with desired callbacks
+      Custom Callback:
+        enabled: False
+        callback_name: custom_callback_name
+        file_path: ./custom_modules/custom_callbacks.py
+  training:
+    epochs: 100
+    learning_rate_type: exponential
+    initial_learning_rate: 0.1
+    momentum: 0.9
+    weight_decay: 0.0001
+    label_smoothing: 0.0
+    cross_validation:
+      enabled: False
+      k_folds: 5
+      validation_split: 0.2
+      stratified: True
+      shuffle: True
+      random_seed: 42
+      save_fold_models: False
+      fold_models_dir: ./logs/fold_models
+      aggregate_metrics: True
+      fold_selection_metric: val_accuracy
+    training_loop:
+      # Available training strategies: [Standard Training, Progressive Training, Curriculum Learning, Adversarial Training, Self-Supervised Training]
+      selected_strategy: Default Training Loop
+  runtime:
+    model_dir: ./logs
+    distribution_strategy: mirrored
+    mixed_precision: None
+    num_gpus: 0
+metadata:
+  version: 1.2
+  custom_functions:
+    models:
+    - name: create_simple_cnn
+      file_path: ./custom_modules/custom_models.py
+      function_name: create_simple_cnn
+      type: function
+      parameters:
+        input_shape: (32, 32, 3)
+        num_classes: 10
+        dropout_rate: 0.5
+        kwargs: None
+    data_loaders:
+    - name: Custom_load_cifar10_npz_data
+      file_path: ./custom_modules/custom_data_loaders.py
+      function_name: Custom_load_cifar10_npz_data
+      type: function
+      parameters:
+        train_dir: ./data
+        val_dir: ./data
+        npz_file_path: ./data/cifar10.npz
+        batch_size: 32
+        shuffle: True
+        buffer_size: 1000
+        validation_split: 0.2
+        kwargs: None
+    loss_functions:
+    - name: dice_loss
+      file_path: ./custom_modules/custom_loss_functions.py
+      function_name: dice_loss
+      type: function
+      parameters:
+        y_true: None
+        y_pred: None
+        smooth: 1.0
+    optimizers:
+    - name: adaptive_adam
+      file_path: ./custom_modules/custom_optimizers.py
+      function_name: adaptive_adam
+      type: function
+      parameters:
+        learning_rate: 0.001
+        beta_1: 0.9
+        beta_2: 0.999
+        epsilon: 1e-07
+        decay_factor: 0.99
+    metrics:
+    - name: balanced_accuracy
+      file_path: ./custom_modules/custom_metrics.py
+      function_name: balanced_accuracy
+      type: function
+      parameters:
+        y_true: None
+        y_pred: None
+        threshold: 0.5
+    callbacks:
+    - name: MemoryUsageMonitor
+      file_path: ./custom_modules/custom_callbacks.py
+      function_name: MemoryUsageMonitor
+      type: class
+      parameters:
+        log_frequency: 1
+        monitor_gpu: True
+        alert_threshold: 0.9
+    augmentations:
+    - name: color_shift
+      file_path: ./custom_modules/custom_augmentations.py
+      function_name: color_shift
+      type: function
+      parameters:
+        image: None
+        hue_shift: 20
+        saturation_scale: 1.2
+        value_scale: 1.1
+        probability: 0.6
+    preprocessing:
+    - name: adaptive_histogram_equalization
+      file_path: ./custom_modules/custom_preprocessing.py
+      function_name: adaptive_histogram_equalization
+      type: function
+      parameters:
+        clip_limit: 2.0
+        tile_grid_size: 8
+    training_loops:
+    - name: progressive_training_loop
+      file_path: ./custom_modules/custom_training_loops.py
+      function_name: progressive_training_loop
+      type: function
+      parameters:
+        train_dataset: None
+        val_dataset: None
+        epochs: 100
+        optimizer: None
+        loss_fn: None
+        initial_resolution: 32
+        final_resolution: 224
+        progression_schedule: linear
+  sharing_strategy: file_paths_only
+  creation_date: 
+  model_gardener_version: 1.0

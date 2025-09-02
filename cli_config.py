@@ -271,36 +271,41 @@ class ModelConfigCLI:
                 'type': 'function'
             }],
             'data_loaders': [{
-                'name': 'custom_image_data_loader',
+                'name': 'Custom_load_cifar10_npz_data',
                 'file_path': './custom_modules/custom_data_loaders.py',
-                'function_name': 'custom_image_data_loader',
+                'function_name': 'Custom_load_cifar10_npz_data',
                 'type': 'function'
             }],
             'loss_functions': [{
-                'name': 'custom_focal_loss',
+                'name': 'dice_loss',
                 'file_path': './custom_modules/custom_loss_functions.py',
-                'function_name': 'custom_focal_loss',
+                'function_name': 'dice_loss',
                 'type': 'function'
             }],
             'optimizers': [{
-                'name': 'custom_sgd_with_warmup',
+                'name': 'adaptive_adam',
                 'file_path': './custom_modules/custom_optimizers.py',
-                'function_name': 'custom_sgd_with_warmup',
+                'function_name': 'adaptive_adam',
                 'type': 'function'
             }],
             'metrics': [{
-                'name': 'custom_f1_score',
+                'name': 'balanced_accuracy',
                 'file_path': './custom_modules/custom_metrics.py',
-                'function_name': 'custom_f1_score',
+                'function_name': 'balanced_accuracy',
                 'type': 'function'
             }],
             'callbacks': [{
-                'name': 'LossThresholdStopping',
+                'name': 'MemoryUsageMonitor',
                 'file_path': './custom_modules/custom_callbacks.py',
-                'function_name': 'LossThresholdStopping',
+                'function_name': 'MemoryUsageMonitor',
                 'type': 'class'
             }],
-            'augmentations': [],
+            'augmentations': [{
+                'name': 'color_shift',
+                'file_path': './custom_modules/custom_augmentations.py',
+                'function_name': 'color_shift',
+                'type': 'function'
+            }],
             'preprocessing': [],
             'training_loops': [{
                 'name': 'progressive_training_loop',
@@ -867,11 +872,46 @@ class ModelConfigCLI:
                     'parameters': self._extract_function_parameters('create_simple_cnn', './custom_modules/custom_models.py', project_dir)
                 }],
                 'data_loaders': [{
-                    'name': 'custom_image_data_loader',
+                    'name': 'Custom_load_cifar10_npz_data',
                     'file_path': './custom_modules/custom_data_loaders.py',
-                    'function_name': 'custom_image_data_loader', 
+                    'function_name': 'Custom_load_cifar10_npz_data', 
                     'type': 'function',
-                    'parameters': self._extract_function_parameters('custom_image_data_loader', './custom_modules/custom_data_loaders.py', project_dir)
+                    'parameters': self._extract_function_parameters('Custom_load_cifar10_npz_data', './custom_modules/custom_data_loaders.py', project_dir)
+                }],
+                'loss_functions': [{
+                    'name': 'dice_loss',
+                    'file_path': './custom_modules/custom_loss_functions.py',
+                    'function_name': 'dice_loss',
+                    'type': 'function',
+                    'parameters': self._extract_function_parameters('dice_loss', './custom_modules/custom_loss_functions.py', project_dir)
+                }],
+                'optimizers': [{
+                    'name': 'adaptive_adam',
+                    'file_path': './custom_modules/custom_optimizers.py',
+                    'function_name': 'adaptive_adam',
+                    'type': 'function',
+                    'parameters': self._extract_function_parameters('adaptive_adam', './custom_modules/custom_optimizers.py', project_dir)
+                }],
+                'metrics': [{
+                    'name': 'balanced_accuracy',
+                    'file_path': './custom_modules/custom_metrics.py',
+                    'function_name': 'balanced_accuracy',
+                    'type': 'function',
+                    'parameters': self._extract_function_parameters('balanced_accuracy', './custom_modules/custom_metrics.py', project_dir)
+                }],
+                'callbacks': [{
+                    'name': 'MemoryUsageMonitor',
+                    'file_path': './custom_modules/custom_callbacks.py',
+                    'function_name': 'MemoryUsageMonitor',
+                    'type': 'class',
+                    'parameters': self._extract_function_parameters('MemoryUsageMonitor', './custom_modules/custom_callbacks.py', project_dir)
+                }],
+                'augmentations': [{
+                    'name': 'color_shift',
+                    'file_path': './custom_modules/custom_augmentations.py',
+                    'function_name': 'color_shift',
+                    'type': 'function',
+                    'parameters': self._extract_function_parameters('color_shift', './custom_modules/custom_augmentations.py', project_dir)
                 }],
                 'preprocessing': [{
                     'name': 'adaptive_histogram_equalization',
