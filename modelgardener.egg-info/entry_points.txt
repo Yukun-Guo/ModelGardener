@@ -1,0 +1,2 @@
+[console_scripts]
+mgd = modelgardener.cli:run_cli

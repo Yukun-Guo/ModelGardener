@@ -1,0 +1,12 @@
+include README.md
+include LICENSE
+include requirements.txt
+include pyproject.toml
+recursive-include modelgardener *.py
+recursive-include example_funcs *.py
+recursive-include example_data *
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude *.orig
+global-exclude *.bak
+global-exclude *~

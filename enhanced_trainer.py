@@ -38,7 +38,7 @@ except ImportError:
         def terminate(self): pass
     def Signal(*args): return lambda: None
 
-from bridge_callback import BRIDGE, QtBridgeCallback
+from bridge_callback import BRIDGE, CLIBridgeCallback
 
 
 class LogCapture:
@@ -692,11 +692,11 @@ class TrainingController(QThread):
         else:
             total_steps = epochs * 100  # Rough estimate
         
-        qt_callback = QtBridgeCallback(total_train_steps=total_steps, log_every_n=5)
+        cli_callback = CLIBridgeCallback(total_train_steps=total_steps, log_every_n=5)
         # Pass steps_per_epoch information to callback if available
         if steps_per_epoch:
-            qt_callback._steps_per_epoch = steps_per_epoch
-        callbacks.append(qt_callback)
+            cli_callback._steps_per_epoch = steps_per_epoch
+        callbacks.append(cli_callback)
         
         # Process callback configurations from GUI
         callbacks_config = self.config.get('callbacks', {})

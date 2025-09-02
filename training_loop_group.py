@@ -10,7 +10,26 @@ import ast
 import importlib.util
 import inspect
 from typing import Dict, Any, List, Optional
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+# CLI-only message functions (no GUI dialogs)
+def cli_info(title, message):
+    """CLI alternative to QMessageBox.information"""
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    """CLI alternative to QMessageBox.warning"""
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    """CLI alternative to QMessageBox.critical"""
+    print(f"[ERROR] {title}: {message}")
+
+def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
+    """CLI alternative to QFileDialog.getOpenFileName - returns empty for CLI mode"""
+    print(f"[CLI] File dialog requested: {title} - {file_filter}")
+    print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
+    return "", ""
+
 import pyqtgraph.parametertree.parameterTypes as pTypes
 
 
@@ -203,10 +222,8 @@ class TrainingLoopGroup(pTypes.GroupParameter):
     
     def _load_custom_training_loop(self):
         """Load custom training loop functions from a Python file."""
-        file_path, _ = QFileDialog.getOpenFileName(
-            None,
+        file_path, _ = cli_get_file_path(
             "Load Custom Training Loop",
-            "",
             "Python Files (*.py);;All Files (*)"
         )
         
@@ -218,8 +235,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
             custom_functions = self._extract_training_loop_functions(file_path)
             
             if not custom_functions:
-                QMessageBox.warning(
-                    None,
+                cli_warning(
                     "No Functions Found",
                     "No valid training loop functions found in the selected file.\n\n"
                     "Functions should be named with 'train' or 'loop' in the name and accept appropriate training parameters."
@@ -233,8 +249,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
             # Update training strategy dropdown
             self._update_training_strategy_options()
             
-            QMessageBox.information(
-                None,
+            cli_info(
                 "Functions Loaded",
                 f"Successfully loaded {len(custom_functions)} custom training loop function(s):\n" +
                 "\n".join(custom_functions.keys()) +
@@ -242,8 +257,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
             )
                 
         except Exception as e:
-            QMessageBox.critical(
-                None,
+            cli_error(
                 "Error Loading File",
                 f"Failed to load custom training loop functions from file:\n{str(e)}"
             )

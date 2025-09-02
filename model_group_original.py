@@ -1,0 +1,1384 @@
+"""
+Model configuration group for dynamic model-specific parameters and custom model loading.
+CLI-only version with PySide6 dependencies removed.
+"""
+
+import os
+import sys
+import importlib.util
+import inspect
+import tensorflow as tf
+import keras
+
+# Try to import pyqtgraph (for GUI functionality) but make it optional
+try:
+    from pyqtgraph.parametertree import Parameter, ParameterTree
+    from pyqtgraph.parametertree.parameterTypes import GroupParameter
+    PYQTGRAPH_AVAILABLE = True
+except ImportError:
+    PYQTGRAPH_AVAILABLE = False
+    # Create dummy base class for CLI-only mode
+    class GroupParameter:
+        def __init__(self, **opts):
+            self.opts = opts
+            self.name_value = opts.get('name', 'test')
+            self._children = []
+        
+        def name(self):
+            return self.name_value
+            
+        def children(self):
+            return self._children
+            
+        def addChild(self, child):
+            self._children.append(child)
+            
+        def removeChild(self, child):
+            if child in self._children:
+                self._children.remove(child)
+        
+        def child(self, name):
+            for child in self._children:
+                if child.name() == name:
+                    return child
+            return None
+
+
+class ModelGroup(GroupParameter):
+    """
+    Custom parameter group for model-specific configuration with dynamic parameters
+    based on the selected model and support for custom model loading.
+    """
+    
+    def __init__(self, **opts):
+        self.model_name = opts.get('model_name', 'ResNet-50')
+        self.task_type = opts.get('task_type', 'image_classification')
+        self.custom_model_path = None
+        self.custom_model_function = None
+        
+        opts['type'] = 'group'
+        # Remove the addText parameter to disable "Add model parameter" button
+        super().__init__(**opts)
+        
+        # Initialize with default model parameters
+        self._update_model_parameters()
+        
+    def _update_model_parameters(self):
+        """Update parameters based on the current model selection."""
+        try:
+            # Preserve custom model file path if it exists
+            custom_model_file_path = None
+            try:
+                existing_custom_param = self.child('custom_model_file_path')
+                if existing_custom_param:
+                    custom_model_file_path = existing_custom_param.value()
+            except (KeyError, AttributeError):
+                # No existing custom model file path parameter
+                pass
+            
+            # Clear existing parameters
+            current_children = list(self.children())
+            for child in current_children:
+                self.removeChild(child)
+            
+            # Get model-specific parameters based on model_name
+            model_params = self._get_model_parameters(self.model_name, self.task_type)
+            
+            # Add model-specific parameters
+            for param_name, param_config in model_params.items():
+                if PYQTGRAPH_AVAILABLE:
+                    self.addChild(Parameter.create(name=param_name, **param_config))
+            
+            # Add kwargs parameter for extra parameters
+            if PYQTGRAPH_AVAILABLE:
+                self.addChild(Parameter.create(
+                    name='kwargs',
+                    type='str',
+                    value='{}',
+                    tip='Additional keyword arguments as JSON string (e.g., {"dropout": 0.5, "activation": "relu"})'
+                ))
+            
+            # Restore custom model file path parameter if it existed
+            if custom_model_file_path and PYQTGRAPH_AVAILABLE:
+                file_path_param = {
+                    'name': 'custom_model_file_path',
+                    'type': 'str',
+                    'value': custom_model_file_path,
+                    'readonly': True,
+                    'tip': f'Custom model file path: {os.path.basename(custom_model_file_path)}'
+                }
+                self.addChild(Parameter.create(**file_path_param))
+                    
+        except Exception as e:
+            print(f"Error updating model parameters: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _get_model_parameters(self, model_name, task_type):
+        """Get model-specific parameters based on actual keras.applications and other model implementations."""
+        params = {}
+        
+        # Get the model family from the model name
+        model_family = self._get_model_family_from_name(model_name)
+        
+        if task_type == 'image_classification':
+            params.update(self._get_classification_parameters(model_name, model_family))
+        elif task_type == 'object_detection':
+            params.update(self._get_detection_parameters(model_name, model_family))
+        elif task_type == 'semantic_segmentation':
+            params.update(self._get_segmentation_parameters(model_name, model_family))
+        else:
+            # Default parameters for other tasks
+            params.update(self._get_default_parameters())
+            
+        return params
+    
+    def _get_model_family_from_name(self, model_name):
+        """Extract model family from model name."""
+        model_name_lower = model_name.lower()
+        
+        # Classification families
+        if 'resnet' in model_name_lower:
+            return 'resnet'
+        elif 'efficientnet' in model_name_lower:
+            return 'efficientnet'
+        elif 'mobilenet' in model_name_lower:
+            return 'mobilenet'
+        elif 'vit' in model_name_lower or 'vision' in model_name_lower:
+            return 'vision_transformer'
+        elif 'densenet' in model_name_lower:
+            return 'densenet'
+        elif 'vgg' in model_name_lower:
+            return 'vgg'
+        elif 'inception' in model_name_lower:
+            return 'inception'
+        elif 'xception' in model_name_lower:
+            return 'xception'
+        elif 'convnext' in model_name_lower:
+            return 'convnext'
+        elif 'regnet' in model_name_lower:
+            return 'regnet'
+        
+        # Detection families
+        elif 'yolo' in model_name_lower:
+            return 'yolo'
+        elif 'faster' in model_name_lower and 'rcnn' in model_name_lower:
+            return 'faster_rcnn'
+        elif 'ssd' in model_name_lower:
+            return 'ssd'
+        elif 'retinanet' in model_name_lower:
+            return 'retinanet'
+        elif 'efficientdet' in model_name_lower:
+            return 'efficientdet'
+            
+        # Segmentation families
+        elif 'unet' in model_name_lower or 'u-net' in model_name_lower:
+            return 'unet'
+        elif 'deeplab' in model_name_lower:
+            return 'deeplabv3'
+        elif 'pspnet' in model_name_lower:
+            return 'pspnet'
+        elif 'fcn' in model_name_lower:
+            return 'fcn'
+        elif 'segnet' in model_name_lower:
+            return 'segnet'
+            
+        return 'unknown'
+    
+    def _get_available_model_families(self):
+        """Get list of available model families."""
+        if self.task_type == 'image_classification':
+            return ['resnet', 'efficientnet', 'mobilenet', 'vision_transformer', 'densenet', 
+                   'vgg', 'inception', 'xception', 'convnext', 'regnet', 'custom_model']
+        elif self.task_type == 'object_detection':
+            return ['yolo', 'faster_rcnn', 'ssd', 'retinanet', 'efficientdet', 'custom_model']
+        elif self.task_type == 'semantic_segmentation':
+            return ['unet', 'deeplabv3', 'pspnet', 'fcn', 'segnet', 'custom_model']
+        else:
+            return ['custom_model']
+    
+    def _get_available_models_for_family(self, family):
+        """Get list of available models for a specific family."""
+        if family == 'custom_model':
+            # Return custom model names if available
+            if hasattr(self, 'custom_model_candidates') and self.custom_model_candidates:
+                return [model['name'] for model in self.custom_model_candidates]
+            return ['Custom Model']
+        
+        # Return some common models for each family (simplified)
+        model_families = {
+            'resnet': ['ResNet50', 'ResNet101', 'ResNet152', 'ResNet50V2', 'ResNet101V2'],
+            'efficientnet': ['EfficientNetB0', 'EfficientNetB1', 'EfficientNetB2', 'EfficientNetB3', 'EfficientNetB4'],
+            'mobilenet': ['MobileNet', 'MobileNetV2', 'MobileNetV3Small', 'MobileNetV3Large'],
+            'vision_transformer': ['ViT-Base-16', 'ViT-Base-32', 'ViT-Large-16', 'ViT-Large-32'],
+            'densenet': ['DenseNet121', 'DenseNet169', 'DenseNet201'],
+            'vgg': ['VGG16', 'VGG19'],
+            'inception': ['InceptionV3', 'InceptionResNetV2'],
+            'xception': ['Xception'],
+            'convnext': ['ConvNeXtTiny', 'ConvNeXtSmall', 'ConvNeXtBase', 'ConvNeXtLarge'],
+            'regnet': ['RegNetX002', 'RegNetX004', 'RegNetX006', 'RegNetX008'],
+            'yolo': ['YOLO-v5', 'YOLO-v8', 'YOLO-v9', 'YOLO-v10'],
+            'faster_rcnn': ['Faster_R_CNN'],
+            'ssd': ['SSD_MobileNet', 'SSD_ResNet'],
+            'retinanet': ['RetinaNet'],
+            'efficientdet': ['EfficientDet-D0', 'EfficientDet-D1', 'EfficientDet-D2'],
+            'unet': ['U-Net', 'U-Net++', 'Attention-UNet'],
+            'deeplabv3': ['DeepLabV3', 'DeepLabV3+'],
+            'pspnet': ['PSPNet'],
+            'fcn': ['FCN-8s', 'FCN-16s', 'FCN-32s'],
+            'segnet': ['SegNet']
+        }
+        
+        return model_families.get(family, [family.title()])
+    
+    def _get_classification_parameters(self, model_name, model_family):
+        """Get parameters for image classification models based on keras.applications."""
+        # Common parameters for all classification models (based on keras.applications inspection)
+        params = {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'include_top': {
+                'type': 'bool',
+                'value': True,
+                'tip': 'Whether to include the fully-connected layer at the top of the network'
+            },
+            'weights': {
+                'type': 'list',
+                'value': 'imagenet',
+                'values': ['imagenet', 'None'],
+                'tip': 'Pre-trained weights to load'
+            },
+            'pooling': {
+                'type': 'list',
+                'value': 'None',
+                'values': ['None', 'avg', 'max'],
+                'tip': 'Pooling mode for feature extraction when include_top is False'
+            },
+            'classes': {
+                'type': 'int',
+                'value': 1000,
+                'limits': [1, 100000],
+                'tip': 'Number of classes for classification'
+            },
+            'classifier_activation': {
+                'type': 'list',
+                'value': 'softmax',
+                'values': ['softmax', 'sigmoid', 'linear', 'None'],
+                'tip': 'Activation function for the classification layer'
+            }
+        }
+        
+        # Add model family specific parameters
+        if model_family == 'mobilenet':
+            params.update(self._get_mobilenet_specific_params(model_name))
+        elif model_family == 'efficientnet':
+            params.update(self._get_efficientnet_specific_params())
+        elif model_family == 'vision_transformer':
+            params.update(self._get_vit_specific_params())
+        elif model_family == 'convnext':
+            params.update(self._get_convnext_specific_params())
+        elif model_family == 'regnet':
+            params.update(self._get_regnet_specific_params())
+            
+        return params
+    
+    def _get_mobilenet_specific_params(self, model_name):
+        """Get MobileNet-specific parameters."""
+        params = {
+            'alpha': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.25, 0.35, 0.5, 0.75, 1.0, 1.3, 1.4],
+                'tip': 'Width multiplier for the model'
+            }
+        }
+        
+        if 'v1' in model_name.lower() or 'MobileNet' == model_name:
+            params.update({
+                'depth_multiplier': {
+                    'type': 'list',
+                    'value': 1,
+                    'values': [1, 2, 3, 4],
+                    'tip': 'Depth multiplier for depthwise convolution'
+                },
+                'dropout': {
+                    'type': 'float',
+                    'value': 0.001,
+                    'limits': [0.0, 0.9],
+                    'step': 0.001,
+                    'tip': 'Dropout rate'
+                }
+            })
+        elif 'v3' in model_name.lower():
+            params.update({
+                'minimalistic': {
+                    'type': 'bool',
+                    'value': False,
+                    'tip': 'Use minimalistic version of the model'
+                },
+                'dropout_rate': {
+                    'type': 'float',
+                    'value': 0.2,
+                    'limits': [0.0, 0.9],
+                    'step': 0.05,
+                    'tip': 'Dropout rate'
+                },
+                'include_preprocessing': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Whether to include preprocessing in the model'
+                }
+            })
+        
+        return params
+    
+    def _get_efficientnet_specific_params(self):
+        """Get EfficientNet-specific parameters."""
+        return {
+            'drop_connect_rate': {
+                'type': 'float',
+                'value': 0.2,
+                'limits': [0.0, 0.8],
+                'step': 0.05,
+                'tip': 'Drop connect rate for stochastic depth'
+            }
+        }
+    
+    def _get_vit_specific_params(self):
+        """Get Vision Transformer specific parameters."""
+        return {
+            'patch_size': {
+                'type': 'list',
+                'value': 16,
+                'values': [8, 16, 32],
+                'tip': 'Size of image patches'
+            },
+            'num_layers': {
+                'type': 'list',
+                'value': 12,
+                'values': [6, 12, 24],
+                'tip': 'Number of transformer layers'
+            },
+            'num_heads': {
+                'type': 'list',
+                'value': 12,
+                'values': [4, 8, 12, 16],
+                'tip': 'Number of attention heads'
+            },
+            'hidden_size': {
+                'type': 'list',
+                'value': 768,
+                'values': [256, 384, 768, 1024],
+                'tip': 'Hidden size of transformer'
+            },
+            'mlp_dim': {
+                'type': 'list',
+                'value': 3072,
+                'values': [1024, 3072, 4096],
+                'tip': 'MLP hidden dimension'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.1,
+                'limits': [0.0, 0.5],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            },
+            'attention_dropout_rate': {
+                'type': 'float',
+                'value': 0.0,
+                'limits': [0.0, 0.3],
+                'step': 0.05,
+                'tip': 'Attention dropout rate'
+            },
+            'representation_size': {
+                'type': 'list',
+                'value': 0,
+                'values': [0, 768, 1024],
+                'tip': 'Size of representation layer (0 to disable)'
+            }
+        }
+    
+    def _get_convnext_specific_params(self):
+        """Get ConvNeXt specific parameters."""
+        return {
+            'drop_path_rate': {
+                'type': 'float',
+                'value': 0.0,
+                'limits': [0.0, 0.5],
+                'step': 0.05,
+                'tip': 'Drop path rate for stochastic depth'
+            }
+        }
+    
+    def _get_regnet_specific_params(self):
+        """Get RegNet specific parameters."""
+        return {
+            'width_coefficient': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.5, 1.0, 1.5, 2.0],
+                'tip': 'Width scaling coefficient'
+            },
+            'depth_coefficient': {
+                'type': 'list',
+                'value': 1.0,
+                'values': [0.5, 1.0, 1.5, 2.0],
+                'tip': 'Depth scaling coefficient'
+            }
+        }
+    
+    def _get_detection_parameters(self, model_name, model_family):
+        """Get parameters for object detection models."""
+        # Common detection parameters
+        params = {
+            'input_size': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 416, 'limits': [320, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 416, 'limits': [320, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
+                'type': 'int',
+                'value': 80,
+                'limits': [1, 10000],
+                'tip': 'Number of object classes'
+            },
+            'iou_threshold': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.1, 0.9],
+                'step': 0.05,
+                'tip': 'IoU threshold for non-maximum suppression'
+            },
+            'confidence_threshold': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.1, 0.9],
+                'step': 0.05,
+                'tip': 'Confidence threshold for detections'
+            }
+        }
+        
+        # Add family-specific parameters
+        if model_family == 'yolo':
+            params.update(self._get_yolo_specific_params(model_name))
+        elif model_family in ['faster_rcnn', 'ssd', 'retinanet']:
+            params.update(self._get_rcnn_ssd_specific_params(model_family))
+        elif model_family == 'efficientdet':
+            params.update(self._get_efficientdet_specific_params())
+            
+        return params
+    
+    def _get_yolo_specific_params(self, model_name):
+        """Get YOLO-specific parameters."""
+        params = {
+            'anchors': {
+                'type': 'str',
+                'value': '10,13,16,30,33,23,30,61,62,45,59,119,116,90,156,198,373,326',
+                'tip': 'Anchor boxes (comma-separated)'
+            },
+            'anchor_masks': {
+                'type': 'str', 
+                'value': '0,1,2,3,4,5,6,7,8',
+                'tip': 'Anchor masks for different scales'
+            },
+            'max_boxes_per_class': {
+                'type': 'int',
+                'value': 20,
+                'limits': [1, 100],
+                'tip': 'Maximum boxes per class'
+            },
+            'max_total_size': {
+                'type': 'int',
+                'value': 100,
+                'limits': [10, 1000],
+                'tip': 'Maximum total detections'
+            }
+        }
+        
+        # Version-specific parameters
+        if 'v8' in model_name.lower():
+            params.update({
+                'use_ultralytics_format': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use Ultralytics YOLOv8 format'
+                }
+            })
+        elif 'v5' in model_name.lower():
+            params.update({
+                'focus_layer': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use Focus layer in the model'
+                }
+            })
+        elif 'v4' in model_name.lower():
+            params.update({
+                'use_csp': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use CSP (Cross Stage Partial) connections'
+                }
+            })
+        
+        return params
+    
+    def _get_rcnn_ssd_specific_params(self, model_family):
+        """Get Faster R-CNN, SSD, RetinaNet specific parameters."""
+        params = {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2'],
+                'tip': 'Backbone network architecture'
+            },
+            'aspect_ratios': {
+                'type': 'str',
+                'value': '0.5,1.0,2.0',
+                'tip': 'Anchor aspect ratios (comma-separated)'
+            }
+        }
+        
+        if model_family == 'faster_rcnn':
+            params.update({
+                'include_mask': {
+                    'type': 'bool',
+                    'value': False,
+                    'tip': 'Include mask prediction (Mask R-CNN)'
+                },
+                'anchor_scale': {
+                    'type': 'float',
+                    'value': 8.0,
+                    'limits': [2.0, 16.0],
+                    'step': 0.5,
+                    'tip': 'Anchor scale factor'
+                }
+            })
+        elif model_family == 'retinanet':
+            params.update({
+                'focal_loss_alpha': {
+                    'type': 'float',
+                    'value': 0.25,
+                    'limits': [0.1, 0.5],
+                    'step': 0.05,
+                    'tip': 'Focal loss alpha parameter'
+                },
+                'focal_loss_gamma': {
+                    'type': 'float',
+                    'value': 2.0,
+                    'limits': [0.5, 5.0],
+                    'step': 0.1,
+                    'tip': 'Focal loss gamma parameter'
+                }
+            })
+        elif model_family == 'ssd':
+            params.update({
+                'scales': {
+                    'type': 'str',
+                    'value': '0.2,0.34,0.48,0.62,0.76,0.9',
+                    'tip': 'Multi-scale anchor sizes'
+                },
+                'clip_boxes': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Clip bounding boxes to image boundaries'
+                }
+            })
+        
+        return params
+    
+    def _get_efficientdet_specific_params(self):
+        """Get EfficientDet-specific parameters."""
+        return {
+            'model_name': {
+                'type': 'list',
+                'value': 'efficientdet-d0',
+                'limits': [f'efficientdet-d{i}' for i in range(8)],
+                'tip': 'EfficientDet variant'
+            },
+            'mixed_precision': {
+                'type': 'bool',
+                'value': False,
+                'tip': 'Use mixed precision training'
+            }
+        }
+    
+    def _get_segmentation_parameters(self, model_name, model_family):
+        """Get parameters for semantic segmentation models."""
+        # Common segmentation parameters
+        params = {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 256, 'limits': [128, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 256, 'limits': [128, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
+                'type': 'int',
+                'value': 21,
+                'limits': [1, 1000],
+                'tip': 'Number of segmentation classes'
+            },
+            'activation': {
+                'type': 'list',
+                'value': 'softmax',
+                'values': ['softmax', 'sigmoid', 'relu'],
+                'tip': 'Output activation function'
+            }
+        }
+        
+        # Add family-specific parameters
+        if model_family == 'unet':
+            params.update(self._get_unet_specific_params())
+        elif model_family == 'deeplabv3':
+            params.update(self._get_deeplab_specific_params())
+        elif model_family == 'pspnet':
+            params.update(self._get_pspnet_specific_params())
+        elif model_family in ['fcn', 'segnet']:
+            params.update(self._get_fcn_segnet_specific_params(model_family))
+            
+        return params
+    
+    def _get_unet_specific_params(self):
+        """Get U-Net specific parameters."""
+        return {
+            'filters': {
+                'type': 'list',
+                'value': 64,
+                'values': [16, 32, 64, 128, 256],
+                'tip': 'Base number of filters'
+            },
+            'num_layers': {
+                'type': 'list',
+                'value': 4,
+                'values': [3, 4, 5, 6],
+                'tip': 'Number of encoder/decoder layers'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.0, 0.9],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            },
+            'batch_normalization': {
+                'type': 'bool',
+                'value': True,
+                'tip': 'Use batch normalization'
+            },
+            'use_attention': {
+                'type': 'bool',
+                'value': False,
+                'tip': 'Use attention gates'
+            },
+            'deep_supervision': {
+                'type': 'bool',
+                'value': False,
+                'tip': 'Use deep supervision'
+            }
+        }
+    
+    def _get_deeplab_specific_params(self):
+        """Get DeepLabV3/V3+ specific parameters."""
+        return {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2', 'xception'],
+                'tip': 'Backbone network'
+            },
+            'output_stride': {
+                'type': 'list',
+                'value': 16,
+                'values': [8, 16, 32],
+                'tip': 'Output stride for the backbone'
+            },
+            'atrous_rates': {
+                'type': 'str',
+                'value': '6,12,18',
+                'tip': 'ASPP atrous rates (comma-separated)'
+            },
+            'aspp_dropout': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.0, 0.9],
+                'step': 0.05,
+                'tip': 'ASPP dropout rate'
+            },
+            'decoder_channels': {
+                'type': 'list',
+                'value': 256,
+                'values': [64, 128, 256, 512],
+                'tip': 'Number of decoder channels'
+            }
+        }
+    
+    def _get_pspnet_specific_params(self):
+        """Get PSPNet specific parameters."""
+        return {
+            'backbone': {
+                'type': 'list',
+                'value': 'resnet50',
+                'values': ['resnet50', 'resnet101', 'mobilenet_v2'],
+                'tip': 'Backbone network'
+            },
+            'pyramid_bins': {
+                'type': 'str',
+                'value': '1,2,3,6',
+                'tip': 'Pyramid pooling bins (comma-separated)'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.1,
+                'limits': [0.0, 0.5],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            },
+            'aux_loss': {
+                'type': 'bool',
+                'value': True,
+                'tip': 'Use auxiliary loss'
+            }
+        }
+    
+    def _get_fcn_segnet_specific_params(self, model_family):
+        """Get FCN/SegNet specific parameters."""
+        params = {
+            'backbone': {
+                'type': 'list',
+                'value': 'vgg16' if model_family == 'fcn' else 'vgg16',
+                'values': ['vgg16', 'resnet50', 'resnet101'] if model_family == 'fcn' else ['vgg16', 'resnet'],
+                'tip': 'Backbone network'
+            },
+            'dropout_rate': {
+                'type': 'float',
+                'value': 0.5,
+                'limits': [0.0, 0.9],
+                'step': 0.05,
+                'tip': 'Dropout rate'
+            }
+        }
+        
+        if model_family == 'fcn':
+            params.update({
+                'skip_connections': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use skip connections'
+                }
+            })
+        elif model_family == 'segnet':
+            params.update({
+                'decoder_use_batchnorm': {
+                    'type': 'bool',
+                    'value': True,
+                    'tip': 'Use batch normalization in decoder'
+                }
+            })
+        
+        return params
+    
+    def _get_default_parameters(self):
+        """Get default parameters for unknown models."""
+        return {
+            'input_shape': {
+                'type': 'group',
+                'children': [
+                    {'name': 'height', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image height'},
+                    {'name': 'width', 'type': 'int', 'value': 224, 'limits': [32, 1024], 'tip': 'Input image width'},
+                    {'name': 'channels', 'type': 'int', 'value': 3, 'limits': [1, 4], 'tip': 'Number of input channels'}
+                ]
+            },
+            'num_classes': {
+                'type': 'int',
+                'value': 1000,
+                'limits': [1, 50000],
+                'tip': 'Number of output classes'
+            }
+        }
+    
+    def load_custom_model_and_update_parent(self, parent_parameter):
+        """Load custom model and update parent-level model_family and model_name parameters."""
+        try:
+            if not PYQT5_AVAILABLE:
+                print("GUI not available - custom model loading requires PyQt5")
+                return False
+                
+            file_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "Select Custom Model File",
+                "",
+                "Python Files (*.py);;All Files (*)"
+            )
+            
+            if not file_path:
+                return False
+                
+            # Validate and load the custom model
+            success, model_info = self._validate_custom_model(file_path)
+            
+            if success:
+                self.custom_model_path = file_path
+                self.custom_model_function = model_info
+                
+                # Store custom model candidates for future reference
+                analysis = model_info.get('analysis', {})
+                self.custom_model_candidates = []
+                
+                # Collect all model candidates from analysis
+                for func in analysis.get('model_functions_details', []):
+                    self.custom_model_candidates.append({
+                        'name': func['name'],
+                        'type': 'function',
+                        'confidence': func.get('confidence', 'medium')
+                    })
+                
+                for cls in analysis.get('model_classes_details', []):
+                    self.custom_model_candidates.append({
+                        'name': cls['name'],
+                        'type': 'class',
+                        'confidence': cls.get('confidence', 'medium')
+                    })
+                
+                # Update parent-level model_family parameter
+                model_family_param = parent_parameter.child('model_family')
+                if model_family_param:
+                    current_values = list(model_family_param.opts.get('limits', []))
+                    if 'custom_model' not in current_values:
+                        current_values.append('custom_model')
+                        model_family_param.setLimits(current_values)
+                    model_family_param.setValue('custom_model')
+                
+                # Update parent-level model_name parameter 
+                # Note: Don't directly set limits here - let the cascade system handle it
+                # The cascade system will call _get_available_models_for_family('custom_model')
+                model_name_param = parent_parameter.child('model_name')
+                if model_name_param:
+                    # Just set the selected model name, let cascade handle the options
+                    model_name_param.setValue(model_info['name'])
+                    # Update internal model_name
+                    self.model_name = model_info['name']
+                
+                # Update internal ModelGroup parameters to reflect the custom model
+                self._update_model_parameters()
+                
+                # Add custom model info to ModelGroup
+                self._add_custom_model_parameters(model_info)
+                
+                # Show success message
+                success_msg = f"Successfully loaded custom model!\n\n"
+                success_msg += f"Name: {model_info['name']}\n"
+                success_msg += f"Type: {model_info['type']}\n"
+                success_msg += f"File: {os.path.basename(file_path)}\n"
+                
+                if model_info['type'] == 'function':
+                    success_msg += f"Signature: {model_info.get('signature', 'N/A')}\n"
+                    success_msg += f"Parameters: {', '.join(model_info.get('parameters', []))}\n"
+                elif model_info['type'] == 'class':
+                    success_msg += f"Base classes: {', '.join(model_info.get('bases', []))}\n"
+                    success_msg += f"Keras Model: {'Yes' if model_info.get('is_keras_model', False) else 'No'}\n"
+                
+                analysis = model_info.get('analysis', {})
+                success_msg += f"\nFile Analysis:\n"
+                success_msg += f"- Functions found: {analysis.get('functions_found', 0)}\n"
+                success_msg += f"- Classes found: {analysis.get('classes_found', 0)}\n"
+                success_msg += f"- Model candidates: {analysis.get('model_functions', 0)} functions + {analysis.get('model_classes', 0)} classes\n"
+                
+                QMessageBox.information(
+                    None,
+                    "Custom Model Loaded",
+                    success_msg
+                )
+                
+                print(f"✅ Custom model loaded: model_family='custom_model', model_name='{model_info['name']}'")
+                print(f"   Available custom models: {[model['name'] for model in self.custom_model_candidates]}")
+                return True
+            else:
+                QMessageBox.warning(
+                    None,
+                    "Invalid Custom Model",
+                    f"Could not load custom model from {os.path.basename(file_path)}.\n"
+                    f"Error: {model_info}"
+                )
+                return False
+                
+        except Exception as e:
+            if PYQT5_AVAILABLE:
+                QMessageBox.critical(
+                    None,
+                    "Error Loading Custom Model",
+                    f"An error occurred while loading the custom model:\n{str(e)}"
+                )
+            else:
+                print(f"Error loading custom model: {e}")
+            return False
+
+    def load_custom_model_from_path(self, file_path):
+        """Load a custom model from a specified file path (for testing/programmatic use)."""
+        try:
+            if not os.path.exists(file_path):
+                return False, f"File not found: {file_path}"
+                
+            # Validate and load the custom model
+            success, model_info = self._validate_custom_model(file_path)
+            
+            if success:
+                self.custom_model_path = file_path
+                self.custom_model_function = model_info
+                
+                # IMPORTANT: Populate custom_model_candidates for UI integration
+                # This is required for get_model_families_and_models() to work correctly
+                analysis = model_info.get('analysis', {})
+                self.custom_model_candidates = []
+                
+                # Collect all model candidates from analysis
+                for func in analysis.get('model_functions_details', []):
+                    self.custom_model_candidates.append({
+                        'name': func['name'],
+                        'type': 'function',
+                        'confidence': func.get('confidence', 'medium'),
+                        'file_path': file_path
+                    })
+                
+                for cls in analysis.get('model_classes_details', []):
+                    self.custom_model_candidates.append({
+                        'name': cls['name'],
+                        'type': 'class',
+                        'confidence': cls.get('confidence', 'medium'),
+                        'file_path': file_path
+                    })
+                
+                print(f"✅ Custom model candidates populated: {[model['name'] for model in self.custom_model_candidates]}")
+                
+                # Add custom model parameters
+                self._add_custom_model_parameters(model_info)
+                
+                print(f"✅ Successfully loaded custom model: {model_info['name']} ({model_info['type']})")
+                return True, model_info
+            else:
+                print(f"❌ Failed to validate custom model: {model_info}")
+                return False, model_info
+                
+        except Exception as e:
+            error_msg = f"Error loading custom model: {e}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
+    
+    def _load_custom_model(self):
+        """Load a custom model from a Python file."""
+        try:
+            if not PYQT5_AVAILABLE:
+                print("GUI not available - custom model loading requires PyQt5")
+                return
+                
+            file_path, _ = QFileDialog.getOpenFileName(
+                None,
+                "Select Custom Model File",
+                "",
+                "Python Files (*.py);;All Files (*)"
+            )
+            
+            if not file_path:
+                return
+                
+            # Validate and load the custom model
+            success, model_info = self._validate_custom_model(file_path)
+            
+            if success:
+                self.custom_model_path = file_path
+                self.custom_model_function = model_info
+                
+                # Add custom model parameters
+                self._add_custom_model_parameters(model_info)
+                
+                # Create detailed success message
+                success_msg = f"Successfully loaded custom model!\n\n"
+                success_msg += f"Name: {model_info['name']}\n"
+                success_msg += f"Type: {model_info['type']}\n"
+                success_msg += f"File: {os.path.basename(file_path)}\n"
+                
+                if model_info['type'] == 'function':
+                    success_msg += f"Signature: {model_info.get('signature', 'N/A')}\n"
+                    success_msg += f"Parameters: {', '.join(model_info.get('parameters', []))}\n"
+                elif model_info['type'] == 'class':
+                    success_msg += f"Base classes: {', '.join(model_info.get('bases', []))}\n"
+                    success_msg += f"Keras Model: {'Yes' if model_info.get('is_keras_model', False) else 'No'}\n"
+                
+                # Show analysis summary
+                analysis = model_info.get('analysis', {})
+                success_msg += f"\nFile Analysis:\n"
+                success_msg += f"- Functions found: {analysis.get('functions_found', 0)}\n"
+                success_msg += f"- Classes found: {analysis.get('classes_found', 0)}\n"
+                success_msg += f"- Model candidates: {analysis.get('model_functions', 0)} functions + {analysis.get('model_classes', 0)} classes\n"
+                
+                QMessageBox.information(
+                    None,
+                    "Custom Model Loaded",
+                    success_msg
+                )
+            else:
+                QMessageBox.warning(
+                    None,
+                    "Invalid Custom Model",
+                    f"Could not load custom model from {os.path.basename(file_path)}.\n"
+                    f"Error: {model_info}"
+                )
+                
+        except Exception as e:
+            if PYQT5_AVAILABLE:
+                QMessageBox.critical(
+                    None,
+                    "Error Loading Custom Model",
+                    f"An error occurred while loading the custom model:\n{str(e)}"
+                )
+            else:
+                print(f"Error loading custom model: {e}")
+    
+    def _validate_custom_model(self, file_path):
+        """Validate that the file contains a valid custom model definition."""
+        try:
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_model", file_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # Look for functions that return keras models
+            model_functions = []
+            model_classes = []
+            all_functions = []
+            all_classes = []
+            
+            for name, obj in inspect.getmembers(module):
+                if inspect.isfunction(obj) and not name.startswith('_'):
+                    sig = inspect.signature(obj)
+                    params = list(sig.parameters.keys())
+                    all_functions.append({
+                        'name': name,
+                        'object': obj,
+                        'parameters': params,
+                        'signature': str(sig)
+                    })
+                    
+                    # Enhanced heuristics for model functions
+                    model_indicators = [
+                        'input_shape', 'num_classes', 'inputs', 'classes',
+                        'model', 'architecture', 'backbone', 'encoder', 'decoder'
+                    ]
+                    
+                    # Check if function likely returns a model
+                    name_suggests_model = (
+                        'model' in name.lower() or
+                        'create' in name.lower() or
+                        'build' in name.lower()
+                    )
+                    
+                    has_model_params = any(param in params for param in model_indicators)
+                    
+                    # Exclude functions that clearly aren't models
+                    not_a_model = (
+                        name.startswith('helper') or
+                        name.startswith('not_a') or
+                        name.startswith('test_') or
+                        'helper' in name.lower() or
+                        len(params) == 0  # Functions with no parameters are less likely to be models
+                    )
+                    
+                    if (has_model_params or name_suggests_model) and not not_a_model:
+                        confidence = 'high' if has_model_params else 'medium'
+                        model_functions.append({
+                            'name': name,
+                            'object': obj,
+                            'parameters': params,
+                            'signature': str(sig),
+                            'confidence': confidence
+                        })
+                
+                elif inspect.isclass(obj) and not name.startswith('_'):
+                    all_classes.append({
+                        'name': name,
+                        'object': obj,
+                        'bases': [base.__name__ for base in obj.__bases__]
+                    })
+                    
+                    # Check if class inherits from keras Model or has model-like methods
+                    try:
+                        is_keras_model = False
+                        if hasattr(keras, 'models') and hasattr(keras.models, 'Model'):
+                            is_keras_model = issubclass(obj, keras.models.Model)
+                        
+                        has_call_method = hasattr(obj, '__call__') or hasattr(obj, 'call')
+                        has_init_with_model_params = False
+                        
+                        if hasattr(obj, '__init__'):
+                            init_sig = inspect.signature(obj.__init__)
+                            init_params = list(init_sig.parameters.keys())
+                            has_init_with_model_params = any(param in init_params for param in 
+                                                           ['input_shape', 'num_classes', 'inputs'])
+                        
+                        if is_keras_model or (has_call_method and has_init_with_model_params):
+                            model_classes.append({
+                                'name': name,
+                                'object': obj,
+                                'bases': [base.__name__ for base in obj.__bases__],
+                                'is_keras_model': is_keras_model,
+                                'confidence': 'high' if is_keras_model else 'medium'
+                            })
+                    except Exception:
+                        pass
+            
+            # Prepare detailed analysis
+            analysis = {
+                'functions_found': len(all_functions),
+                'classes_found': len(all_classes),
+                'model_functions': len(model_functions),
+                'model_classes': len(model_classes),
+                'all_functions': all_functions,
+                'all_classes': all_classes,
+                'model_functions_details': model_functions,
+                'model_classes_details': model_classes
+            }
+            
+            # Return the best candidate
+            if model_functions:
+                # Sort by confidence and take the best
+                best_function = sorted(model_functions, key=lambda x: x['confidence'], reverse=True)[0]
+                return True, {
+                    'name': best_function['name'],
+                    'type': 'function',
+                    'object': best_function['object'],
+                    'signature': best_function['signature'],
+                    'parameters': best_function['parameters'],
+                    'file_path': file_path,
+                    'analysis': analysis
+                }
+            elif model_classes:
+                # Sort by confidence and take the best
+                best_class = sorted(model_classes, key=lambda x: x['confidence'], reverse=True)[0]
+                return True, {
+                    'name': best_class['name'],
+                    'type': 'class',
+                    'object': best_class['object'],
+                    'bases': best_class['bases'],
+                    'is_keras_model': best_class['is_keras_model'],
+                    'file_path': file_path,
+                    'analysis': analysis
+                }
+            else:
+                # Provide detailed feedback about what was found
+                error_msg = f"No valid model function or class found.\n\n"
+                error_msg += f"Analysis:\n"
+                error_msg += f"- Functions found: {len(all_functions)}\n"
+                error_msg += f"- Classes found: {len(all_classes)}\n"
+                
+                if all_functions:
+                    error_msg += f"\nFunctions detected:\n"
+                    for func in all_functions[:5]:  # Show first 5
+                        error_msg += f"  • {func['name']}{func['signature']}\n"
+                
+                if all_classes:
+                    error_msg += f"\nClasses detected:\n"
+                    for cls in all_classes[:5]:  # Show first 5
+                        error_msg += f"  • {cls['name']} (bases: {cls['bases']})\n"
+                
+                error_msg += f"\nExpected: Function with parameters like 'input_shape', 'num_classes' or class inheriting from keras.Model"
+                return False, error_msg
+                
+        except Exception as e:
+            return False, f"Error loading file: {str(e)}"
+    
+    def _add_custom_model_parameters(self, model_info):
+        """Add parameters specific to the custom model."""
+        try:
+            # Remove any existing custom model file path parameter
+            try:
+                existing_file_path = self.child('custom_model_file_path')
+                if existing_file_path:
+                    self.removeChild(existing_file_path)
+            except (KeyError, AttributeError):
+                # No existing custom model file path, which is fine
+                pass
+            
+            # Add just the file path parameter right after kwargs
+            # Find kwargs parameter to insert after it
+            kwargs_index = None
+            for i, child in enumerate(self.children()):
+                if child.name() == 'kwargs':
+                    kwargs_index = i + 1
+                    break
+            
+            file_path_param = {
+                'name': 'custom_model_file_path',
+                'type': 'str',
+                'value': model_info['file_path'],
+                'readonly': True,
+                'tip': f'Custom model: {model_info["name"]} ({model_info["type"]}) from {os.path.basename(model_info["file_path"])}'
+            }
+            
+            if PYQTGRAPH_AVAILABLE:
+                if kwargs_index is not None:
+                    # Insert after kwargs
+                    self.insertChild(kwargs_index, Parameter.create(**file_path_param))
+                else:
+                    # If no kwargs found, just append
+                    self.addChild(Parameter.create(**file_path_param))
+            
+        except Exception as e:
+            print(f"Error adding custom model parameters: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def update_model_selection(self, model_name, task_type):
+        """Update the model parameters when model selection changes."""
+        try:
+            # Check if anything actually changed
+            if self.model_name != model_name or self.task_type != task_type:
+                old_model = self.model_name
+                old_task = self.task_type
+                
+                self.model_name = model_name
+                self.task_type = task_type
+                
+                print(f"ModelGroup: Updating from {old_model} ({old_task}) to {model_name} ({task_type})")
+                self._update_model_parameters()
+                print(f"ModelGroup: Updated successfully, now has {len(self.children())} parameters")
+            else:
+                print(f"ModelGroup: No change needed - already {model_name} ({task_type})")
+        except Exception as e:
+            print(f"Error in update_model_selection: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def get_model_config(self):
+        """Get the current model configuration."""
+        config = {}
+        
+        for child in self.children():
+            if child.name() not in ['load_custom_model']:
+                if hasattr(child, 'value'):
+                    if child.hasChildren():
+                        # Handle group parameters
+                        group_config = {}
+                        for grandchild in child.children():
+                            if hasattr(grandchild, 'value'):
+                                group_config[grandchild.name()] = grandchild.value()
+                        config[child.name()] = group_config
+                    else:
+                        value = child.value()
+                        # Special handling for kwargs parameter
+                        if child.name() == 'kwargs':
+                            try:
+                                import json
+                                # Parse JSON string to dict
+                                kwargs_dict = json.loads(value) if value and value.strip() else {}
+                                config[child.name()] = kwargs_dict
+                            except json.JSONDecodeError:
+                                print(f"Warning: Invalid JSON in kwargs parameter: {value}")
+                                config[child.name()] = {}
+                        else:
+                            config[child.name()] = value
+        
+        # Add custom model metadata if available (after regular config to maintain consistency with other groups)
+        if (hasattr(self, 'custom_model_path') and self.custom_model_path and 
+            hasattr(self, 'custom_model_function') and self.custom_model_function):
+            # Add custom model information for configuration collection
+            config['custom_info'] = {
+                'name': self.custom_model_function.get('name'),
+                'file_path': self.custom_model_function.get('file_path'),
+                'function_name': self.custom_model_function.get('name'),  # For consistency with other groups
+                'type': self.custom_model_function.get('type', 'function')
+            }
+        
+        return config
+    
+    def set_model_config(self, config):
+        """Set the model configuration."""
+        try:
+            # Handle custom model loading from configuration first
+            custom_info = config.get('custom_info')
+            if custom_info:
+                file_path = custom_info.get('file_path')
+                if file_path and os.path.exists(file_path):
+                    print(f"Restoring custom model from config: {file_path}")
+                    success, model_info = self.load_custom_model_from_path(file_path)
+                    if success:
+                        print(f"✅ Custom model restored from configuration: {model_info['name']}")
+                    else:
+                        print(f"❌ Failed to restore custom model: {model_info}")
+                else:
+                    print(f"❌ Custom model file not found: {file_path}")
+            
+            # Set regular parameters
+            for key, value in config.items():
+                # Skip custom info and internal metadata keys
+                if key in ['custom_info'] or key.startswith('_custom_model'):
+                    continue
+                    
+                param = self.child(key)
+                if param:
+                    if isinstance(value, dict) and param.hasChildren():
+                        # Handle group parameters
+                        for subkey, subvalue in value.items():
+                            subparam = param.child(subkey)
+                            if subparam:
+                                subparam.setValue(subvalue)
+                    else:
+                        # Special handling for kwargs parameter
+                        if key == 'kwargs' and isinstance(value, dict):
+                            import json
+                            # Convert dict back to JSON string
+                            json_string = json.dumps(value, indent=2)
+                            param.setValue(json_string)
+                        else:
+                            param.setValue(value)
+        except Exception as e:
+            print(f"Error setting model config: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def load_custom_model_from_metadata(self, model_info):
+        """Load custom model from metadata info (for consistency with other groups)."""
+        try:
+            file_path = model_info.get('file_path', '')
+            function_name = model_info.get('function_name', '') or model_info.get('name', '')
+            model_type = model_info.get('type', 'function')
+            
+            if not function_name:
+                print(f"Warning: Empty function name in custom model metadata for {file_path}")
+                return False
+            
+            if not os.path.exists(file_path):
+                print(f"Warning: Custom model file not found: {file_path}")
+                return False
+            
+            # Use existing load_custom_model_from_path method
+            success, loaded_model_info = self.load_custom_model_from_path(file_path)
+            
+            if success:
+                # Validate that we loaded the expected model
+                if loaded_model_info.get('name') == function_name:
+                    print(f"Successfully loaded custom model: {function_name}")
+                    return True
+                else:
+                    print(f"Warning: Loaded model '{loaded_model_info.get('name')}' but expected '{function_name}'")
+                    return True  # Still successful, just different model selected
+            else:
+                print(f"Failed to load custom model from metadata: {loaded_model_info}")
+                return False
+                
+        except Exception as e:
+            print(f"Error loading custom model from metadata: {e}")
+            import traceback
+            traceback.print_exc()
+            return False

@@ -9,7 +9,20 @@ import os
 import importlib.util
 import ast
 from typing import Dict, Any, List, Optional
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+# CLI-only message functions
+def cli_info(title, message):
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    print(f"[ERROR] {title}: {message}")
+
+def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
+    print(f"[CLI] File dialog requested: {title} - {file_filter}")
+    print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
+    return "", ""
 import pyqtgraph.parametertree.parameterTypes as pTypes
 
 
@@ -222,7 +235,7 @@ class OptimizerGroup(pTypes.GroupParameter):
     
     def _load_custom_optimizer(self):
         """Load custom optimizer from Python file."""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = cli_get_file_path(
             None,
             "Select Custom Optimizer Python File",
             "",
@@ -245,7 +258,7 @@ class OptimizerGroup(pTypes.GroupParameter):
                     functions.append(node.name)
             
             if not functions:
-                QMessageBox.warning(None, "No Functions Found", 
+                cli_warning(None, "No Functions Found", 
                                   "No functions found in the selected Python file.")
                 return
             
@@ -280,11 +293,11 @@ class OptimizerGroup(pTypes.GroupParameter):
             self._refresh_optimizer_options()
             
             # Show success message
-            QMessageBox.information(None, "Custom Optimizers Loaded", 
+            cli_info(None, "Custom Optimizers Loaded", 
                                   f"Successfully loaded {len(functions)} custom optimizer(s) from:\n{os.path.basename(file_path)}")
             
         except Exception as e:
-            QMessageBox.critical(None, "Error Loading Custom Optimizer", 
+            cli_error(None, "Error Loading Custom Optimizer", 
                                f"Failed to load custom optimizer:\n{str(e)}")
     
     def _extract_custom_optimizer_parameters(self, optimizer_name, func):

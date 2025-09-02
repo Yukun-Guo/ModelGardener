@@ -1,3 +1,41 @@
+Metadata-Version: 2.4
+Name: modelgardener
+Version: 2.0.0
+Summary: A command-line interface for deep learning model training with TensorFlow/Keras
+Home-page: https://github.com/Yukun-Guo/ModelGardener
+Author: ModelGardener Team
+Author-email: ModelGardener Team <contact@modelgardener.com>
+License: MIT
+Project-URL: Homepage, https://github.com/Yukun-Guo/ModelGardener
+Project-URL: Bug Tracker, https://github.com/Yukun-Guo/ModelGardener/issues
+Keywords: deep-learning,machine-learning,tensorflow,keras,cli,training
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: Flask>=2.2.0
+Requires-Dist: Pillow>=8.3.0
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: matplotlib>=3.5.0
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: scikit-learn>=1.0.0
+Requires-Dist: seaborn>=0.11.0
+Requires-Dist: tensorflow>=2.10.0
+Requires-Dist: inquirer>=3.1.3
+Dynamic: author
+Dynamic: home-page
+Dynamic: requires-python
+
 # ModelGardener - CLI-Only Deep Learning Training Tool
 
 **A command-line interface for deep learning model training with TensorFlow/Keras**
@@ -46,28 +84,25 @@ pip install .     # Regular installation
 
 ModelGardener can be run in several ways:
 
-### 1. Short Command (Recommended - after pip install)
-
-```bash
-mgd --help
-mgd create my_project
-mgd models
-```
-
-### 2. As a Python Module
-
+### 1. As a Python Module (Recommended)
 ```bash
 python -m modelgardener --help
 python -m modelgardener create my_project
 python -m modelgardener models
 ```
 
-### 3. Direct Script Execution
-
+### 2. Direct Script Execution
 ```bash
 python main.py --help
 python main.py create my_project
 python main.py models
+```
+
+### 3. Installed Package Command (after pip install)
+```bash
+modelgardener --help
+modelgardener create my_project
+modelgardener models
 ```
 
 ## Quick Start

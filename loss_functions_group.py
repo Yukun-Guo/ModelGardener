@@ -2,7 +2,20 @@ import ast
 import os
 import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+# CLI-only message functions
+def cli_info(title, message):
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    print(f"[ERROR] {title}: {message}")
+
+def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
+    print(f"[CLI] File dialog requested: {title} - {file_filter}")
+    print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
+    return "", ""
 
 # Custom loss functions group that includes preset loss functions and allows adding custom loss functions from files
 
@@ -239,7 +252,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
         """Load custom loss functions from a selected Python file."""
         
         # Open file dialog to select Python file
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = cli_get_file_path(
             None,
             "Select Python file with custom loss functions",
             "",
@@ -254,7 +267,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
             custom_functions = self._extract_loss_functions(file_path)
             
             if not custom_functions:
-                QMessageBox.warning(
+                cli_warning(
                     None,
                     "No Functions Found",
                     "No valid loss functions found in the selected file.\n\n"
@@ -269,7 +282,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
             # Update all loss selection dropdowns
             self._update_all_loss_selections()
             
-            QMessageBox.information(
+            cli_info(
                 None,
                 "Functions Loaded",
                 f"Successfully loaded {len(custom_functions)} custom loss function(s):\n" +
@@ -278,7 +291,7 @@ class LossFunctionsGroup(pTypes.GroupParameter):
             )
                 
         except Exception as e:
-            QMessageBox.critical(
+            cli_error(
                 None,
                 "Error Loading File",
                 f"Failed to load custom loss functions from file:\n{str(e)}"

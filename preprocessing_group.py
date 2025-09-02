@@ -2,7 +2,21 @@ import ast
 import os
 import importlib.util
 import pyqtgraph.parametertree.parameterTypes as pTypes
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+# CLI-only message functions (no GUI dialogs)
+def cli_info(title, message):
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    print(f"[ERROR] {title}: {message}")
+
+def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
+    print(f"[CLI] File dialog requested: {title} - {file_filter}")
+    print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
+    return "", ""
 
 # Custom preprocessing group that includes preset methods and allows adding custom methods from files
 
@@ -81,7 +95,7 @@ class PreprocessingGroup(pTypes.GroupParameter):
         """Load custom preprocessing functions from a selected Python file."""
         
         # Open file dialog to select Python file
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = cli_get_file_path(
             None,
             "Select Python file with custom preprocessing functions",
             "",
@@ -96,8 +110,7 @@ class PreprocessingGroup(pTypes.GroupParameter):
             custom_functions = self._extract_preprocessing_functions(file_path)
             
             if not custom_functions:
-                QMessageBox.warning(
-                    None,
+                cli_warning(
                     "No Functions Found",
                     "No valid preprocessing functions found in the selected file.\n\n"
                     "Functions should accept 'data' parameter and return processed data."
@@ -111,21 +124,21 @@ class PreprocessingGroup(pTypes.GroupParameter):
                     added_count += 1
             
             if added_count > 0:
-                QMessageBox.information(
+                cli_info(
                     None,
                     "Functions Loaded",
                     f"Successfully loaded {added_count} custom preprocessing function(s):\n" +
                     "\n".join(custom_functions.keys())
                 )
             else:
-                QMessageBox.warning(
+                cli_warning(
                     None,
                     "No New Functions",
                     "All functions from the file are already loaded or invalid."
                 )
                 
         except Exception as e:
-            QMessageBox.critical(
+            cli_error(
                 None,
                 "Error Loading File",
                 f"Failed to load custom preprocessing from file:\n{str(e)}"

@@ -15,9 +15,7 @@ ModelGardener is a CLI-only tool that provides a streamlined interface for confi
 🔄 **Project Generation**: Automated generation of complete training projects with sample data
 ⚡ **TensorFlow Integration**: Built on TensorFlow 2.x with Keras high-level API
 
-## Installation & Usage
-
-### Development Mode
+## Installation
 
 1. Clone the repository:
 ```bash
@@ -28,46 +26,6 @@ cd ModelGardener
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
-
-### Package Installation
-
-Install as a system-wide package:
-```bash
-# From source
-git clone <repository-url>
-cd ModelGardener
-pip install -e .  # Development mode
-# or
-pip install .     # Regular installation
-```
-
-## Usage Methods
-
-ModelGardener can be run in several ways:
-
-### 1. Short Command (Recommended - after pip install)
-
-```bash
-mgd --help
-mgd create my_project
-mgd models
-```
-
-### 2. As a Python Module
-
-```bash
-python -m modelgardener --help
-python -m modelgardener create my_project
-python -m modelgardener models
-```
-
-### 3. Direct Script Execution
-
-```bash
-python main.py --help
-python main.py create my_project
-python main.py models
 ```
 
 ## Quick Start

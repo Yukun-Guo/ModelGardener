@@ -9,7 +9,20 @@ import os
 import importlib.util
 import ast
 from typing import Dict, Any, List, Optional
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+# CLI-only message functions
+def cli_info(title, message):
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    print(f"[ERROR] {title}: {message}")
+
+def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
+    print(f"[CLI] File dialog requested: {title} - {file_filter}")
+    print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
+    return "", ""
 import pyqtgraph.parametertree.parameterTypes as pTypes
 
 
@@ -188,7 +201,7 @@ class DataLoaderGroup(pTypes.GroupParameter):
     
     def _load_custom_data_loader(self):
         """Load custom data loader from Python file."""
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_path, _ = cli_get_file_path(
             None,
             "Select Custom Data Loader Python File",
             "",
@@ -218,7 +231,7 @@ class DataLoaderGroup(pTypes.GroupParameter):
                         data_loaders.append(('class', node.name))
             
             if not data_loaders:
-                QMessageBox.warning(None, "No Data Loaders Found", 
+                cli_warning(None, "No Data Loaders Found", 
                                   "No valid data loader functions or classes found in the selected Python file.\n\n"
                                   "Data loaders should be functions that return tf.data.Dataset or classes with appropriate methods.")
                 return
@@ -251,11 +264,11 @@ class DataLoaderGroup(pTypes.GroupParameter):
             self._refresh_data_loader_options()
             
             # Show success message
-            QMessageBox.information(None, "Custom Data Loaders Loaded", 
+            cli_info(None, "Custom Data Loaders Loaded", 
                                   f"Successfully loaded {len(data_loaders)} custom data loader(s) from:\n{os.path.basename(file_path)}")
             
         except Exception as e:
-            QMessageBox.critical(None, "Error Loading Custom Data Loader", 
+            cli_error(None, "Error Loading Custom Data Loader", 
                                f"Failed to load custom data loader:\n{str(e)}")
     
     def _is_valid_data_loader_function(self, node):

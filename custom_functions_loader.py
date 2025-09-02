@@ -6,7 +6,16 @@ import os
 import ast
 import importlib.util
 from typing import Dict, Any, List, Optional
-from PySide6.QtWidgets import QMessageBox
+
+# CLI-only message functions (no GUI dialogs)
+def cli_info(title, message):
+    print(f"[INFO] {title}: {message}")
+
+def cli_warning(title, message):
+    print(f"[WARNING] {title}: {message}")
+
+def cli_error(title, message):
+    print(f"[ERROR] {title}: {message}")
 
 
 class CustomFunctionsLoader:
