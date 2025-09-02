@@ -67,8 +67,7 @@ class MainWindow(QMainWindow):
         # initialize GUI config (comprehensive TensorFlow Models config)
         comprehensive_config = self.create_comprehensive_config()
         self.gui_cfg = {
-            **comprehensive_config['basic'],
-            **comprehensive_config['advanced']
+            **comprehensive_config['basic']
         }
         
         # Also maintain the comprehensive structure for the parameter tree
@@ -1147,10 +1146,8 @@ class MainWindow(QMainWindow):
             if 'runtime' in self.gui_cfg:
                 self.comprehensive_cfg['basic']['runtime'].update(self.gui_cfg['runtime'])
                 
-            # Update advanced configuration sections as needed
-            for section in ['model_advanced', 'data_advanced', 'augmentation', 'callbacks', 'training_advanced', 'evaluation', 'runtime_advanced']:
-                if section in self.gui_cfg:
-                    self.comprehensive_cfg['advanced'][section].update(self.gui_cfg[section])
+            # No advanced configuration sections - all moved to basic
+            pass
                     
         except Exception as e:
             self.append_log(f"Error syncing to comprehensive config: {e}")
@@ -1161,18 +1158,14 @@ class MainWindow(QMainWindow):
             # Extract data from parameter tree
             tree_data = self.params_to_dict(self.params)
             
-            # Update comprehensive config
+            # Update comprehensive config - only basic now
             if 'basic' in tree_data:
                 self.comprehensive_cfg['basic'] = tree_data['basic']
-            if 'advanced' in tree_data:
-                self.comprehensive_cfg['advanced'] = tree_data['advanced']
             
             # Flatten to gui_cfg for backward compatibility
             self.gui_cfg = {}
             if 'basic' in tree_data:
                 self.gui_cfg.update(tree_data['basic'])
-            if 'advanced' in tree_data:
-                self.gui_cfg.update(tree_data['advanced'])
                 
             self.append_log("Config updated from parameter tree")
         except Exception as e:
@@ -1291,7 +1284,6 @@ class MainWindow(QMainWindow):
         """Apply configuration to custom parameter groups after custom functions are loaded."""
         try:
             basic_group = self.params.child('basic')
-            advanced_group = self.params.child('advanced')
             
             if basic_group:
                 data_group = basic_group.child('data')
@@ -1417,16 +1409,19 @@ class MainWindow(QMainWindow):
                         if original_training_loop_config:
                             training_loop_group.set_training_loop_config(original_training_loop_config)
             
-            # Apply configuration to advanced groups
-            if advanced_group:
-                # Apply configuration to callbacks group
-                callbacks_group = advanced_group.child('callbacks')
-                if callbacks_group and hasattr(callbacks_group, 'set_callbacks_config'):
-                    original_advanced_config = self.original_gui_cfg.get('advanced', {})
-                    original_callbacks_config = original_advanced_config.get('callbacks', {})
-                    
-                    if original_callbacks_config:
-                        callbacks_group.set_callbacks_config(original_callbacks_config)
+            # Apply configuration to basic groups (callbacks moved to model)
+            if basic_group:
+                model_group = basic_group.child('model')
+                if model_group:
+                    # Apply configuration to callbacks group (moved to model)
+                    callbacks_group = model_group.child('callbacks')
+                    if callbacks_group and hasattr(callbacks_group, 'set_callbacks_config'):
+                        original_basic_config = self.original_gui_cfg.get('basic', {})
+                        original_model_config = original_basic_config.get('model', {})
+                        original_callbacks_config = original_model_config.get('callbacks', {})
+                        
+                        if original_callbacks_config:
+                            callbacks_group.set_callbacks_config(original_callbacks_config)
                             
         except Exception as e:
             import traceback
@@ -2702,6 +2697,10 @@ class MainWindow(QMainWindow):
                 'preprocessing': {
                     'type': 'preprocessing_group', 
                     'name': 'preprocessing'
+                },
+                'augmentation': {
+                    'type': 'augmentation_group',
+                    'name': 'augmentation'
                 }
             },
             'model': {
@@ -2724,6 +2723,10 @@ class MainWindow(QMainWindow):
                 'metrics': {
                     'type': 'metrics_group',
                     'name': 'metrics'
+                },
+                'callbacks': {
+                    'type': 'callbacks_group',
+                    'name': 'callbacks'
                 }
             },
             'training': {
@@ -2733,6 +2736,18 @@ class MainWindow(QMainWindow):
                 'momentum': 0.9,
                 'weight_decay': 1e-4,
                 'label_smoothing': 0.0,
+                'cross_validation': {
+                    'enabled': False,
+                    'k_folds': 5,
+                    'validation_split': 0.2,
+                    'stratified': True,
+                    'shuffle': True,
+                    'random_seed': 42,
+                    'save_fold_models': False,
+                    'fold_models_dir': './logs/fold_models',
+                    'aggregate_metrics': True,
+                    'fold_selection_metric': 'val_accuracy'
+                },
                 'training_loop': {
                     'type': 'training_loop_group',
                     'name': 'training_loop'
@@ -2746,97 +2761,8 @@ class MainWindow(QMainWindow):
             }
         }
         
-        # Advanced Configuration - Expert-level parameters
-        advanced_config = {
-            'cross_validation': {
-                'enabled': False,
-                'k_folds': 5,
-                'validation_split': 0.2,
-                'stratified': True,
-                'shuffle': True,
-                'random_seed': 42,
-                'save_fold_models': False,
-                'fold_models_dir': './logs/fold_models',
-                'aggregate_metrics': True,
-                'fold_selection_metric': 'val_accuracy'
-            },
-            'augmentation': {
-                'type': 'augmentation_group',
-                'name': 'augmentation'
-            },
-            'callbacks': {
-                'type': 'callbacks_group',
-                'name': 'callbacks'
-            },
-            'model_advanced': {
-                'depth_multiplier': 1.0,
-                'stem_type': 'v0',
-                'se_ratio': 0.0,
-                'stochastic_depth_drop_rate': 0.0,
-                'scale_stem': True,
-                'resnetd_shortcut': False,
-                'replace_stem_max_pool': False,
-                'bn_trainable': True,
-                'use_sync_bn': False,
-                'norm_momentum': 0.99,
-                'norm_epsilon': 0.001,
-                'add_head_batch_norm': False,
-                'kernel_initializer': 'random_uniform',
-                'output_softmax': False
-            },
-            'data_advanced': {
-                'tfds_name': '',
-                'tfds_split': '',
-                'cache': False,
-                'shuffle_buffer_size': 10000,
-                'cycle_length': 10,
-                'block_length': 1,
-                'drop_remainder': True,
-                'sharding': True,
-                'prefetch_buffer_size': None,
-                'dtype': 'float32',
-                'file_type': 'tfrecord',
-                'image_field_key': 'image/encoded',
-                'label_field_key': 'image/class/label',
-                'decode_jpeg_only': True
-            },
-            'training_advanced': {
-                'train_tf_while_loop': True,
-                'train_tf_function': True,
-                'eval_tf_function': True,
-                'steps_per_loop': 1000,
-                'summary_interval': 1000,
-                'checkpoint_interval': 1000,
-                'max_to_keep': 5,
-                'validation_interval': 1000,
-                'validation_steps': -1,
-                'loss_upper_bound': 1000000.0,
-                'one_hot_labels': True,
-                'use_binary_cross_entropy': False,
-                'soft_labels': False
-            },
-            'evaluation': {
-                'top_k': 5,
-                'report_per_class_metrics': False,
-                'best_checkpoint_metric': '',
-                'best_checkpoint_export_subdir': '',
-                'best_checkpoint_metric_comp': 'higher'
-            },
-            'runtime_advanced': {
-                'enable_xla': False,
-                'run_eagerly': False,
-                'per_gpu_thread_count': 0,
-                'num_packs': 1,
-                'loss_scale': None,
-                'batchnorm_spatial_persistent': False,
-                'tpu_settings': None,
-                'all_reduce_alg': None
-            }
-        }
-        
         return {
-            'basic': basic_config,
-            'advanced': advanced_config
+            'basic': basic_config
         }
 
     def get_model_families_and_models(self):

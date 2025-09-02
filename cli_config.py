@@ -93,6 +93,36 @@ class ModelConfigCLI:
                             "axis": -1,
                             "epsilon": 1e-07
                         }
+                    },
+                    "augmentation": {
+                        "Horizontal Flip": {
+                            "enabled": False,
+                            "probability": 0.5
+                        },
+                        "Vertical Flip": {
+                            "enabled": False,
+                            "probability": 0.5
+                        },
+                        "Rotation": {
+                            "enabled": False,
+                            "angle_range": 15.0,
+                            "probability": 0.5
+                        },
+                        "Gaussian Noise": {
+                            "enabled": False,
+                            "std_dev": 0.1,
+                            "probability": 0.5
+                        },
+                        "Brightness": {
+                            "enabled": False,
+                            "delta_range": 0.2,
+                            "probability": 0.5
+                        },
+                        "Contrast": {
+                            "enabled": False,
+                            "factor_range": [0.8, 1.2],
+                            "probability": 0.5
+                        }
                     }
                 },
                 "model": {
@@ -140,6 +170,32 @@ class ModelConfigCLI:
                         "Metrics Selection": {
                             "selected_metrics": "Accuracy"
                         }
+                    },
+                    "callbacks": {
+                        "Early Stopping": {
+                            "enabled": False,
+                            "monitor": "val_loss",
+                            "patience": 10,
+                            "min_delta": 0.001,
+                            "mode": "min",
+                            "restore_best_weights": True
+                        },
+                        "Learning Rate Scheduler": {
+                            "enabled": False,
+                            "scheduler_type": "ReduceLROnPlateau",
+                            "monitor": "val_loss",
+                            "factor": 0.5,
+                            "patience": 5,
+                            "min_lr": 1e-7
+                        },
+                        "Model Checkpoint": {
+                            "enabled": True,
+                            "monitor": "val_loss",
+                            "save_best_only": True,
+                            "save_weights_only": False,
+                            "mode": "min",
+                            "save_freq": "epoch"
+                        }
                     }
                 },
                 "training": {
@@ -149,6 +205,18 @@ class ModelConfigCLI:
                     "momentum": 0.9,
                     "weight_decay": 1e-4,
                     "label_smoothing": 0.0,
+                    "cross_validation": {
+                        "enabled": False,
+                        "k_folds": 5,
+                        "validation_split": 0.2,
+                        "stratified": True,
+                        "shuffle": True,
+                        "random_seed": 42,
+                        "save_fold_models": False,
+                        "fold_models_dir": "./logs/fold_models",
+                        "aggregate_metrics": True,
+                        "fold_selection_metric": "val_accuracy"
+                    },
                     "training_loop": {
                         "selected_strategy": "Default Training Loop"
                     }

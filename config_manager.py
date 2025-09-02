@@ -418,12 +418,13 @@ class ConfigManager:
         }
         
         try:
-            # Get basic configuration groups
+            # Get basic configuration groups only (no advanced section)
             basic_group = parameter_tree.child('basic')
             if basic_group:
-                # Data loaders
+                # Data related custom functions
                 data_group = basic_group.child('data')
                 if data_group:
+                    # Data loaders
                     data_loader_group = data_group.child('data_loader')
                     if data_loader_group and hasattr(data_loader_group, '_custom_data_loaders'):
                         for name, info in data_loader_group._custom_data_loaders.items():
@@ -433,11 +434,39 @@ class ConfigManager:
                                 'original_name': info['original_name'],
                                 'type': info['type']
                             })
+                    
+                    # Preprocessing functions
+                    preprocessing_group = data_group.child('preprocessing')
+                    if preprocessing_group:
+                        for child in preprocessing_group.children():
+                            if child.name().endswith('(custom)'):
+                                file_path_param = child.child('file_path')
+                                function_name_param = child.child('function_name')
+                                if file_path_param and function_name_param:
+                                    custom_info['preprocessing'].append({
+                                        'name': child.name(),
+                                        'file_path': file_path_param.value(),
+                                        'function_name': function_name_param.value()
+                                    })
+                    
+                    # Augmentations (moved to basic > data)
+                    aug_group = data_group.child('augmentation')
+                    if aug_group:
+                        for child in aug_group.children():
+                            if child.name().endswith('(custom)'):
+                                file_path_param = child.child('file_path')
+                                function_name_param = child.child('function_name')
+                                if file_path_param and function_name_param:
+                                    custom_info['augmentations'].append({
+                                        'name': child.name(),
+                                        'file_path': file_path_param.value(),
+                                        'function_name': function_name_param.value()
+                                    })
                 
                 # Model related custom functions
                 model_group = basic_group.child('model')
                 if model_group:
-                    # The actual ModelGroup instance is under 'model_parameters'
+                    # Custom models
                     model_parameters_group = model_group.child('model_parameters')
                     if (model_parameters_group and 
                         hasattr(model_parameters_group, 'custom_model_path') and 
@@ -483,8 +512,22 @@ class ConfigManager:
                                 'function_name': info['function_name'],
                                 'type': info['type']
                             })
+                    
+                    # Callbacks (moved to basic > model)
+                    callbacks_group = model_group.child('callbacks')
+                    if callbacks_group:
+                        for child in callbacks_group.children():
+                            if child.name().endswith('(custom)'):
+                                file_path_param = child.child('file_path')
+                                function_name_param = child.child('function_name')
+                                if file_path_param and function_name_param:
+                                    custom_info['callbacks'].append({
+                                        'name': child.name(),
+                                        'file_path': file_path_param.value(),
+                                        'function_name': function_name_param.value()
+                                    })
                 
-                # Training loops
+                # Training related custom functions
                 training_group = basic_group.child('training')
                 if training_group:
                     training_loop_group = training_group.child('training_loop')
@@ -497,54 +540,6 @@ class ConfigManager:
                                 'class_name': info['class_name'] if info.get('type') == 'class' else None,
                                 'type': info['type']
                             })
-            
-            # Get advanced configuration groups
-            advanced_group = parameter_tree.child('advanced')
-            if advanced_group:
-                # Augmentations
-                aug_group = advanced_group.child('augmentation')
-                if aug_group:
-                    for child in aug_group.children():
-                        if child.name().endswith('(custom)'):
-                            file_path_param = child.child('file_path')
-                            function_name_param = child.child('function_name')
-                            if file_path_param and function_name_param:
-                                custom_info['augmentations'].append({
-                                    'name': child.name(),
-                                    'file_path': file_path_param.value(),
-                                    'function_name': function_name_param.value()
-                                })
-                
-                # Callbacks
-                callbacks_group = advanced_group.child('callbacks')
-                if callbacks_group:
-                    for child in callbacks_group.children():
-                        if child.name().endswith('(custom)'):
-                            file_path_param = child.child('file_path')
-                            function_name_param = child.child('function_name')
-                            if file_path_param and function_name_param:
-                                custom_info['callbacks'].append({
-                                    'name': child.name(),
-                                    'file_path': file_path_param.value(),
-                                    'function_name': function_name_param.value()
-                                })
-                
-                # Preprocessing (if available in advanced section)
-                # Look for preprocessing in data section
-                data_group = basic_group.child('data') if basic_group else None
-                if data_group:
-                    preprocessing_group = data_group.child('preprocessing')
-                    if preprocessing_group:
-                        for child in preprocessing_group.children():
-                            if child.name().endswith('(custom)'):
-                                file_path_param = child.child('file_path')
-                                function_name_param = child.child('function_name')
-                                if file_path_param and function_name_param:
-                                    custom_info['preprocessing'].append({
-                                        'name': child.name(),
-                                        'file_path': file_path_param.value(),
-                                        'function_name': function_name_param.value()
-                                    })
         
         except Exception as e:
             print(f"Error collecting custom functions info: {e}")
@@ -577,18 +572,29 @@ class ConfigManager:
             # Get parameter tree
             params = self.main_window.params
             
-            # Get basic configuration groups
+            # Get basic configuration groups only (no advanced section)
             basic_group = params.child('basic')
             if basic_group:
-                # Data loaders
+                # Data related custom functions
                 try:
                     data_group = basic_group.child('data')
                     if data_group:
+                        # Data loaders
                         data_loader_group = data_group.child('data_loader')
                         if data_loader_group and hasattr(data_loader_group, '_custom_data_loaders'):
                             custom_functions['data_loaders'] = data_loader_group._custom_data_loaders
+                        
+                        # Preprocessing functions
+                        preprocessing_group = data_group.child('preprocessing')
+                        if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
+                            custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
+                        
+                        # Augmentations (moved to basic > data)
+                        augmentation_group = data_group.child('augmentation')
+                        if augmentation_group and hasattr(augmentation_group, '_custom_augmentations'):
+                            custom_functions['augmentations'] = augmentation_group._custom_augmentations
                 except:
-                    pass  # data_loader group doesn't exist
+                    pass  # data group doesn't exist
                 
                 # Model related custom functions
                 try:
@@ -626,10 +632,18 @@ class ConfigManager:
                                 custom_functions['metrics'] = metrics_group._custom_metric_functions
                         except:
                             pass  # metrics group doesn't exist
+                            
+                        # Callbacks (moved to basic > model)
+                        try:
+                            callbacks_group = model_group.child('callbacks')
+                            if callbacks_group and hasattr(callbacks_group, '_custom_callbacks'):
+                                custom_functions['callbacks'] = callbacks_group._custom_callbacks
+                        except:
+                            pass  # callbacks group doesn't exist
                 except:
                     pass  # model group doesn't exist
                 
-                # Training loops
+                # Training related custom functions
                 try:
                     training_group = basic_group.child('training')
                     if training_group:
@@ -638,45 +652,6 @@ class ConfigManager:
                             custom_functions['training_loops'] = training_loop_group._custom_training_strategies
                 except:
                     pass  # training_loop group doesn't exist
-            
-            # Get advanced configuration groups
-            advanced_group = params.child('advanced')
-            if advanced_group:
-                # Callbacks
-                try:
-                    callbacks_group = advanced_group.child('callbacks')
-                    if callbacks_group and hasattr(callbacks_group, '_custom_callbacks'):
-                        custom_functions['callbacks'] = callbacks_group._custom_callbacks
-                except:
-                    pass  # callbacks group doesn't exist
-                
-                # Augmentations
-                try:
-                    augmentation_group = advanced_group.child('augmentation')
-                    if augmentation_group and hasattr(augmentation_group, '_custom_augmentations'):
-                        custom_functions['augmentations'] = augmentation_group._custom_augmentations
-                except:
-                    pass  # augmentation group doesn't exist
-                
-                # Preprocessing - might be under different structure
-                try:
-                    preprocessing_group = advanced_group.child('preprocessing')
-                    if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
-                        custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
-                except:
-                    pass  # preprocessing group doesn't exist
-            
-            # Also check for preprocessing under basic->data structure
-            try:
-                basic_group = params.child('basic')
-                if basic_group:
-                    data_group = basic_group.child('data')
-                    if data_group:
-                        preprocessing_group = data_group.child('preprocessing')
-                        if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
-                            custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
-            except:
-                pass  # preprocessing not found in data group either
         
         except Exception as e:
             print(f"Error collecting custom functions: {e}")
@@ -823,14 +798,12 @@ class ConfigManager:
                 except Exception as e:
                     errors.append(f"Failed to restore optimizer {optimizer_info.get('name', 'unknown')}: {e}")
             
-            # Get advanced group for callbacks and preprocessing
-            advanced_group = parameter_tree.child('advanced')
-            
-            # Restore callbacks
+            # Restore callbacks (moved to basic > model)
             for callback_info in custom_functions_info.get('callbacks', []):
                 try:
-                    if advanced_group:
-                        callbacks_group = advanced_group.child('callbacks')
+                    model_group = basic_group.child('model')
+                    if model_group:
+                        callbacks_group = model_group.child('callbacks')
                         if callbacks_group and hasattr(callbacks_group, 'load_custom_callback_from_metadata'):
                             success = callbacks_group.load_custom_callback_from_metadata(callback_info)
                             if not success:
@@ -852,9 +825,40 @@ class ConfigManager:
                             else:
                                 errors.append(f"Callback file not found: {file_path}")
                     else:
-                        errors.append(f"Advanced group not found for callback: {callback_info.get('name', 'unknown')}")
+                        errors.append(f"Model group not found for callback: {callback_info.get('name', 'unknown')}")
                 except Exception as e:
                     errors.append(f"Failed to restore callback {callback_info.get('name', 'unknown')}: {e}")
+            
+            # Restore augmentations (moved to basic > data)
+            for augmentation_info in custom_functions_info.get('augmentations', []):
+                try:
+                    data_group = basic_group.child('data')
+                    if data_group:
+                        augmentation_group = data_group.child('augmentation')
+                        if augmentation_group and hasattr(augmentation_group, 'load_custom_augmentation_from_metadata'):
+                            success = augmentation_group.load_custom_augmentation_from_metadata(augmentation_info)
+                            if not success:
+                                errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
+                        else:
+                            # Fallback method
+                            file_path = augmentation_info.get('file_path')
+                            function_name = augmentation_info.get('function_name')
+                            if file_path and os.path.exists(file_path) and augmentation_group:
+                                try:
+                                    success = CustomFunctionsLoader.load_custom_augmentation_from_file(
+                                        augmentation_group, file_path, function_name
+                                    )
+                                    if not success:
+                                        errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
+                                except AttributeError:
+                                    # Method might not exist, skip for now
+                                    pass
+                            else:
+                                errors.append(f"Augmentation file not found: {file_path}")
+                    else:
+                        errors.append(f"Data group not found for augmentation: {augmentation_info.get('name', 'unknown')}")
+                except Exception as e:
+                    errors.append(f"Failed to restore augmentation {augmentation_info.get('name', 'unknown')}: {e}")
             
             # Restore preprocessing functions
             for preprocessing_info in custom_functions_info.get('preprocessing', []):

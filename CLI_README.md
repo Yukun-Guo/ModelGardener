@@ -151,7 +151,7 @@ Options:
 
 ## Configuration File Structure
 
-The CLI generates configuration files with the following structure:
+The CLI generates configuration files with the following simplified structure:
 
 ```json
 {
@@ -176,6 +176,17 @@ The CLI generates configuration files with the following structure:
         "Normalization": {
           "enabled": true,
           "method": "zero-center"
+        }
+      },
+      "augmentation": {
+        "Horizontal Flip": {
+          "enabled": false,
+          "probability": 0.5
+        },
+        "Rotation": {
+          "enabled": false,
+          "angle_range": 15.0,
+          "probability": 0.5
         }
       }
     },
@@ -202,11 +213,29 @@ The CLI generates configuration files with the following structure:
         "Metrics Selection": {
           "selected_metrics": "Accuracy"
         }
+      },
+      "callbacks": {
+        "Early Stopping": {
+          "enabled": false,
+          "monitor": "val_loss",
+          "patience": 10
+        },
+        "Model Checkpoint": {
+          "enabled": true,
+          "monitor": "val_loss",
+          "save_best_only": true
+        }
       }
     },
     "training": {
       "epochs": 100,
-      "initial_learning_rate": 0.1
+      "initial_learning_rate": 0.1,
+      "cross_validation": {
+        "enabled": false,
+        "k_folds": 5,
+        "validation_split": 0.2,
+        "stratified": true
+      }
     },
     "runtime": {
       "model_dir": "./logs",
