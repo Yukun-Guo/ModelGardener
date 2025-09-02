@@ -55,3 +55,77 @@ def color_shift(image, hue_shift=20, saturation_scale=1.2, value_scale=1.1, prob
         print(f"Error in color_shift: {e}")
         return image
 
+
+def random_blur(image, max_kernel_size=5, probability=0.5):
+    """
+    Apply random Gaussian blur to the image.
+    
+    Args:
+        image: Input image (numpy array)
+        max_kernel_size: Maximum blur kernel size (odd number)
+        probability: Probability of applying blur
+        
+    Returns:
+        Blurred or original image
+    """
+    try:
+        if np.random.random() > probability:
+            return image
+            
+        # Ensure kernel size is odd
+        kernel_size = np.random.randint(1, max_kernel_size//2 + 1) * 2 + 1
+        
+        # Apply Gaussian blur
+        blurred = cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+        return blurred
+        
+    except Exception as e:
+        print(f"Error in random_blur: {e}")
+        return image
+
+
+def noise_injection(image, noise_type='gaussian', intensity=0.1, probability=0.4):
+    """
+    Add random noise to the image for data augmentation.
+    
+    Args:
+        image: Input image (numpy array)
+        noise_type: Type of noise ('gaussian', 'salt_pepper', 'uniform')
+        intensity: Noise intensity (0.0 to 1.0)
+        probability: Probability of applying noise
+        
+    Returns:
+        Noisy or original image
+    """
+    try:
+        if np.random.random() > probability:
+            return image
+            
+        noisy_image = image.astype(np.float32)
+        
+        if noise_type == 'gaussian':
+            # Gaussian noise
+            noise = np.random.normal(0, intensity * 255, image.shape)
+            noisy_image += noise
+        elif noise_type == 'uniform':
+            # Uniform noise
+            noise = np.random.uniform(-intensity * 255, intensity * 255, image.shape)
+            noisy_image += noise
+        elif noise_type == 'salt_pepper':
+            # Salt and pepper noise
+            coords = [np.random.randint(0, i - 1, int(intensity * image.size * 0.1)) 
+                     for i in image.shape[:2]]
+            noisy_image[coords] = 255  # Salt
+            
+            coords = [np.random.randint(0, i - 1, int(intensity * image.size * 0.1)) 
+                     for i in image.shape[:2]]
+            noisy_image[coords] = 0   # Pepper
+        
+        # Clip values to valid range
+        noisy_image = np.clip(noisy_image, 0, 255)
+        return noisy_image.astype(image.dtype)
+        
+    except Exception as e:
+        print(f"Error in noise_injection: {e}")
+        return image
+

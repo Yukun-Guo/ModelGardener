@@ -66,24 +66,25 @@ class ModelConfigCLI:
             "configuration": {
                 "task_type": "image_classification",
                 "data": {
-                    "train_dir": "",
-                    "val_dir": "",
+                    "train_dir": "./data",
+                    "val_dir": "./data",
                     "data_loader": {
-                        "selected_data_loader": "Default",
+                        "selected_data_loader": "Custom_load_cifar10_npz_data",
                         "use_for_train": True,
                         "use_for_val": True,
                         "parameters": {
                             "batch_size": 32,
                             "shuffle": True,
-                            "buffer_size": 10000
+                            "buffer_size": 1000,
+                            "npz_file_path": "./data/cifar10.npz"
                         }
                     },
                     "preprocessing": {
                         "Resizing": {
-                            "enabled": True,
+                            "enabled": False,
                             "target_size": {
-                                "width": 224,
-                                "height": 224,
+                                "width": 32,
+                                "height": 32,
                                 "depth": 1
                             },
                             "interpolation": "bilinear",
@@ -133,14 +134,14 @@ class ModelConfigCLI:
                     }
                 },
                 "model": {
-                    "model_family": "resnet",
-                    "model_name": "ResNet-50",
+                    "model_family": "custom_model",
+                    "model_name": "create_simple_cnn",
                     "model_parameters": {
-                        "input_shape": {"height": 224, "width": 224, "channels": 3},
+                        "input_shape": {"height": 32, "width": 32, "channels": 3},
                         "include_top": True,
                         "weights": "",
                         "pooling": "",
-                        "classes": 1000,
+                        "classes": 10,
                         "classifier_activation": "",
                         "kwargs": {}
                     },
@@ -257,7 +258,11 @@ class ModelConfigCLI:
         """
         custom_modules_dir = os.path.join(project_dir, 'custom_modules')
         
-        # Define the custom functions to add based on generated files
+        # Dynamically discover custom functions from example_funcs directory
+        augmentation_functions = self._discover_custom_functions('./example_funcs/example_custom_augmentations.py')
+        preprocessing_functions = self._discover_custom_functions('./example_funcs/example_custom_preprocessing.py')
+        
+        # Define the custom functions to add based on discovered and generated files
         custom_functions = {
             'models': [{
                 'name': 'create_simple_cnn',
@@ -295,18 +300,8 @@ class ModelConfigCLI:
                 'function_name': 'LossThresholdStopping',
                 'type': 'class'
             }],
-            'augmentations': [{
-                'name': 'random_pixelate',
-                'file_path': './custom_modules/custom_augmentations.py',
-                'function_name': 'random_pixelate',
-                'type': 'function'
-            }],
-            'preprocessing': [{
-                'name': 'adaptive_histogram_equalization',
-                'file_path': './custom_modules/custom_preprocessing.py',
-                'function_name': 'adaptive_histogram_equalization',
-                'type': 'function'
-            }],
+            'augmentations': [],
+            'preprocessing': [],
             'training_loops': [{
                 'name': 'progressive_training_loop',
                 'file_path': './custom_modules/custom_training_loops.py',
@@ -314,6 +309,24 @@ class ModelConfigCLI:
                 'type': 'function'
             }]
         }
+        
+        # Add discovered augmentation functions
+        for func_name, func_info in augmentation_functions.items():
+            custom_functions['augmentations'].append({
+                'name': func_name,
+                'file_path': './custom_modules/custom_augmentations.py',
+                'function_name': func_name,
+                'type': 'function'
+            })
+        
+        # Add discovered preprocessing functions  
+        for func_name, func_info in preprocessing_functions.items():
+            custom_functions['preprocessing'].append({
+                'name': func_name,
+                'file_path': './custom_modules/custom_preprocessing.py',
+                'function_name': func_name,
+                'type': 'function'
+            })
         
         # Update metadata with custom functions
         config['metadata']['custom_functions'] = custom_functions
@@ -323,8 +336,8 @@ class ModelConfigCLI:
         config['configuration']['model']['model_family'] = 'custom_model'
         config['configuration']['model']['model_name'] = 'create_simple_cnn'
         config['configuration']['model']['model_parameters'] = {
-            'input_shape': {'width': 224, 'height': 224, 'channels': 3},
-            'num_classes': 3,  # Matching our example data
+            'input_shape': {'width': 32, 'height': 32, 'channels': 3},
+            'num_classes': 10,  # CIFAR-10 classes
             'dropout_rate': 0.5,
             'custom_model_file_path': './custom_modules/custom_models.py',
             'custom_info': {
@@ -333,9 +346,9 @@ class ModelConfigCLI:
             }
         }
         
-        # Update data paths to use local data
-        config['configuration']['data']['train_dir'] = './data/train'
-        config['configuration']['data']['val_dir'] = './data/val'
+        # Update data paths for CIFAR-10 dataset
+        config['configuration']['data']['train_dir'] = './data'
+        config['configuration']['data']['val_dir'] = './data'
         
         return config
 
@@ -741,7 +754,7 @@ class ModelConfigCLI:
 
     def _copy_example_data(self, project_dir: str):
         """
-        Copy example data to the project directory.
+        Copy CIFAR-10 NPZ dataset to the project directory.
         
         Args:
             project_dir: Target project directory
@@ -751,44 +764,35 @@ class ModelConfigCLI:
         # Define source and destination paths
         source_data_dir = os.path.join(os.path.dirname(__file__), 'example_data')
         dest_data_dir = os.path.join(project_dir, 'data')
+        cifar10_source = os.path.join(source_data_dir, 'cifar10.npz')
+        cifar10_dest = os.path.join(dest_data_dir, 'cifar10.npz')
         
         try:
-            if os.path.exists(source_data_dir):
-                # Remove existing data directory if it exists
-                if os.path.exists(dest_data_dir):
-                    shutil.rmtree(dest_data_dir)
+            # Create data directory
+            os.makedirs(dest_data_dir, exist_ok=True)
+            
+            # Copy CIFAR-10 NPZ file
+            if os.path.exists(cifar10_source):
+                shutil.copy2(cifar10_source, cifar10_dest)
+                print(f"✅ CIFAR-10 dataset copied to: {dest_data_dir}")
                 
-                # Copy the example data
-                shutil.copytree(source_data_dir, dest_data_dir)
-                print(f"✅ Example data copied to: {dest_data_dir}")
-                
-                # Count files to show user what was copied
-                total_files = 0
-                for root, dirs, files in os.walk(dest_data_dir):
-                    total_files += len([f for f in files if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                
-                print(f"📊 Copied {total_files} sample images across 3 classes")
-                
+                # Load and show dataset info
+                try:
+                    import numpy as np
+                    with np.load(cifar10_source) as data:
+                        x_data = data['x']
+                        y_data = data['y']
+                        print(f"📊 CIFAR-10 dataset: {len(x_data)} samples, {x_data.shape[1:]} shape, {len(np.unique(y_data))} classes")
+                except Exception as e:
+                    print(f"📊 CIFAR-10 dataset copied (could not read metadata: {e})")
+                    
             else:
-                print(f"⚠️ Warning: Example data directory not found at {source_data_dir}")
-                # Create minimal data structure
-                os.makedirs(os.path.join(dest_data_dir, 'train', 'class_0'), exist_ok=True)
-                os.makedirs(os.path.join(dest_data_dir, 'train', 'class_1'), exist_ok=True) 
-                os.makedirs(os.path.join(dest_data_dir, 'train', 'class_2'), exist_ok=True)
-                os.makedirs(os.path.join(dest_data_dir, 'val', 'class_0'), exist_ok=True)
-                os.makedirs(os.path.join(dest_data_dir, 'val', 'class_1'), exist_ok=True)
-                os.makedirs(os.path.join(dest_data_dir, 'val', 'class_2'), exist_ok=True)
-                print("📁 Created empty data directory structure")
+                print(f"⚠️ Warning: CIFAR-10 dataset not found at {cifar10_source}")
+                print("� Please run test_generate_subset.py to generate the CIFAR-10 dataset")
                 
         except Exception as e:
-            print(f"❌ Error copying example data: {str(e)}")
-            # Create minimal structure as fallback
-            try:
-                os.makedirs(os.path.join(dest_data_dir, 'train'), exist_ok=True)
-                os.makedirs(os.path.join(dest_data_dir, 'val'), exist_ok=True)
-                print("📁 Created basic data directory structure")
-            except Exception as e2:
-                print(f"❌ Error creating data directories: {str(e2)}")
+            print(f"❌ Error copying CIFAR-10 data: {str(e)}")
+            print("💡 Please ensure CIFAR-10 dataset is available in example_data/cifar10.npz")
 
     def _create_improved_template_config(self, config: Dict[str, Any], project_dir: str = '.') -> Dict[str, Any]:
         """
@@ -803,27 +807,33 @@ class ModelConfigCLI:
         # Start with the base configuration
         improved_config = config.copy()
         
-        # Add custom augmentation option (disabled by default)
+        # Add all available custom augmentation functions
         if 'data' in improved_config['configuration'] and 'augmentation' in improved_config['configuration']['data']:
-            improved_config['configuration']['data']['augmentation']['Custom Augmentation'] = {
-                'enabled': False,
-                'function_name': 'custom_augmentation_function', 
-                'file_path': './custom_modules/custom_augmentations.py',
-                'probability': 0.5
-            }
+            augmentation_functions = self._discover_custom_functions('./example_funcs/example_custom_augmentations.py')
+            for func_name, func_info in augmentation_functions.items():
+                display_name = f"{func_name.replace('_', ' ').title()} (custom)"
+                augmentation_config = {
+                    'enabled': False,
+                    'function_name': func_name, 
+                    'file_path': './custom_modules/custom_augmentations.py'
+                }
+                # Add function-specific parameters
+                augmentation_config.update(func_info.get('parameters', {}))
+                improved_config['configuration']['data']['augmentation'][display_name] = augmentation_config
         
-        # Add custom preprocessing option with extracted parameters
+        # Add all available custom preprocessing functions
         if 'data' in improved_config['configuration'] and 'preprocessing' in improved_config['configuration']['data']:
-            preprocessing_params = self._extract_function_parameters('adaptive_histogram_equalization', 
-                                                                   './custom_modules/custom_preprocessing.py', 
-                                                                   project_dir)
-            custom_preprocessing = {
-                'enabled': False,
-                'function_name': 'adaptive_histogram_equalization',
-                'file_path': './custom_modules/custom_preprocessing.py'
-            }
-            custom_preprocessing.update(preprocessing_params)
-            improved_config['configuration']['data']['preprocessing']['Custom Preprocessing'] = custom_preprocessing
+            preprocessing_functions = self._discover_custom_functions('./example_funcs/example_custom_preprocessing.py')
+            for func_name, func_info in preprocessing_functions.items():
+                display_name = f"{func_name.replace('_', ' ').title()} (custom)"
+                preprocessing_config = {
+                    'enabled': False,
+                    'function_name': func_name,
+                    'file_path': './custom_modules/custom_preprocessing.py'
+                }
+                # Add function-specific parameters
+                preprocessing_config.update(func_info.get('parameters', {}))
+                improved_config['configuration']['data']['preprocessing'][display_name] = preprocessing_config
         
         # Add custom callback option
         if 'model' in improved_config['configuration'] and 'callbacks' in improved_config['configuration']['model']:
@@ -1043,8 +1053,8 @@ class ModelConfigCLI:
         # Data section
         data_config = configuration.get('data', {})
         yaml_lines.append("  data:")
-        yaml_lines.append(f"    train_dir: {data_config.get('train_dir', './data/train')}")
-        yaml_lines.append(f"    val_dir: {data_config.get('val_dir', './data/val')}")
+        yaml_lines.append(f"    train_dir: {data_config.get('train_dir', './data')}")
+        yaml_lines.append(f"    val_dir: {data_config.get('val_dir', './data')}")
         
         # Add data loader section
         data_loader = data_config.get('data_loader', {})
@@ -1060,46 +1070,48 @@ class ModelConfigCLI:
         for key, value in params.items():
             yaml_lines.append(f"        {key}: {value}")
         
-        # Preprocessing section with custom option
+        # Preprocessing section with custom options
         preprocessing = data_config.get('preprocessing', {})
         yaml_lines.append("    preprocessing:")
         
-        # Standard preprocessing options
+        # Standard preprocessing options (non-custom)
         for key, value in preprocessing.items():
-            if key != 'Custom Preprocessing':
+            if not key.endswith('(custom)'):
                 yaml_lines.append(f"      {key}:")
                 self._add_nested_yaml(yaml_lines, value, 8)
         
-        # Add custom preprocessing comment and option
-        if 'Custom Preprocessing' in preprocessing:
-            yaml_lines.extend([
-                "      # Custom preprocessing (disabled by default)",
-                "      Custom Preprocessing:"
-            ])
-            custom_prep = preprocessing['Custom Preprocessing']
-            for key, value in custom_prep.items():
-                yaml_lines.append(f"        {key}: {value}")
+        # Add custom preprocessing functions
+        custom_preprocessing_found = False
+        for key, value in preprocessing.items():
+            if key.endswith('(custom)'):
+                if not custom_preprocessing_found:
+                    yaml_lines.append("      # Custom preprocessing functions (disabled by default)")
+                    custom_preprocessing_found = True
+                yaml_lines.append(f"      {key}:")
+                for sub_key, sub_value in value.items():
+                    yaml_lines.append(f"        {sub_key}: {sub_value}")
                 
-        # Augmentation section with custom option
+        # Augmentation section with custom options
         augmentation = data_config.get('augmentation', {})
         yaml_lines.append("    augmentation:")
         yaml_lines.append("      # Built-in augmentation options")
         
+        # Standard augmentation options (non-custom)
         for key, value in augmentation.items():
-            if key != 'Custom Augmentation':
+            if not key.endswith('(custom)'):
                 yaml_lines.append(f"      {key}:")
                 self._add_nested_yaml(yaml_lines, value, 8)
         
-        # Add custom augmentation
-        if 'Custom Augmentation' in augmentation:
-            yaml_lines.extend([
-                "      # Custom augmentation (disabled - file not included in this template)",
-                "      # To add: Create ./custom_modules/custom_augmentations.py with desired functions",
-                "      Custom Augmentation:"
-            ])
-            custom_aug = augmentation['Custom Augmentation']
-            for key, value in custom_aug.items():
-                yaml_lines.append(f"        {key}: {value}")
+        # Add custom augmentation functions
+        custom_augmentation_found = False
+        for key, value in augmentation.items():
+            if key.endswith('(custom)'):
+                if not custom_augmentation_found:
+                    yaml_lines.append("      # Custom augmentation functions (disabled by default)")
+                    custom_augmentation_found = True
+                yaml_lines.append(f"      {key}:")
+                for sub_key, sub_value in value.items():
+                    yaml_lines.append(f"        {sub_key}: {sub_value}")
                 
         # Model section
         model_config = configuration.get('model', {})
@@ -1193,6 +1205,89 @@ class ModelConfigCLI:
                 yaml_lines.append(f"  {key}: {value}")
         
         return '\n'.join(yaml_lines)
+
+    def _discover_custom_functions(self, file_path: str) -> Dict[str, Any]:
+        """
+        Dynamically discover and analyze custom functions from a Python file.
+        
+        Args:
+            file_path: Path to the Python file containing custom functions
+            
+        Returns:
+            Dictionary mapping function names to their information
+        """
+        import ast
+        import inspect
+        
+        custom_functions = {}
+        
+        if not os.path.exists(file_path):
+            return custom_functions
+        
+        try:
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse the AST
+            tree = ast.parse(content)
+            
+            # Find function definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Skip private functions
+                    if func_name.startswith('_'):
+                        continue
+                    
+                    # Extract function parameters and their defaults
+                    params = {}
+                    
+                    # Get function arguments
+                    args = node.args.args
+                    defaults = node.args.defaults or []
+                    
+                    # Skip the first parameter (data/image)
+                    if args:
+                        param_args = args[1:]  # Skip first parameter
+                        
+                        # Match defaults with parameters (from right to left)
+                        num_defaults = len(defaults)
+                        num_params = len(param_args)
+                        
+                        for i, arg in enumerate(param_args):
+                            param_name = arg.arg
+                            
+                            # Determine if this parameter has a default value
+                            default_index = i - (num_params - num_defaults)
+                            if default_index >= 0:
+                                default_node = defaults[default_index]
+                                if isinstance(default_node, ast.Constant):
+                                    default_value = default_node.value
+                                elif isinstance(default_node, ast.Num):  # Python < 3.8 compatibility
+                                    default_value = default_node.n
+                                elif isinstance(default_node, ast.Str):  # Python < 3.8 compatibility
+                                    default_value = default_node.s
+                                else:
+                                    default_value = 0.5  # Fallback default
+                                
+                                params[param_name] = default_value
+                    
+                    # Extract docstring if available
+                    docstring = ast.get_docstring(node) or f"Custom function: {func_name}"
+                    
+                    custom_functions[func_name] = {
+                        'parameters': params,
+                        'docstring': docstring,
+                        'file_path': file_path,
+                        'function_name': func_name
+                    }
+                    
+        except Exception as e:
+            print(f"Warning: Error parsing {file_path}: {e}")
+        
+        return custom_functions
 
     def _add_nested_yaml(self, yaml_lines: List[str], value: Any, indent_level: int):
         """Add nested YAML content with proper indentation."""

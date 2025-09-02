@@ -116,7 +116,8 @@ class ScriptGenerator:
                 ('create_simple_cnn', 'custom_models.py')
             ],
             'example_custom_data_loaders.py': [
-                ('custom_image_data_loader', 'custom_data_loaders.py')
+                ('custom_image_data_loader', 'custom_data_loaders.py'),
+                ('Custom_load_cifar10_npz_data', 'custom_data_loaders.py')
             ],
             'example_custom_loss_functions.py': [
                 ('custom_focal_loss', 'custom_loss_functions.py')
@@ -251,13 +252,13 @@ import keras
 from keras import layers
 
 
-def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=0.5, **kwargs):
+def create_simple_cnn(input_shape=(32, 32, 3), num_classes=10, dropout_rate=0.5, **kwargs):
     """
-    Create a simple CNN model for image classification.
+    Create a simple CNN model optimized for CIFAR-10 image classification.
     
     Args:
-        input_shape: Input tensor shape (height, width, channels)
-        num_classes: Number of output classes
+        input_shape: Input tensor shape (height, width, channels) - default (32, 32, 3) for CIFAR-10
+        num_classes: Number of output classes - default 10 for CIFAR-10
         dropout_rate: Dropout rate for regularization
         **kwargs: Additional parameters
         
@@ -266,30 +267,44 @@ def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=
     """
     inputs = keras.Input(shape=input_shape)
     
-    # Feature extraction layers
-    x = layers.Conv2D(32, 3, activation='relu')(inputs)
-    x = layers.MaxPooling2D()(x)
-    x = layers.Conv2D(64, 3, activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-    x = layers.Conv2D(128, 3, activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
+    # First block - start with smaller filters for 32x32 input
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 32x32 -> 16x16
+    x = layers.Dropout(0.25)(x)
+    
+    # Second block
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 16x16 -> 8x8
+    x = layers.Dropout(0.25)(x)
+    
+    # Third block
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 8x8 -> 4x4
+    x = layers.Dropout(0.25)(x)
     
     # Classification head
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dense(256, activation='relu')(x)
+    x = layers.Dense(512, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
     x = layers.Dropout(dropout_rate)(x)
     outputs = layers.Dense(num_classes, activation='softmax')(x)
     
-    model = keras.Model(inputs, outputs, name='simple_cnn')
+    model = keras.Model(inputs, outputs, name='cifar10_cnn')
     return model
 
 
 if __name__ == "__main__":
     # Test the custom model
-    print("Testing custom model...")
-    model = create_simple_cnn(input_shape=(224, 224, 3), num_classes=10)
+    print("Testing CIFAR-10 optimized model...")
+    model = create_simple_cnn(input_shape=(32, 32, 3), num_classes=10)
     print(f"Model: {model.name}, params: {model.count_params():,}")
-    print("Custom model created successfully!")
+    print("CIFAR-10 model created successfully!")
 '''
 
     def _get_basic_data_loaders_template(self) -> str:
@@ -297,7 +312,8 @@ if __name__ == "__main__":
         return '''"""
 Custom Data Loaders Template for ModelGardener
 
-This file provides a template for creating custom data loading functions.
+This file provides templates for creating custom data loading functions.
+Includes support for both directory-based and NPZ file loading.
 """
 
 import os
@@ -305,6 +321,82 @@ import tensorflow as tf
 from typing import Optional, List, Tuple
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
+
+
+def Custom_load_cifar10_npz_data(train_dir: str = "./data", 
+                                 val_dir: str = "./data",
+                                 npz_file_path: str = "./data/cifar10.npz",
+                                 batch_size: int = 32,
+                                 shuffle: bool = True,
+                                 buffer_size: int = 1000,
+                                 validation_split: float = 0.2,
+                                 **kwargs):
+    """
+    Custom CIFAR-10 NPZ data loader for ModelGardener.
+    
+    This function loads CIFAR-10 data from an NPZ file and returns
+    training and validation datasets.
+    
+    Args:
+        train_dir: Directory path (used for compatibility)
+        val_dir: Directory path (used for compatibility) 
+        npz_file_path: Path to the NPZ file containing CIFAR-10 data
+        batch_size: Batch size for datasets
+        shuffle: Whether to shuffle the data
+        buffer_size: Buffer size for shuffling
+        validation_split: Fraction of data to use for validation
+        **kwargs: Additional parameters (ignored)
+        
+    Returns:
+        Tuple[tf.data.Dataset, tf.data.Dataset]: Training and validation datasets
+    """
+    print(f"🔍 Loading CIFAR-10 data from: {npz_file_path}")
+    
+    # Load NPZ file
+    if not os.path.exists(npz_file_path):
+        raise FileNotFoundError(f"NPZ file not found: {npz_file_path}")
+    
+    data = np.load(npz_file_path)
+    images = data['x'].astype(np.float32) / 255.0  # Normalize to [0, 1]
+    labels = data['y'].astype(np.int32)
+    
+    print(f"📊 Loaded {len(images)} images with shape {images.shape[1:]}")
+    print(f"🎯 Found {len(np.unique(labels))} unique classes")
+    
+    # Split into train and validation
+    train_indices = int(len(images) * (1 - validation_split))
+    
+    train_images = images[:train_indices]
+    train_labels = labels[:train_indices]
+    val_images = images[train_indices:]
+    val_labels = labels[train_indices:]
+    
+    # Convert labels to categorical (one-hot encoding)
+    num_classes = len(np.unique(labels))
+    train_labels_categorical = tf.keras.utils.to_categorical(train_labels, num_classes)
+    val_labels_categorical = tf.keras.utils.to_categorical(val_labels, num_classes)
+    
+    print(f"🚂 Training set: {len(train_images)} samples")
+    print(f"✅ Validation set: {len(val_images)} samples")
+    
+    # Create TensorFlow datasets
+    train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels_categorical))
+    val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels_categorical))
+    
+    # Apply shuffling if requested
+    if shuffle:
+        train_dataset = train_dataset.shuffle(buffer_size=buffer_size)
+    
+    # Batch the datasets
+    train_dataset = train_dataset.batch(batch_size)
+    val_dataset = val_dataset.batch(batch_size)
+    
+    # Prefetch for performance
+    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+    
+    return train_dataset, val_dataset
 
 
 def custom_image_data_loader(data_dir: str, batch_size: int = 32, 
@@ -968,6 +1060,7 @@ if __name__ == "__main__":
             '{{K_FOLDS}}': str(k_folds),
             '{{CUSTOM_IMPORTS}}': self._generate_custom_imports(custom_functions),
             '{{CUSTOM_LOADER_CALLS}}': self._generate_custom_loader_calls(custom_functions),
+            '{{DATA_LOADING_CODE}}': self._generate_data_loading_code(config, custom_functions),
             '{{GENERATION_DATE}}': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
         
@@ -1023,6 +1116,51 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error loading custom functions: {e}")
 """
+
+    def _generate_data_loading_code(self, config: Dict[str, Any], custom_functions: Dict[str, Any]) -> str:
+        """Generate appropriate data loading code based on configuration."""
+        data_config = config.get('data', {})
+        data_loader_config = data_config.get('data_loader', {})
+        selected_loader = data_loader_config.get('selected_data_loader', None)
+        
+        # If a custom data loader is specified, use it
+        if selected_loader and selected_loader != 'default':
+            return f"""    # Using custom data loader: {selected_loader}
+    print("📁 Loading data with custom loader: {selected_loader}")
+    try:
+        from custom_modules.custom_data_loaders import {selected_loader}
+        
+        # Get data loader parameters
+        loader_params = config.get('configuration', {{}}).get('data', {{}}).get('data_loader', {{}}).get('parameters', {{}})
+        
+        # Load training and validation data
+        train_gen, val_gen = {selected_loader}(
+            train_dir=train_dir,
+            val_dir=val_dir,
+            **loader_params
+        )
+        
+        print("✅ Custom data loader loaded successfully")
+        
+    except ImportError as e:
+        print(f"❌ Failed to import custom data loader {selected_loader}: {{e}}")
+        print("🔄 Falling back to default data generators...")
+        train_gen, val_gen = create_data_generators(
+            train_dir, val_dir, batch_size, img_height, img_width
+        )
+    except Exception as e:
+        print(f"❌ Error using custom data loader: {{e}}")
+        print("🔄 Falling back to default data generators...")
+        train_gen, val_gen = create_data_generators(
+            train_dir, val_dir, batch_size, img_height, img_width
+        )"""
+        else:
+            # Use default directory-based data generators
+            return """    # Using default directory-based data generators
+    print("📁 Creating data generators...")
+    train_gen, val_gen = create_data_generators(
+        train_dir, val_dir, batch_size, img_height, img_width
+    )"""
     
     def _get_train_template(self) -> str:
         """Get the training script template."""
@@ -1223,11 +1361,7 @@ def train_model():
     
     {{CUSTOM_LOADER_CALLS}}
     
-    # Create data generators
-    print("📁 Creating data generators...")
-    train_gen, val_gen = create_data_generators(
-        train_dir, val_dir, batch_size, img_height, img_width
-    )
+    {{DATA_LOADING_CODE}}
     
     input_shape = (img_height, img_width, channels)
     
@@ -2258,13 +2392,13 @@ from keras import layers
 import numpy as np
 
 
-def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=0.5):
+def create_simple_cnn(input_shape=(32, 32, 3), num_classes=10, dropout_rate=0.5):
     """
-    Create a simple CNN model.
+    Create a simple CNN model optimized for CIFAR-10.
     
     Args:
-        input_shape: Input image shape (height, width, channels)
-        num_classes: Number of output classes
+        input_shape: Input image shape (height, width, channels) - default (32, 32, 3) for CIFAR-10
+        num_classes: Number of output classes - default 10 for CIFAR-10
         dropout_rate: Dropout rate for regularization
         
     Returns:

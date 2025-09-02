@@ -1,0 +1,301 @@
+{
+  "configuration": {
+    "task_type": "image_classification",
+    "data": {
+      "train_dir": "./example_data",
+      "val_dir": "./example_data",
+      "data_loader": {
+        "selected_data_loader": "Custom_load_cifar10_npz_data",
+        "use_for_train": true,
+        "use_for_val": true,
+        "parameters": {
+          "npz_file": "cifar10.npz",
+          "batch_size": 32,
+          "validation_split": 0.2,
+          "shuffle": true,
+          "buffer_size": 1000,
+          "seed": 42
+        }
+      },
+      "preprocessing": {
+        "Resizing": {
+          "enabled": false,
+          "target_size": {
+            "width": 32,
+            "height": 32,
+            "depth": 1
+          },
+          "interpolation": "bilinear",
+          "preserve_aspect_ratio": true,
+          "data_format": "2D"
+        },
+        "Normalization": {
+          "enabled": false,
+          "method": "zero-center",
+          "min_value": 0.0,
+          "max_value": 1.0,
+          "mean": {
+            "r": 0.5,
+            "g": 0.5,
+            "b": 0.5
+          },
+          "std": {
+            "r": 0.5,
+            "g": 0.5,
+            "b": 0.5
+          },
+          "axis": -1,
+          "epsilon": 1e-07
+        }
+      },
+      "augmentation": {
+        "Horizontal Flip": {
+          "enabled": true,
+          "probability": 0.5
+        },
+        "Vertical Flip": {
+          "enabled": false,
+          "probability": 0.5
+        },
+        "Rotation": {
+          "enabled": true,
+          "angle_range": 10.0,
+          "probability": 0.5
+        },
+        "Gaussian Noise": {
+          "enabled": false,
+          "std_dev": 0.1,
+          "probability": 0.5
+        },
+        "Brightness": {
+          "enabled": true,
+          "delta_range": 0.1,
+          "probability": 0.3
+        },
+        "Contrast": {
+          "enabled": false,
+          "factor_range": [
+            0.8,
+            1.2
+          ],
+          "probability": 0.5
+        }
+      }
+    },
+    "model": {
+      "model_family": "cnn",
+      "model_name": "Simple CNN",
+      "model_parameters": {
+        "input_shape": {
+          "height": 32,
+          "width": 32,
+          "channels": 3
+        },
+        "include_top": true,
+        "weights": "",
+        "pooling": "",
+        "classes": 10,
+        "classifier_activation": "softmax",
+        "kwargs": {}
+      },
+      "optimizer": {
+        "Optimizer Selection": {
+          "selected_optimizer": "Adam",
+          "learning_rate": 0.001,
+          "beta_1": 0.9,
+          "beta_2": 0.999,
+          "epsilon": 1e-07,
+          "amsgrad": false
+        }
+      },
+      "loss_functions": {
+        "Model Output Configuration": {
+          "num_outputs": 1,
+          "output_names": "main_output",
+          "output_activations": "softmax"
+        },
+        "Loss Configuration": {
+          "main_output": {
+            "loss_function": "categorical_crossentropy",
+            "loss_weight": 1.0,
+            "label_smoothing": 0.0,
+            "from_logits": false,
+            "axis": -1,
+            "reduction": "sum_over_batch_size"
+          }
+        }
+      },
+      "metrics": {
+        "metrics_selection": {
+          "selected_metrics": [
+            "accuracy",
+            "top_k_categorical_accuracy"
+          ],
+          "top_k_categorical_accuracy": {
+            "k": 3
+          },
+          "sparse_top_k_categorical_accuracy": {
+            "k": 5
+          },
+          "precision": {
+            "top_k": null,
+            "class_id": null,
+            "thresholds": null
+          },
+          "recall": {
+            "top_k": null,
+            "class_id": null,
+            "thresholds": null
+          },
+          "f1_score": {
+            "num_classes": null,
+            "average": "micro",
+            "threshold": null
+          },
+          "auc": {
+            "num_thresholds": 200,
+            "curve": "ROC",
+            "summation_method": "interpolation",
+            "from_logits": false,
+            "multi_label": false,
+            "label_weights": null
+          }
+        }
+      }
+    },
+    "training": {
+      "epochs": 20,
+      "validation_split": 0.0,
+      "callbacks": {
+        "Early Stopping": {
+          "enabled": true,
+          "monitor": "val_loss",
+          "min_delta": 0.001,
+          "patience": 5,
+          "verbose": 1,
+          "mode": "min",
+          "baseline": null,
+          "restore_best_weights": true,
+          "start_from_epoch": 0
+        },
+        "Model Checkpoint": {
+          "enabled": true,
+          "filepath": "./checkpoints/model_checkpoint.keras",
+          "monitor": "val_accuracy",
+          "verbose": 1,
+          "save_best_only": true,
+          "save_weights_only": false,
+          "mode": "max",
+          "save_freq": "epoch",
+          "options": null,
+          "initial_value_threshold": null
+        },
+        "Reduce LR": {
+          "enabled": true,
+          "monitor": "val_loss",
+          "factor": 0.5,
+          "patience": 3,
+          "verbose": 1,
+          "mode": "min",
+          "min_delta": 0.0001,
+          "cooldown": 0,
+          "min_lr": 1e-07
+        },
+        "TensorBoard": {
+          "enabled": true,
+          "log_dir": "./logs/tensorboard",
+          "histogram_freq": 1,
+          "write_graph": true,
+          "write_images": false,
+          "write_steps_per_second": false,
+          "update_freq": "epoch",
+          "profile_batch": 0,
+          "embeddings_freq": 0,
+          "embeddings_metadata": null
+        }
+      },
+      "cross_validation": {
+        "enabled": false,
+        "n_folds": 5,
+        "shuffle": true,
+        "random_state": 42,
+        "fold_selection_metric": "val_accuracy"
+      },
+      "training_loop": {
+        "selected_strategy": "Default Training Loop"
+      }
+    },
+    "runtime": {
+      "model_dir": "./logs",
+      "distribution_strategy": "mirrored",
+      "mixed_precision": null,
+      "num_gpus": 0
+    }
+  },
+  "metadata": {
+    "version": "1.2",
+    "custom_functions": {
+      "data_loaders": {
+        "Custom_load_cifar10_npz_data": {
+          "file_path": "./example_funcs/example_custom_data_loaders.py",
+          "function_name": "load_cifar10_npz_data",
+          "type": "function",
+          "parameters": {
+            "data_dir": {
+              "type": "str",
+              "default": "./example_data",
+              "description": "Directory containing the NPZ file"
+            },
+            "npz_file": {
+              "type": "str", 
+              "default": "cifar10.npz",
+              "description": "Name of the NPZ file"
+            },
+            "batch_size": {
+              "type": "int",
+              "default": 32,
+              "description": "Batch size for the dataset"
+            },
+            "validation_split": {
+              "type": "float",
+              "default": 0.2,
+              "description": "Fraction of data to use for validation"
+            },
+            "shuffle": {
+              "type": "bool",
+              "default": true,
+              "description": "Whether to shuffle the dataset"
+            },
+            "buffer_size": {
+              "type": "int",
+              "default": 10000,
+              "description": "Buffer size for shuffling"
+            },
+            "split": {
+              "type": "str",
+              "default": "train",
+              "description": "Which split to return (train or val)"
+            },
+            "seed": {
+              "type": "int",
+              "default": 42,
+              "description": "Random seed for reproducibility"
+            }
+          }
+        }
+      }
+    },
+    "sharing_strategy": "file_paths_with_content",
+    "creation_date": "2025-09-02",
+    "model_gardener_version": "1.0",
+    "dataset": {
+      "name": "CIFAR-10 Subset",
+      "description": "Subset of CIFAR-10 dataset with 10 classes, 100 samples per class",
+      "total_samples": 1000,
+      "num_classes": 10,
+      "input_shape": [32, 32, 3],
+      "data_format": "npz",
+      "source_file": "example_data/cifar10.npz"
+    }
+  }
+}

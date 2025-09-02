@@ -1,29 +1,22 @@
 """
-Example custom model definitions for ModelGardener.
+CIFAR-10 optimized CNN model for ModelGardener.
 
-This file demonstrates how to create custom models that can be loaded
-into ModelGardener. Models can be defined as:
-
-1. Functions that return a keras model
-2. Classes that inherit from keras.models.Model
-
-The function signature should accept common parameters like:
-- input_shape: tuple of input dimensions
-- num_classes: number of output classes
-- **kwargs: additional model-specific parameters
+This module contains custom CNN architectures optimized for CIFAR-10 dataset
+(32x32x3 images, 10 classes).
 """
 
 import keras
 from keras import layers
 
 
-def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=0.5, **kwargs):
+
+def create_simple_cnn(input_shape=(32, 32, 3), num_classes=10, dropout_rate=0.5, **kwargs):
     """
-    Create a simple CNN model for image classification.
+    Create a simple CNN model optimized for CIFAR-10 image classification.
     
     Args:
-        input_shape: Input tensor shape (height, width, channels)
-        num_classes: Number of output classes
+        input_shape: Input tensor shape (height, width, channels) - default (32, 32, 3) for CIFAR-10
+        num_classes: Number of output classes - default 10 for CIFAR-10
         dropout_rate: Dropout rate for regularization
         **kwargs: Additional parameters
         
@@ -32,30 +25,33 @@ def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=
     """
     inputs = keras.Input(shape=input_shape)
     
-    # Feature extraction layers
-    x = layers.Conv2D(32, 3, activation='relu')(inputs)
-    x = layers.MaxPooling2D()(x)
-    x = layers.Conv2D(64, 3, activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
-    x = layers.Conv2D(128, 3, activation='relu')(x)
-    x = layers.MaxPooling2D()(x)
+    # First block - start with smaller filters for 32x32 input
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 32x32 -> 16x16
+    x = layers.Dropout(0.25)(x)
+    
+    # Second block
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 16x16 -> 8x8
+    x = layers.Dropout(0.25)(x)
+    
+    # Third block
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = layers.MaxPooling2D((2, 2))(x)  # 8x8 -> 4x4
+    x = layers.Dropout(0.25)(x)
     
     # Classification head
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dense(256, activation='relu')(x)
+    x = layers.Dense(512, activation='relu')(x)
+    x = layers.BatchNormalization()(x)
     x = layers.Dropout(dropout_rate)(x)
     outputs = layers.Dense(num_classes, activation='softmax')(x)
     
-    model = keras.Model(inputs, outputs, name='simple_cnn')
+    model = keras.Model(inputs, outputs, name='cifar10_cnn')
     return model
-
-if __name__ == "__main__":
-    # Test the custom models
-    print("Testing custom model definitions...")
-    
-    # Test function-based model
-    model1 = create_simple_cnn(input_shape=(224, 224, 3), num_classes=10)
-    print(f"Simple CNN: {model1.name}, params: {model1.count_params():,}")
-    
-    
-    print("Custom models created successfully!")
