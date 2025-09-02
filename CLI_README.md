@@ -104,6 +104,49 @@ python modelgardener_cli.py config --validate --config existing_config.json
 - `--num-gpus`: Number of GPUs to use (0 for CPU-only)
 - `--format`: Output format (json or yaml)
 
+### 🐍 **Automatic Python Script Generation**
+
+**NEW FEATURE**: When you save any configuration (using `config` command or GUI), ModelGardener automatically generates ready-to-run Python scripts in the same directory as the configuration file:
+
+- `train.py` - Standalone training script
+- `evaluation.py` - Model evaluation script  
+- `prediction.py` - Prediction script for new images
+- `deploy.py` - REST API deployment script
+- `requirements.txt` - Python dependencies
+- `README.md` - Usage instructions
+
+**Example:**
+```bash
+# Generate configuration and scripts
+python modelgardener_cli.py config --template --format yaml --output my_project/config.yaml
+
+# This creates:
+my_project/
+├── config.yaml          # Configuration file
+├── train.py             # Training script
+├── evaluation.py        # Evaluation script
+├── prediction.py        # Prediction script
+├── deploy.py           # API deployment script
+├── requirements.txt     # Dependencies
+└── README.md           # Instructions
+
+# Use the generated scripts directly:
+cd my_project
+pip install -r requirements.txt
+python train.py                                    # Train model
+python evaluation.py                               # Evaluate model
+python prediction.py --input path/to/image.jpg    # Make predictions
+python deploy.py --port 8080                       # Deploy API
+```
+
+**Script Features:**
+- ✅ **Self-contained**: Each script runs independently with your configuration
+- ✅ **Customizable**: Generated code can be modified for specific needs
+- ✅ **Production-ready**: Includes error handling, logging, and best practices
+- ✅ **Cross-validation support**: Training script supports k-fold CV when enabled
+- ✅ **API deployment**: Deploy script creates REST API with health checks
+- ✅ **Batch processing**: Prediction script handles single images or directories
+
 ### `train` - Model Training
 
 Train a model using the specified configuration.

@@ -151,12 +151,10 @@ class ModelGardenerCLI:
         (project_path / "data" / "train").mkdir(parents=True, exist_ok=True)
         (project_path / "data" / "val").mkdir(parents=True, exist_ok=True)
         (project_path / "logs").mkdir(exist_ok=True)
-        (project_path / "configs").mkdir(exist_ok=True)
-        (project_path / "custom_functions").mkdir(exist_ok=True)
         
-        # Create default configuration
-        config_file = project_path / "configs" / "model_config.json"
-        self.config_cli.create_template(str(config_file))
+        # Create default configuration in YAML format at project root
+        config_file = project_path / "config.yaml"
+        self.config_cli.create_template(str(config_file), 'yaml')
         
         # Create README
         readme_content = f"""# {project_name} - ModelGardener Project
@@ -168,9 +166,13 @@ class ModelGardenerCLI:
 │   ├── train/          # Training data
 │   └── val/            # Validation data
 ├── logs/               # Training logs and models
-├── configs/            # Configuration files
-│   └── model_config.json
-├── custom_functions/   # Custom functions (models, losses, etc.)
+├── custom_modules/     # Custom function templates (auto-generated)
+├── config.yaml         # Model configuration
+├── train.py           # Training script (auto-generated)
+├── evaluation.py      # Evaluation script (auto-generated)
+├── prediction.py      # Prediction script (auto-generated)
+├── deploy.py          # Deployment script (auto-generated)
+├── requirements.txt   # Python dependencies (auto-generated)
 └── README.md          # This file
 ```
 
@@ -180,43 +182,74 @@ class ModelGardenerCLI:
 Place your training images in `data/train/` and validation images in `data/val/`
 
 ### 2. Configure Your Model
+Edit the `config.yaml` file to customize your model settings, or use the interactive configuration:
 ```bash
-# Interactive configuration
-python /path/to/ModelGardener/modelgardener_cli.py config --interactive --output configs/model_config.json
+# Interactive configuration (overwrites config.yaml)
+python /path/to/ModelGardener/modelgardener_cli.py config --interactive --output config.yaml
 
-# Or edit the template configuration file
-# configs/model_config.json
+# Or directly edit config.yaml
 ```
 
 ### 3. Train Your Model
 ```bash
-python /path/to/ModelGardener/modelgardener_cli.py train --config configs/model_config.json
+# Use the generated training script
+python train.py
+
+# Or use the CLI
+python /path/to/ModelGardener/modelgardener_cli.py train --config config.yaml
 ```
 
 ### 4. Evaluate Your Model
 ```bash
-python /path/to/ModelGardener/modelgardener_cli.py evaluate --config configs/model_config.json --model-path logs/final_model.keras
+# Use the generated evaluation script  
+python evaluation.py
+
+# Or use the CLI
+python /path/to/ModelGardener/modelgardener_cli.py evaluate --config config.yaml --model-path logs/final_model.keras
 ```
+
+## Generated Files
+
+This project includes auto-generated files to help you get started:
+
+- **config.yaml** - Complete model configuration with examples and documentation
+- **train.py** - Ready-to-use training script
+- **evaluation.py** - Model evaluation script
+- **prediction.py** - Inference script for new data
+- **deploy.py** - Deployment utilities
+- **custom_modules/** - Template files for custom functions:
+  - `custom_models.py` - Custom model architectures
+  - `custom_data_loaders.py` - Custom data loading functions
+  - `custom_loss_functions.py` - Custom loss functions
+  - `custom_optimizers.py` - Custom optimizers
+  - `custom_metrics.py` - Custom metrics
+  - `custom_callbacks.py` - Custom training callbacks
+  - `custom_augmentations.py` - Custom data augmentation
+  - `custom_preprocessing.py` - Custom preprocessing functions
+  - `custom_training_loops.py` - Custom training strategies
 
 ## Configuration Options
 
-Use the CLI configuration tool to set up your model:
-- Task type (image classification, object detection, etc.)
-- Model architecture (ResNet, EfficientNet, etc.)
-- Training parameters (epochs, learning rate, etc.)
-- Data preprocessing options
+The `config.yaml` file includes comprehensive settings for:
+- Model architecture selection (ResNet, EfficientNet, Custom, etc.)
+- Training parameters (epochs, learning rate, batch size, etc.)
+- Data preprocessing and augmentation options
 - Runtime settings (GPU usage, model directory, etc.)
+- Custom function integration
 
 ## Custom Functions
 
-You can add custom models, loss functions, metrics, etc. in the `custom_functions/` directory.
-See the ModelGardener documentation for examples.
+You can customize any aspect of the training pipeline by editing the files in `custom_modules/`:
+1. Edit the template functions to implement your custom logic
+2. Update the `config.yaml` to reference your custom functions
+3. The training scripts will automatically load and use your custom functions
 
 ## Need Help?
 
-- Run with `--help` to see all available options
-- Check the ModelGardener documentation
-- Use interactive mode for guided configuration
+- Run ModelGardener CLI with `--help` to see all available options
+- Use interactive mode for guided configuration: `modelgardener_cli.py config --interactive`
+- Check the custom_modules/README.md for detailed examples
+- See the ModelGardener documentation for advanced usage
 """
         
         readme_file = project_path / "README.md"
@@ -224,6 +257,7 @@ See the ModelGardener documentation for examples.
             f.write(readme_content)
         
         print(f"✅ Project template created successfully!")
+        print(f"📖 See {readme_file} for instructions")
         print(f"📖 See {readme_file} for instructions")
 
 
@@ -243,7 +277,7 @@ Commands:
 Examples:
   # Create and configure a new project
   modelgardener_cli.py create my_project
-  modelgardener_cli.py config --interactive --output my_project/configs/model_config.json
+  modelgardener_cli.py config --interactive --output my_project/configs/model_config.yaml
   
   # Train a model
   modelgardener_cli.py train --config my_project/configs/model_config.json
@@ -252,7 +286,7 @@ Examples:
   modelgardener_cli.py evaluate --config my_project/configs/model_config.json
   
   # Quick configuration and training
-  modelgardener_cli.py config --train-dir ./data/train --val-dir ./data/val --epochs 50 --output config.json
+  modelgardener_cli.py config --train-dir ./data/train --val-dir ./data/val --epochs 50 --output config.yaml
   modelgardener_cli.py train --config config.json
         """
     )
@@ -262,8 +296,8 @@ Examples:
     # Config command
     config_parser = subparsers.add_parser('config', help='Configure model settings')
     config_parser.add_argument('--config', '-c', type=str, help='Load existing configuration file')
-    config_parser.add_argument('--output', '-o', type=str, default='model_config.json', help='Output configuration file')
-    config_parser.add_argument('--format', '-f', choices=['json', 'yaml'], default='json', help='Output format')
+    config_parser.add_argument('--output', '-o', type=str, default='model_config.yaml', help='Output configuration file')
+    config_parser.add_argument('--format', '-f', choices=['json', 'yaml'], default='yaml', help='Output format (default: yaml)')
     config_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive configuration mode')
     config_parser.add_argument('--template', '-t', action='store_true', help='Create configuration template')
     config_parser.add_argument('--validate', '-v', action='store_true', help='Validate configuration file')
@@ -321,7 +355,7 @@ def main():
             config_cli = ModelConfigCLI()
             
             if args.template:
-                config_cli.create_template(args.output)
+                config_cli.create_template(args.output, args.format)
                 return
             
             if args.validate:

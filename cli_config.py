@@ -15,6 +15,13 @@ import inquirer
 from dataclasses import dataclass
 from config_manager import ConfigManager
 
+# Import script generator
+try:
+    from script_generator import ScriptGenerator
+except ImportError:
+    print("Warning: ScriptGenerator not available")
+    ScriptGenerator = None
+
 
 @dataclass
 class CLIConfig:
@@ -397,22 +404,82 @@ class ModelConfigCLI:
             return {}
 
     def save_config(self, config: Dict[str, Any], file_path: str, format_type: str = 'json') -> bool:
-        """Save configuration to file."""
+        """Save configuration to file and generate Python scripts."""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 if format_type.lower() == 'yaml':
-                    yaml.dump(config, f, allow_unicode=True, default_flow_style=False, indent=2)
+                    # Use proper YAML format with better styling
+                    yaml.dump(config, f, 
+                             default_flow_style=False,  # Use block style
+                             allow_unicode=True, 
+                             indent=2,
+                             sort_keys=False,  # Keep original order
+                             width=1000)  # Avoid line wrapping
                 else:
                     json.dump(config, f, indent=2, ensure_ascii=False)
             
             print(f"✅ Configuration saved to: {file_path}")
+            
+            # Generate Python scripts
+            self._generate_python_scripts(config, file_path)
+            
             return True
         except Exception as e:
             print(f"❌ Error saving configuration: {str(e)}")
             return False
+
+    def _generate_python_scripts(self, config: Dict[str, Any], config_file_path: str):
+        """
+        Generate Python scripts (train.py, evaluation.py, prediction.py, deploy.py) 
+        and custom modules templates in the same directory as the config file.
+        
+        Args:
+            config: The configuration dictionary
+            config_file_path: Path to the saved configuration file
+        """
+        if ScriptGenerator is None:
+            print("⚠️  ScriptGenerator not available, skipping script generation")
+            return
+        
+        try:
+            # Get the directory where the config file is saved
+            config_dir = os.path.dirname(config_file_path)
+            if not config_dir:
+                config_dir = '.'
+            config_filename = os.path.basename(config_file_path)
+            
+            # Create script generator
+            generator = ScriptGenerator()
+            
+            # Generate scripts
+            print("\n🐍 Generating Python scripts...")
+            success = generator.generate_scripts(config, config_dir, config_filename)
+            
+            # Generate custom modules templates
+            print("📁 Generating custom modules templates...")
+            custom_modules_success = generator.generate_custom_modules_templates(config_dir)
+            
+            if success:
+                print("✅ Python scripts generated successfully!")
+                print(f"📁 Location: {os.path.abspath(config_dir)}")
+                print("📄 Generated files:")
+                print("   • train.py - Training script")
+                print("   • evaluation.py - Evaluation script") 
+                print("   • prediction.py - Prediction script")
+                print("   • deploy.py - Deployment script")
+                print("   • requirements.txt - Python dependencies")
+                print("   • README.md - Usage instructions")
+                
+                if custom_modules_success:
+                    print("   • custom_modules/ - Custom function templates")
+            else:
+                print("❌ Failed to generate some Python scripts")
+                
+        except Exception as e:
+            print(f"❌ Error generating Python scripts: {str(e)}")
 
     def validate_config(self, config: Dict[str, Any]) -> bool:
         """Validate configuration structure."""
@@ -538,7 +605,7 @@ class ModelConfigCLI:
         
         return config
 
-    def create_template(self, template_path: str):
+    def create_template(self, template_path: str, format_type: str = 'yaml'):
         """Create a configuration template."""
         config = self.create_default_config()
         
@@ -558,7 +625,7 @@ class ModelConfigCLI:
             **config
         }
         
-        if self.save_config(template_config, template_path):
+        if self.save_config(template_config, template_path, format_type):
             print(f"✅ Template created at: {template_path}")
             print("💡 Edit the template file and run with --config to use it")
 

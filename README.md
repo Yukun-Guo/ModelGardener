@@ -6,7 +6,7 @@ remove all gui designs, only keep cli interface
 the path to the custom functions should be relative to the yaml file
 all custom functions should be placed in a directory named `src`
 
-# generate python scripts: train.py, evaluation.py prediction.py, deploy.py according to the yaml configuration and save to the directory same with yaml file.
+# ✅ COMPLETED: generate python scripts: train.py, evaluation.py prediction.py, deploy.py according to the yaml configuration and save to the directory same with yaml file.
 
 don't provide presets models for section any more, in which can make the logic more complex
 
@@ -35,17 +35,9 @@ The configuration has been simplified to a single "basic" level structure:
 3. **K-fold Cross-validation**: `advanced > cross_validation` → `basic > training > cross_validation`
 4. **Advanced Section**: Completely removed for simplification
 
-This makes the configuration more intuitive and accessible to all users.ciples
+This makes the configuration more intuitive and accessible to all users.
 
-remove all gui designs, only keep cli interface
-x move the callbacks, data augmentation and k-fold-crossvalidation configuration to basic, then remove all advanced configurations
-
-the path to the custom functions should be relative to the yaml file
-all custom functions should be placed in a directory named `src`
-
-# generate python scripts: train.py, evaluation.py prediction.py, deploy.py according to the yaml configuration and save to the directory same with yaml file.
-
-don't provide presets models for section any more, in which can make the logic more complex
+## Additional Improvements
 
 In the YAML configuration files, all build-in configurations will be commented out by default. The user can uncomment and modify these configurations as needed.
 

@@ -10,6 +10,13 @@ import importlib.util
 from typing import Dict, Any, Optional, List
 from PySide6.QtWidgets import QMessageBox
 
+# Import script generator
+try:
+    from script_generator import ScriptGenerator
+except ImportError:
+    print("Warning: ScriptGenerator not available")
+    ScriptGenerator = None
+
 
 class ConfigManager:
     """Enhanced configuration manager that properly handles custom functions."""
@@ -61,6 +68,9 @@ class ConfigManager:
                     # Default to JSON
                     json.dump(enhanced_config, f, indent=2, ensure_ascii=False)
             
+            # Generate Python scripts in the same directory as the config file
+            self._generate_python_scripts(enhanced_config, file_path)
+            
             return True
             
         except Exception as e:
@@ -73,6 +83,58 @@ class ConfigManager:
         """Get current timestamp as ISO string."""
         from datetime import datetime
         return datetime.now().isoformat()
+    
+    def _generate_python_scripts(self, config: Dict[str, Any], config_file_path: str):
+        """
+        Generate Python scripts (train.py, evaluation.py, prediction.py, deploy.py) 
+        and custom modules templates in the same directory as the config file.
+        
+        Args:
+            config: The full configuration dictionary (including metadata)
+            config_file_path: Path to the saved configuration file
+        """
+        if ScriptGenerator is None:
+            print("⚠️  ScriptGenerator not available, skipping script generation")
+            return
+        
+        try:
+            # Get the directory where the config file is saved
+            config_dir = os.path.dirname(config_file_path)
+            config_filename = os.path.basename(config_file_path)
+            
+            # Create script generator
+            generator = ScriptGenerator()
+            
+            # Generate scripts
+            print("🐍 Generating Python scripts...")
+            success = generator.generate_scripts(config, config_dir, config_filename)
+            
+            # Generate custom modules templates
+            print("📁 Generating custom modules templates...")
+            custom_modules_success = generator.generate_custom_modules_templates(config_dir)
+            
+            if success:
+                print("✅ Python scripts generated successfully!")
+                print(f"📁 Location: {config_dir}")
+                print("📄 Generated files:")
+                print("   • train.py - Training script")
+                print("   • evaluation.py - Evaluation script") 
+                print("   • prediction.py - Prediction script")
+                print("   • deploy.py - Deployment script")
+                print("   • requirements.txt - Python dependencies")
+                print("   • README.md - Usage instructions")
+                
+                if custom_modules_success:
+                    print("   • custom_modules/ - Custom function templates")
+            else:
+                print("❌ Failed to generate some Python scripts")
+                
+        except Exception as e:
+            print(f"❌ Error generating Python scripts: {str(e)}")
+            if self.main_window:
+                # Don't show critical error for script generation failure, just log it
+                print(f"Script generation error: {str(e)}")
+    
     
     def _enhance_custom_functions_metadata(self, custom_functions_info: Dict[str, Any]) -> Dict[str, Any]:
         """
