@@ -44,7 +44,7 @@ class ConfigManager:
                 'metadata': {
                     'version': '1.2',
                     'custom_functions': custom_functions_info or {},
-                    'sharing_strategy': 'file_paths_with_content',  # New strategy
+                    'sharing_strategy': 'file_paths_only',  # Updated strategy for custom_modules folder
                     'creation_date': self._get_current_timestamp(),
                     'model_gardener_version': '1.0'
                 }
@@ -161,9 +161,8 @@ class ConfigManager:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             file_content = f.read()
                         
-                        # Add file content and metadata for sharing
+                        # Add metadata for sharing (without file_content since we use custom_modules folder)
                         enhanced_func.update({
-                            'file_content': file_content,
                             'file_size': len(file_content),
                             'file_checksum': self._calculate_checksum(file_content),
                             'relative_file_path': os.path.basename(file_path),  # For extraction

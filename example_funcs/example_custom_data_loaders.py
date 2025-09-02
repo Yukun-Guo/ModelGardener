@@ -20,10 +20,7 @@ For classes:
 
 import os
 import tensorflow as tf
-from typing import Optional, List, Tuple
-import pandas as pd
-import numpy as np
-
+from typing import List
 
 def custom_image_data_loader(data_dir: str,
                            batch_size: int = 32,
@@ -79,106 +76,6 @@ def custom_image_data_loader(data_dir: str,
     
     if shuffle:
         dataset = dataset.shuffle(buffer_size)
-    
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    
-    return dataset
-
-
-def custom_csv_data_loader(csv_path: str,
-                         batch_size: int = 32,
-                         shuffle: bool = True,
-                         buffer_size: int = 10000,
-                         label_column: str = 'label',
-                         feature_columns: Optional[List[str]] = None) -> tf.data.Dataset:
-    """
-    Custom CSV data loader for tabular data.
-    
-    Args:
-        csv_path: Path to CSV file
-        batch_size: Batch size for the dataset
-        shuffle: Whether to shuffle the dataset
-        buffer_size: Buffer size for shuffling
-        label_column: Name of the label column
-        feature_columns: List of feature column names (None for all except label)
-    
-    Returns:
-        tf.data.Dataset: Dataset ready for training/validation
-    """
-    # Read CSV file
-    df = pd.read_csv(csv_path)
-    
-    if label_column not in df.columns:
-        raise ValueError(f"Label column '{label_column}' not found in CSV")
-    
-    # Get feature columns
-    if feature_columns is None:
-        feature_columns = [col for col in df.columns if col != label_column]
-    
-    # Extract features and labels
-    features = df[feature_columns].values.astype(np.float32)
-    labels = df[label_column].values
-    
-    # Create dataset
-    dataset = tf.data.Dataset.from_tensor_slices((features, labels))
-    
-    if shuffle:
-        dataset = dataset.shuffle(buffer_size)
-    
-    dataset = dataset.batch(batch_size)
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    
-    return dataset
-
-
-def custom_sequence_data_loader(data_file: str,
-                              sequence_length: int = 100,
-                              batch_size: int = 32,
-                              shuffle: bool = True,
-                              vocab_size: int = 10000,
-                              overlap: float = 0.5) -> tf.data.Dataset:
-    """
-    Custom sequence data loader for text or time series data.
-    
-    Args:
-        data_file: Path to data file
-        sequence_length: Length of each sequence
-        batch_size: Batch size for the dataset
-        shuffle: Whether to shuffle the dataset
-        vocab_size: Vocabulary size (for text data)
-        overlap: Overlap ratio between consecutive sequences
-    
-    Returns:
-        tf.data.Dataset: Sequence dataset
-    """
-    # Read data
-    with open(data_file, 'r', encoding='utf-8') as f:
-        text = f.read()
-    
-    # Simple tokenization (replace with proper tokenizer in production)
-    chars = sorted(list(set(text)))
-    char_to_idx = {char: idx for idx, char in enumerate(chars)}
-    
-    # Convert text to indices
-    data = [char_to_idx[char] for char in text]
-    
-    # Create sequences
-    step = int(sequence_length * (1 - overlap))
-    sequences = []
-    targets = []
-    
-    for i in range(0, len(data) - sequence_length, step):
-        seq = data[i:i + sequence_length]
-        target = data[i + 1:i + sequence_length + 1]
-        sequences.append(seq)
-        targets.append(target)
-    
-    # Create dataset
-    dataset = tf.data.Dataset.from_tensor_slices((sequences, targets))
-    
-    if shuffle:
-        dataset = dataset.shuffle(len(sequences))
     
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)

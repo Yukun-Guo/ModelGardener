@@ -4,8 +4,8 @@ Sample custom model file for testing the enhanced model loading feature.
 """
 
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+import keras
+from keras import layers
 
 def create_simple_cnn(input_shape=(224, 224, 3), num_classes=1000, dropout_rate=0.5):
     """
