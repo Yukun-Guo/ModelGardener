@@ -61,6 +61,10 @@ class ModelConfigCLI:
             'Accuracy', 'Categorical Accuracy', 'Sparse Categorical Accuracy', 'Top K Categorical Accuracy',
             'Precision', 'Recall', 'F1 Score', 'AUC', 'Mean Squared Error', 'Mean Absolute Error'
         ]
+        self.available_data_loaders = [
+            'ImageDataGenerator', 'DirectoryDataLoader', 'TFRecordDataLoader', 'CSVDataLoader',
+            'NPZDataLoader', 'Custom'
+        ]
 
     def _is_model_function(self, obj, name: str) -> bool:
         """Check if an object is likely a model function."""
@@ -204,13 +208,15 @@ class ModelConfigCLI:
         
         print(f"\n🔍 Found {len(analysis_result)} custom model(s) in {os.path.basename(file_path)}")
         
-        # Create choices for inquirer
+        # Create choices for inquirer - show only signatures, not full descriptions
         choices = []
         for name, info in analysis_result.items():
-            description = info.get('description', f"Custom {info['type']}: {name}")
-            choice_text = f"{name} - {description}"
             if info['type'] == 'function' and 'signature' in info:
-                choice_text += f" {info['signature']}"
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name}"
             choices.append((choice_text, name))
         
         # Let user select the model
@@ -231,6 +237,929 @@ class ModelConfigCLI:
             return selected_name, analysis_result[selected_name]
         
         return None, {}
+
+    def _is_data_loader_function(self, obj, name: str) -> bool:
+        """
+        Check if an object is a valid data loader function or class.
+        
+        Args:
+            obj: The object to check
+            name: Name of the object
+            
+        Returns:
+            bool: True if it's a valid data loader function/class
+        """
+        import inspect
+        
+        # Skip private functions, imports, and common utilities
+        if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'os', 'sys', 'train_test_split', 'pd', 'pandas']:
+            return False
+        
+        # Skip objects from imported modules
+        if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
+            if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+                return False
+            
+        try:
+            if inspect.isfunction(obj):
+                # Check function signature for data loader patterns
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Must have data-related parameters
+                data_loader_indicators = [
+                    'data_dir', 'batch_size', 'split', 'train_dir', 'val_dir',
+                    'dataset', 'images', 'labels', 'data_path', 'file_path',
+                    'csv_path', 'npz_path', 'tfrecord_path'
+                ]
+                
+                # Check if function has data loader-like parameters
+                has_data_params = any(indicator in param.lower() for param in params for indicator in data_loader_indicators)
+                
+                # Must return tf.data.Dataset or similar
+                return_annotation = sig.return_annotation
+                valid_return_type = False
+                if return_annotation != inspect.Signature.empty:
+                    return_type_str = str(return_annotation)
+                    if 'tf.data.Dataset' in return_type_str or 'Dataset' in return_type_str or 'DatasetV2' in return_type_str:
+                        valid_return_type = True
+                
+                # Check docstring for data loader keywords
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                data_loader_keywords = ['data loader', 'dataset', 'load data', 'data loading']
+                has_data_keywords = any(keyword in docstring_lower for keyword in data_loader_keywords)
+                
+                # Exclude simple utility functions like invalid_data_function
+                if len(params) < 2:
+                    return False
+                
+                # Must have either data params + valid return type OR data keywords + data params
+                return (has_data_params and valid_return_type) or (has_data_keywords and has_data_params)
+                
+            elif inspect.isclass(obj):
+                # Check if class has data loader-like methods
+                methods = [method for method in dir(obj) if not method.startswith('_')]
+                data_loader_methods = ['load', 'get_dataset', 'load_data', 'get_data']
+                has_loader_methods = any(method.lower() in [m.lower() for m in data_loader_methods] for method in methods)
+                
+                # Check class docstring
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                class_keywords = ['data loader', 'dataset', 'load data', 'dataloader']
+                has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
+                
+                # Check constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                has_data_params = False
+                if init_method:
+                    try:
+                        sig = inspect.signature(init_method)
+                        params = list(sig.parameters.keys())
+                        data_indicators = ['data_dir', 'batch_size', 'data_path', 'npz_path', 'csv_path']
+                        has_data_params = any(indicator in param.lower() for param in params for indicator in data_indicators)
+                    except:
+                        pass
+                
+                return (has_loader_methods or has_class_keywords) and has_data_params
+                
+        except Exception:
+            return False
+            
+        return False
+
+    def _extract_data_loader_parameters(self, obj) -> Dict[str, Any]:
+        """
+        Extract parameters from a data loader function or class.
+        
+        Args:
+            obj: The data loader function or class
+            
+        Returns:
+            Dict containing parameter information
+        """
+        import inspect
+        
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                params = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip common fixed parameters
+                    if param_name in ['data_dir', 'train_dir', 'val_dir', 'split']:
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    # Infer parameter type
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+                
+                return {
+                    'type': 'function',
+                    'parameters': params,
+                    'signature': str(sig),
+                    'description': inspect.getdoc(obj) or f"Data loader function: {obj.__name__}"
+                }
+                
+            elif inspect.isclass(obj):
+                # Get constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                params = {}
+                
+                if init_method:
+                    sig = inspect.signature(init_method)
+                    for param_name, param in sig.parameters.items():
+                        if param_name == 'self':
+                            continue
+                        if param_name in ['data_dir', 'train_dir', 'val_dir']:
+                            continue
+                            
+                        param_info = {
+                            'name': param_name,
+                            'required': param.default == inspect.Parameter.empty,
+                            'default': param.default if param.default != inspect.Parameter.empty else None,
+                            'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                        }
+                        
+                        if param.annotation != inspect.Parameter.empty:
+                            param_info['type'] = str(param.annotation)
+                        elif param.default is not None:
+                            param_info['type'] = type(param.default).__name__
+                        else:
+                            param_info['type'] = 'Any'
+                        
+                        params[param_name] = param_info
+                
+                return {
+                    'type': 'class',
+                    'parameters': params,
+                    'signature': f"class {obj.__name__}",
+                    'description': inspect.getdoc(obj) or f"Data loader class: {obj.__name__}"
+                }
+                
+        except Exception:
+            return {
+                'type': 'unknown',
+                'parameters': {},
+                'signature': '',
+                'description': f"Data loader: {getattr(obj, '__name__', 'Unknown')}"
+            }
+        
+        return {}
+
+    def analyze_custom_data_loader_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract data loader functions and classes.
+        
+        Args:
+            file_path: Path to the Python file
+            
+        Returns:
+            Tuple of (success, data_loader_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_data_loaders", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            data_loader_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_data_loader_function(obj, name):
+                    info = self._extract_data_loader_parameters(obj)
+                    if info:
+                        data_loader_info[name] = info
+            
+            return len(data_loader_info) > 0, data_loader_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing data loader file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_data_loader_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom data loader from analyzed file.
+        
+        Args:
+            file_path: Path to the custom data loader file
+            
+        Returns:
+            Tuple of (selected_loader_name, loader_info)
+        """
+        success, analysis_result = self.analyze_custom_data_loader_file(file_path)
+        
+        if not success or not analysis_result:
+            print("❌ No valid data loader functions found in the file")
+            return None, {}
+        
+        print(f"\n✅ Found {len(analysis_result)} data loader function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only name, not full descriptions
+        choices = []
+        for name, info in analysis_result.items():
+            if info['type'] == 'function' in info:
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name}"
+            
+            choices.append(choice_text)
+        
+        # Let user select
+        selected_choice = inquirer.list_input(
+            "Select custom data loader to use",
+            choices=choices
+        )
+        
+        # Extract the name from the choice (before any space or parenthesis)
+        selected_name = selected_choice.split(' ')[0] if ' ' in selected_choice else selected_choice
+        
+        if selected_name in analysis_result:
+            info = analysis_result[selected_name]
+            print(f"\n✅ Selected custom data loader: {selected_name}")
+            print(f"   Type: {info['type']}")
+            
+            # Ask for parameters if any
+            parameters = {}
+            if 'parameters' in info and info['parameters']:
+                param_count = len([p for p in info['parameters'].values() if not p['required']])
+                if param_count > 0:
+                    print(f"\n⚙️  Custom data loader parameters found: {param_count}")
+                    
+                    for param_name, param_info in info['parameters'].items():
+                        if not param_info['required']:  # Only ask for optional parameters
+                            default_val = param_info.get('default', '')
+                            user_value = inquirer.text(
+                                f"Enter {param_name} (default: {default_val})",
+                                default=str(default_val) if default_val is not None else ""
+                            )
+                            
+                            # Convert to appropriate type
+                            if user_value:
+                                try:
+                                    if param_info['type'] == 'int':
+                                        parameters[param_name] = int(user_value)
+                                    elif param_info['type'] == 'float':
+                                        parameters[param_name] = float(user_value)
+                                    elif param_info['type'] == 'bool':
+                                        parameters[param_name] = user_value.lower() in ['true', '1', 'yes', 'on']
+                                    else:
+                                        parameters[param_name] = user_value
+                                except ValueError:
+                                    parameters[param_name] = user_value
+            
+            result_info = info.copy()
+            if parameters:
+                result_info['user_parameters'] = parameters
+            
+            return selected_name, result_info
+        
+        return None, {}
+
+    def _is_loss_function(self, obj, name: str) -> bool:
+        """
+        Check if an object is a valid loss function.
+        
+        Args:
+            obj: The object to check
+            name: Name of the object
+            
+        Returns:
+            bool: True if it's a valid loss function
+        """
+        import inspect
+        
+        # Skip private functions, imports, and common utilities
+        if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'keras', 'K']:
+            return False
+        
+        # Skip objects from imported modules (except custom ones)
+        if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
+            if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+                return False
+            
+        try:
+            if inspect.isfunction(obj):
+                # Check function signature for loss function patterns
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Must have typical loss function parameters
+                loss_indicators = ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction', 'labels', 'logits']
+                has_loss_params = len(params) >= 2 and any(indicator in param.lower() for param in params for indicator in loss_indicators)
+                
+                # Check docstring for loss function keywords
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                loss_keywords = ['loss', 'cost', 'error', 'distance', 'divergence']
+                has_loss_keywords = any(keyword in docstring_lower for keyword in loss_keywords)
+                
+                return has_loss_params or has_loss_keywords
+                
+            elif inspect.isclass(obj):
+                # Check if class inherits from typical loss classes or has loss-like methods
+                methods = [method for method in dir(obj) if not method.startswith('_')]
+                loss_methods = ['call', '__call__', 'compute_loss', 'calculate_loss']
+                has_loss_methods = any(method.lower() in [m.lower() for m in loss_methods] for method in methods)
+                
+                # Check class docstring
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                class_keywords = ['loss', 'cost function', 'objective function']
+                has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
+                
+                return has_loss_methods or has_class_keywords
+                
+        except Exception:
+            return False
+            
+        return False
+
+    def _extract_loss_parameters(self, obj) -> Dict[str, Any]:
+        """
+        Extract parameters from a loss function.
+        
+        Args:
+            obj: The loss function or class
+            
+        Returns:
+            Dict containing parameter information
+        """
+        import inspect
+        
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                params = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip y_true, y_pred parameters as they are provided during training
+                    if param_name.lower() in ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction']:
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    # Infer parameter type
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+                
+                return {
+                    'type': 'function',
+                    'parameters': params,
+                    'signature': str(sig),
+                    'description': inspect.getdoc(obj) or f"Loss function: {obj.__name__}"
+                }
+                
+            elif inspect.isclass(obj):
+                # Get constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                params = {}
+                
+                if init_method:
+                    sig = inspect.signature(init_method)
+                    for param_name, param in sig.parameters.items():
+                        if param_name == 'self':
+                            continue
+                            
+                        param_info = {
+                            'name': param_name,
+                            'required': param.default == inspect.Parameter.empty,
+                            'default': param.default if param.default != inspect.Parameter.empty else None,
+                            'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                        }
+                        
+                        if param.annotation != inspect.Parameter.empty:
+                            param_info['type'] = str(param.annotation)
+                        elif param.default is not None:
+                            param_info['type'] = type(param.default).__name__
+                        else:
+                            param_info['type'] = 'Any'
+                        
+                        params[param_name] = param_info
+                
+                return {
+                    'type': 'class',
+                    'parameters': params,
+                    'signature': f"class {obj.__name__}",
+                    'description': inspect.getdoc(obj) or f"Loss class: {obj.__name__}"
+                }
+                
+        except Exception:
+            return {
+                'type': 'unknown',
+                'parameters': {},
+                'signature': '',
+                'description': f"Loss function: {getattr(obj, '__name__', 'Unknown')}"
+            }
+        
+        return {}
+
+    def analyze_custom_loss_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract loss functions.
+        
+        Args:
+            file_path: Path to the Python file
+            
+        Returns:
+            Tuple of (success, loss_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_losses", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            loss_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_loss_function(obj, name):
+                    info = self._extract_loss_parameters(obj)
+                    if info:
+                        loss_info[name] = info
+            
+            return len(loss_info) > 0, loss_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing loss function file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_loss_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom loss function from analyzed file.
+        
+        Args:
+            file_path: Path to the custom loss function file
+            
+        Returns:
+            Tuple of (selected_loss_name, loss_info)
+        """
+        success, analysis_result = self.analyze_custom_loss_file(file_path)
+        
+        if not success or not analysis_result:
+            print("❌ No valid loss functions found in the file")
+            return None, {}
+        
+        print(f"\n✅ Found {len(analysis_result)} loss function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only signatures, not full descriptions
+        choices = []
+        for name, info in analysis_result.items():
+            if info['type'] == 'function' and 'signature' in info:
+                choice_text = f"{name} {info['signature']}"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name} ({info['type']})"
+            
+            choices.append(choice_text)
+        
+        # Let user select
+        selected_choice = inquirer.list_input(
+            "Select custom loss function to use",
+            choices=choices
+        )
+        
+        # Extract the name from the choice (before any space or parenthesis)
+        selected_name = selected_choice.split(' ')[0] if ' ' in selected_choice else selected_choice
+        
+        if selected_name in analysis_result:
+            info = analysis_result[selected_name]
+            print(f"\n✅ Selected custom loss function: {selected_name}")
+            print(f"   Type: {info['type']}")
+            
+            # Ask for parameters if any
+            parameters = {}
+            if 'parameters' in info and info['parameters']:
+                param_count = len([p for p in info['parameters'].values() if not p['required']])
+                if param_count > 0:
+                    print(f"\n⚙️  Custom loss function parameters found: {param_count}")
+                    
+                    for param_name, param_info in info['parameters'].items():
+                        if not param_info['required']:  # Only ask for optional parameters
+                            default_val = param_info.get('default', '')
+                            user_value = inquirer.text(
+                                f"Enter {param_name} (default: {default_val})",
+                                default=str(default_val) if default_val is not None else ""
+                            )
+                            
+                            # Convert to appropriate type
+                            if user_value:
+                                try:
+                                    if param_info['type'] == 'int':
+                                        parameters[param_name] = int(user_value)
+                                    elif param_info['type'] == 'float':
+                                        parameters[param_name] = float(user_value)
+                                    elif param_info['type'] == 'bool':
+                                        parameters[param_name] = user_value.lower() in ['true', '1', 'yes', 'on']
+                                    else:
+                                        parameters[param_name] = user_value
+                                except ValueError:
+                                    parameters[param_name] = user_value
+            
+            result_info = info.copy()
+            if parameters:
+                result_info['user_parameters'] = parameters
+            
+            return selected_name, result_info
+        
+        return None, {}
+
+    def analyze_model_outputs(self, config: Dict[str, Any]) -> Tuple[int, List[str]]:
+        """
+        Analyze the model configuration to determine the number of outputs and their names.
+        
+        Args:
+            config: The current configuration
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        model_config = config.get('configuration', {}).get('model', {})
+        model_family = model_config.get('model_family', '')
+        model_name = model_config.get('model_name', '')
+        
+        print(f"\n🔍 Analyzing model: {model_family}/{model_name}")
+        
+        # Try to dynamically analyze custom models
+        if model_family == 'custom':
+            custom_model_info = model_config.get('model_parameters', {}).get('custom_info', {})
+            if custom_model_info:
+                file_path = custom_model_info.get('file_path', '')
+                function_name = custom_model_info.get('function_name', '')
+                
+                print(f"   Custom model: {function_name} from {file_path}")
+                
+                if file_path and function_name:
+                    try:
+                        # Attempt to load and analyze the custom model
+                        num_outputs, output_names = self._analyze_custom_model_outputs(
+                            file_path, function_name, model_config
+                        )
+                        if num_outputs > 0:
+                            print(f"   ✅ Detected {num_outputs} output(s): {output_names}")
+                            return num_outputs, output_names
+                    except Exception as e:
+                        print(f"   ⚠️  Could not analyze custom model: {e}")
+        
+        # For built-in models, most have single output by default
+        # Check model name for hints about multiple outputs
+        if 'multi' in model_name.lower() or 'multiple' in model_name.lower():
+            print("   💡 Model name suggests multiple outputs")
+            # Ask user for number of outputs
+            try:
+                num_outputs = int(inquirer.text("Enter number of model outputs", default="2"))
+                output_names = []
+                for i in range(num_outputs):
+                    name = inquirer.text(f"Enter name for output {i+1}", 
+                                       default=f"output_{i+1}" if i > 0 else "main_output")
+                    output_names.append(name)
+                return num_outputs, output_names
+            except ValueError:
+                pass
+        
+        # Default: single output
+        print("   ✅ Detected 1 output (default)")
+        return 1, ['main_output']
+
+    def _analyze_custom_model_outputs(self, file_path: str, function_name: str, 
+                                    model_config: Dict[str, Any]) -> Tuple[int, List[str]]:
+        """
+        Analyze a custom model function to determine its outputs.
+        
+        Args:
+            file_path: Path to the Python file containing the model
+            function_name: Name of the model function
+            model_config: Model configuration parameters
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        import importlib.util
+        import inspect
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Model file not found: {file_path}")
+        
+        # Load the module
+        spec = importlib.util.spec_from_file_location("custom_model", file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load module from: {file_path}")
+        
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Get the model function
+        if not hasattr(module, function_name):
+            raise AttributeError(f"Function {function_name} not found in {file_path}")
+        
+        model_func = getattr(module, function_name)
+        
+        # Try to build the model to analyze its structure
+        try:
+            # Prepare model parameters
+            model_params = model_config.get('model_parameters', {})
+            input_shape = (
+                model_params.get('input_shape', {}).get('height', 224),
+                model_params.get('input_shape', {}).get('width', 224), 
+                model_params.get('input_shape', {}).get('channels', 3)
+            )
+            num_classes = model_params.get('classes', 10)
+            
+            # Build the model with basic parameters
+            import keras
+            if inspect.isclass(model_func):
+                # If it's a class, instantiate it
+                model = model_func(input_shape=input_shape, num_classes=num_classes)
+            else:
+                # If it's a function, call it
+                model = model_func(input_shape=input_shape, num_classes=num_classes)
+            
+            if hasattr(model, 'outputs') and hasattr(model.outputs, '__len__'):
+                num_outputs = len(model.outputs)
+                output_names = []
+                
+                for i, output in enumerate(model.outputs):
+                    output_name = None
+                    
+                    if hasattr(output, 'name') and output.name:
+                        # Extract clean name from tensor name (remove :0 suffix and path)
+                        clean_name = output.name.split(':')[0].split('/')[-1]
+                        
+                        # Check if it's a meaningful name (not generic tensor names)
+                        if clean_name and not any(generic in clean_name.lower() for generic in 
+                                                ['keras_tensor', 'dense_', 'sequential_', 'functional_']):
+                            output_name = clean_name
+                        
+                        # Special case: look for aux/auxiliary patterns
+                        if 'aux' in clean_name.lower() or 'auxiliary' in clean_name.lower():
+                            output_name = clean_name
+                    
+                    # If no meaningful name found, generate a sensible default
+                    if not output_name:
+                        if i == 0:
+                            output_name = 'main_output'
+                        else:
+                            output_name = f'aux_output_{i}' if i == 1 else f'output_{i+1}'
+                    
+                    output_names.append(output_name)
+                
+                return num_outputs, output_names
+            else:
+                return 1, ['main_output']
+                
+        except Exception as e:
+            print(f"   ⚠️  Could not build model for analysis: {e}")
+            # Fall back to source code analysis
+            return self._analyze_model_source_code(model_func)
+
+    def _analyze_model_source_code(self, model_func) -> Tuple[int, List[str]]:
+        """
+        Analyze model function source code to detect multiple outputs.
+        
+        Args:
+            model_func: The model function to analyze
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        import inspect
+        
+        try:
+            source = inspect.getsource(model_func)
+            source_lower = source.lower()
+            
+            # Look for multiple outputs patterns
+            multiple_output_patterns = [
+                'model(inputs, [',  # keras.Model(inputs, [output1, output2])
+                'return [',         # return [output1, output2]
+                ', name=',         # multiple named outputs
+                'outputs = [',     # outputs = [...]
+                'aux_output',      # auxiliary outputs
+            ]
+            
+            pattern_count = sum(1 for pattern in multiple_output_patterns if pattern in source_lower)
+            
+            if pattern_count >= 2 or 'aux_output' in source_lower:
+                # Likely multiple outputs - try to extract names
+                output_names = []
+                
+                # Look for name= patterns in layer definitions
+                import re
+                name_patterns = re.findall(r'name=[\'"]([^\'\"]+)[\'"]', source)
+                for name in name_patterns:
+                    if any(keyword in name.lower() for keyword in ['output', 'aux', 'auxiliary']):
+                        output_names.append(name)
+                
+                # Look for variable names that suggest outputs
+                variable_patterns = re.findall(r'(\w*(?:output|aux)\w*)\s*=', source_lower)
+                for var_name in variable_patterns:
+                    if var_name and var_name not in output_names:
+                        output_names.append(var_name)
+                
+                # Clean up and validate output names
+                clean_names = []
+                for name in output_names:
+                    if name and len(name) > 0:
+                        clean_names.append(name)
+                
+                if not clean_names:
+                    clean_names = ['main_output', 'aux_output']
+                elif len(clean_names) == 1:
+                    clean_names = ['main_output', clean_names[0]]
+                
+                # Limit to reasonable number of outputs
+                if len(clean_names) > 5:
+                    clean_names = clean_names[:5]
+                
+                return len(clean_names), clean_names
+            
+            return 1, ['main_output']
+            
+        except Exception:
+            return 1, ['main_output']
+
+    def configure_loss_functions(self, config: Dict[str, Any], num_outputs: int = 1) -> Dict[str, Any]:
+        """Configure loss functions for single or multiple outputs with improved workflow."""
+        print("\n📊 Loss Function Configuration")
+        
+        # Step 1: Analyze model outputs automatically
+        print("🔍 Step 1: Analyzing model outputs...")
+        detected_outputs, detected_names = self.analyze_model_outputs(config)
+        
+        # Step 2: Update model output configuration
+        print(f"\n📝 Step 2: Model Output Information")
+        print(f"   Detected outputs: {detected_outputs}")
+        print(f"   Output names: {detected_names}")
+        
+        # Allow user to override if needed
+        confirm_outputs = inquirer.confirm(
+            f"Use detected configuration ({detected_outputs} outputs)?", 
+            default=True
+        )
+        
+        if not confirm_outputs:
+            detected_outputs = int(inquirer.text("Enter number of outputs", default=str(detected_outputs)))
+            detected_names = []
+            for i in range(detected_outputs):
+                name = inquirer.text(f"Enter name for output {i+1}", 
+                                   default=detected_names[i] if i < len(detected_names) else f"output_{i+1}")
+                detected_names.append(name)
+        
+        # Step 3: Determine loss strategy based on number of outputs
+        print(f"\n⚙️ Step 3: Loss Strategy Selection")
+        
+        if detected_outputs == 1:
+            print("   Single output detected - using 'single_loss_all_outputs' strategy")
+            loss_strategy = 'single_loss_all_outputs'
+        else:
+            print(f"   Multiple outputs detected ({detected_outputs}) - please select strategy:")
+            
+            loss_strategy_choice = inquirer.list_input(
+                "Select loss strategy for multiple outputs",
+                choices=[
+                    'single_loss_all_outputs - Use the same loss function for all outputs',
+                    'different_loss_each_output - Use different loss functions for each output'
+                ],
+                default='single_loss_all_outputs - Use the same loss function for all outputs'
+            )
+            loss_strategy = loss_strategy_choice.split(' - ')[0]
+        
+        # Step 4: Configure loss functions based on strategy
+        print(f"\n🎯 Step 4: Loss Function Selection")
+        print(f"   Strategy: {loss_strategy}")
+        
+        if loss_strategy == 'single_loss_all_outputs':
+            # Configure single loss function for all outputs
+            loss_config = self._configure_single_loss()
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'loss_strategy': 'single_loss_all_outputs'
+                },
+                'Loss Selection': loss_config
+            }
+        else:
+            # Configure different loss functions for each output
+            loss_configs = self._configure_multiple_losses(detected_outputs, detected_names)
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'loss_strategy': 'different_loss_each_output'
+                },
+                'Loss Selection': loss_configs
+            }
+
+    def _configure_single_loss(self) -> Dict[str, Any]:
+        """Configure a single loss function with preset or custom options."""
+        # Add Custom option to available losses
+        loss_choices = self.available_losses + ['Custom']
+        
+        loss_function = inquirer.list_input(
+            "Select loss function",
+            choices=loss_choices,
+            default='Categorical Crossentropy'
+        )
+        
+        if loss_function == 'Custom':
+            print("\n🔧 Custom Loss Function Configuration")
+            custom_loss_path = inquirer.text(
+                "Enter path to Python file containing custom loss functions",
+                default="./custom_modules/custom_loss_functions.py"
+            )
+            
+            if not custom_loss_path or not os.path.exists(custom_loss_path):
+                print("❌ Invalid file path. Using default loss function.")
+                loss_name = 'Categorical Crossentropy'
+                loss_params = {}
+            else:
+                # Analyze custom loss function file
+                success, loss_info = self.analyze_custom_loss_file(custom_loss_path)
+                
+                if not success or not loss_info:
+                    print("❌ No valid loss functions found in the file. Using default loss function.")
+                    loss_name = 'Categorical Crossentropy'
+                    loss_params = {}
+                else:
+                    print(f"\n✅ Found {len(loss_info)} loss function(s) in {custom_loss_path}")
+                    
+                    # Let user select from available loss functions
+                    loss_name, loss_params = self.interactive_custom_loss_selection(custom_loss_path)
+            
+            return {
+                'selected_loss': loss_name or 'Categorical Crossentropy',
+                'custom_loss_path': custom_loss_path if loss_name else None,
+                'parameters': loss_params.get('user_parameters', {}) if loss_params else {}
+            }
+        else:
+            return {
+                'selected_loss': loss_function,
+                'custom_loss_path': None,
+                'parameters': {}
+            }
+
+    def _configure_multiple_losses(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
+        """Configure different loss functions for multiple outputs."""
+        loss_configs = {}
+        
+        # Use provided names or generate default ones
+        if output_names is None:
+            output_names = [f"output_{i + 1}" for i in range(num_outputs)]
+        
+        for i in range(num_outputs):
+            output_name = output_names[i] if i < len(output_names) else f"output_{i + 1}"
+            print(f"\n🎯 Configuring loss function for '{output_name}':")
+            loss_configs[output_name] = self._configure_single_loss()
+        
+        return loss_configs
 
     def create_default_config(self) -> Dict[str, Any]:
         """Create a default configuration structure."""
@@ -553,6 +1482,52 @@ class ModelConfigCLI:
         config['configuration']['data']['train_dir'] = train_dir
         config['configuration']['data']['val_dir'] = val_dir
         
+        # Data Loader Selection
+        print("\n📊 Data Loader Configuration")
+        data_loader = inquirer.list_input(
+            "Select data loader",
+            choices=self.available_data_loaders,
+            default='ImageDataGenerator'
+        )
+        config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
+        
+        # Handle custom data loader selection
+        if data_loader == 'Custom':
+            print("\n🔧 Custom Data Loader Configuration")
+            custom_data_loader_path = inquirer.text(
+                "Enter path to Python file containing custom data loader",
+                default="./custom_modules/custom_data_loaders.py"
+            )
+            
+            if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
+                print("❌ Invalid file path. Using default data loader.")
+                data_loader_name = 'ImageDataGenerator'
+                data_loader_params = {}
+            else:
+                # Analyze custom data loader file
+                success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
+                
+                if not success or not loader_info:
+                    print("❌ No valid data loader functions found in the file. Using default data loader.")
+                    data_loader_name = 'ImageDataGenerator'
+                    data_loader_params = {}
+                else:
+                    print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
+                    
+                    # Let user select from available data loaders
+                    data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
+                    
+                    # Add custom data loader path to config
+                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+            
+            config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
+            
+            # Update data loader parameters if available
+            if data_loader_params and 'user_parameters' in data_loader_params:
+                if 'parameters' not in config['configuration']['data']['data_loader']:
+                    config['configuration']['data']['data_loader']['parameters'] = {}
+                config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
+        
         # Batch size
         batch_size = inquirer.text("Enter batch size", default="32")
         try:
@@ -604,8 +1579,7 @@ class ModelConfigCLI:
                         'description': model_info.get('description', '')
                     }
                     print(f"✅ Selected custom model: {model_name}")
-                    if model_info.get('description'):
-                        print(f"   Description: {model_info['description']}")
+                    print(f"   Type: {model_info.get('type', 'function')}")
                 else:
                     print("⚠️  No valid model selected, using default...")
                     model_name = 'CustomModel'
@@ -699,14 +1673,9 @@ class ModelConfigCLI:
         except ValueError:
             config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = 0.001
         
-        # Loss Function Configuration
-        print("\n📊 Loss Function Configuration")
-        loss_function = inquirer.list_input(
-            "Select loss function",
-            choices=self.available_losses,
-            default='Categorical Crossentropy'
-        )
-        config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
+        # Loss Function Configuration - using improved workflow
+        loss_functions_config = self.configure_loss_functions(config)
+        config['configuration']['model']['loss_functions'] = loss_functions_config
         
         # Metrics Configuration
         print("\n📈 Metrics Configuration")
@@ -1663,6 +2632,56 @@ class ModelConfigCLI:
             
             config['configuration']['data']['train_dir'] = train_dir
             config['configuration']['data']['val_dir'] = val_dir
+            
+            # Data Loader Selection
+            current_data_loader = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('selected_data_loader', 'ImageDataGenerator')
+            print(f"\n📊 Current Data Loader: {current_data_loader}")
+            
+            change_data_loader = inquirer.confirm("Change data loader?", default=False)
+            if change_data_loader:
+                data_loader = inquirer.list_input(
+                    "Select data loader",
+                    choices=self.available_data_loaders,
+                    default=current_data_loader if current_data_loader in self.available_data_loaders else 'ImageDataGenerator'
+                )
+                config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
+                
+                # Handle custom data loader selection
+                if data_loader == 'Custom':
+                    print("\n🔧 Custom Data Loader Configuration")
+                    custom_data_loader_path = inquirer.text(
+                        "Enter path to Python file containing custom data loader",
+                        default="./custom_modules/custom_data_loaders.py"
+                    )
+                    
+                    if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
+                        print("❌ Invalid file path. Using default data loader.")
+                        data_loader_name = 'ImageDataGenerator'
+                        data_loader_params = {}
+                    else:
+                        # Analyze custom data loader file
+                        success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
+                        
+                        if not success or not loader_info:
+                            print("❌ No valid data loader functions found in the file. Using default data loader.")
+                            data_loader_name = 'ImageDataGenerator'
+                            data_loader_params = {}
+                        else:
+                            print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
+                            
+                            # Let user select from available data loaders
+                            data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
+                            
+                            # Add custom data loader path to config
+                            config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+                    
+                    config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
+                    
+                    # Update data loader parameters if available
+                    if data_loader_params and 'user_parameters' in data_loader_params:
+                        if 'parameters' not in config['configuration']['data']['data_loader']:
+                            config['configuration']['data']['data_loader']['parameters'] = {}
+                        config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
         
         # Batch size
         current_batch_size = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('parameters', {}).get('batch_size', 32)
@@ -1801,18 +2820,20 @@ class ModelConfigCLI:
                 print("⚠️  Invalid learning rate, keeping current value")
         
         # Loss Function Configuration
-        current_loss = config.get('configuration', {}).get('model', {}).get('loss_functions', {}).get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
+        current_loss_config = config.get('configuration', {}).get('model', {}).get('loss_functions', {})
+        current_loss = current_loss_config.get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
+        current_num_outputs = current_loss_config.get('Model Output Configuration', {}).get('num_outputs', 1)
+        current_loss_strategy = current_loss_config.get('Model Output Configuration', {}).get('loss_strategy', 'single_loss_all_outputs')
         
         print(f"\n📉 Current Loss Function: {current_loss}")
+        print(f"    Number of outputs: {current_num_outputs}")
+        print(f"    Loss strategy: {current_loss_strategy}")
         
-        change_loss = inquirer.confirm("Change loss function?", default=False)
+        change_loss = inquirer.confirm("Change loss function configuration?", default=False)
         if change_loss:
-            loss_function = inquirer.list_input(
-                "Select loss function",
-                choices=self.available_losses,
-                default=current_loss if current_loss in self.available_losses else 'Categorical Crossentropy'
-            )
-            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
+            # Use improved loss configuration workflow
+            loss_functions_config = self.configure_loss_functions(config)
+            config['configuration']['model']['loss_functions'] = loss_functions_config
         
         # Training Configuration
         current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
