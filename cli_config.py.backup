@@ -4,11 +4,19 @@ CLI Configuration Tool for ModelGardener
 Provides a command-line interface to configure model_config.json without the GUI.
 """
 
+# Suppress TensorFlow warnings as early as possible
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+import warnings
+warnings.filterwarnings('ignore')
+
 import argparse
+import ast
 import json
 import yaml
-import os
 import sys
+import copy
 import inspect
 import importlib.util
 from pathlib import Path
@@ -60,6 +68,10 @@ class ModelConfigCLI:
         self.available_metrics = [
             'Accuracy', 'Categorical Accuracy', 'Sparse Categorical Accuracy', 'Top K Categorical Accuracy',
             'Precision', 'Recall', 'F1 Score', 'AUC', 'Mean Squared Error', 'Mean Absolute Error'
+        ]
+        self.available_data_loaders = [
+            'ImageDataGenerator', 'DirectoryDataLoader', 'TFRecordDataLoader', 'CSVDataLoader',
+            'NPZDataLoader', 'Custom'
         ]
 
     def _is_model_function(self, obj, name: str) -> bool:
@@ -204,13 +216,15 @@ class ModelConfigCLI:
         
         print(f"\n🔍 Found {len(analysis_result)} custom model(s) in {os.path.basename(file_path)}")
         
-        # Create choices for inquirer
+        # Create choices for inquirer - show only signatures, not full descriptions
         choices = []
         for name, info in analysis_result.items():
-            description = info.get('description', f"Custom {info['type']}: {name}")
-            choice_text = f"{name} - {description}"
             if info['type'] == 'function' and 'signature' in info:
-                choice_text += f" {info['signature']}"
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name}"
             choices.append((choice_text, name))
         
         # Let user select the model
@@ -231,6 +245,1303 @@ class ModelConfigCLI:
             return selected_name, analysis_result[selected_name]
         
         return None, {}
+
+    def _is_data_loader_function(self, obj, name: str) -> bool:
+        """
+        Check if an object is a valid data loader function or class.
+        
+        Args:
+            obj: The object to check
+            name: Name of the object
+            
+        Returns:
+            bool: True if it's a valid data loader function/class
+        """
+        import inspect
+        
+        # Skip private functions, imports, and common utilities
+        if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'os', 'sys', 'train_test_split', 'pd', 'pandas']:
+            return False
+        
+        # Skip objects from imported modules
+        if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
+            if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+                return False
+            
+        try:
+            if inspect.isfunction(obj):
+                # Check function signature for data loader patterns
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Must have data-related parameters
+                data_loader_indicators = [
+                    'data_dir', 'batch_size', 'split', 'train_dir', 'val_dir',
+                    'dataset', 'images', 'labels', 'data_path', 'file_path',
+                    'csv_path', 'npz_path', 'tfrecord_path'
+                ]
+                
+                # Check if function has data loader-like parameters
+                has_data_params = any(indicator in param.lower() for param in params for indicator in data_loader_indicators)
+                
+                # Must return tf.data.Dataset or similar
+                return_annotation = sig.return_annotation
+                valid_return_type = False
+                if return_annotation != inspect.Signature.empty:
+                    return_type_str = str(return_annotation)
+                    if 'tf.data.Dataset' in return_type_str or 'Dataset' in return_type_str or 'DatasetV2' in return_type_str:
+                        valid_return_type = True
+                
+                # Check docstring for data loader keywords
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                data_loader_keywords = ['data loader', 'dataset', 'load data', 'data loading']
+                has_data_keywords = any(keyword in docstring_lower for keyword in data_loader_keywords)
+                
+                # Exclude simple utility functions like invalid_data_function
+                if len(params) < 2:
+                    return False
+                
+                # Must have either data params + valid return type OR data keywords + data params
+                return (has_data_params and valid_return_type) or (has_data_keywords and has_data_params)
+                
+            elif inspect.isclass(obj):
+                # Check if class has data loader-like methods
+                methods = [method for method in dir(obj) if not method.startswith('_')]
+                data_loader_methods = ['load', 'get_dataset', 'load_data', 'get_data']
+                has_loader_methods = any(method.lower() in [m.lower() for m in data_loader_methods] for method in methods)
+                
+                # Check class docstring
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                class_keywords = ['data loader', 'dataset', 'load data', 'dataloader']
+                has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
+                
+                # Check constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                has_data_params = False
+                if init_method:
+                    try:
+                        sig = inspect.signature(init_method)
+                        params = list(sig.parameters.keys())
+                        data_indicators = ['data_dir', 'batch_size', 'data_path', 'npz_path', 'csv_path']
+                        has_data_params = any(indicator in param.lower() for param in params for indicator in data_indicators)
+                    except:
+                        pass
+                
+                return (has_loader_methods or has_class_keywords) and has_data_params
+                
+        except Exception:
+            return False
+            
+        return False
+
+    def _extract_data_loader_parameters(self, obj) -> Dict[str, Any]:
+        """
+        Extract parameters from a data loader function or class.
+        
+        Args:
+            obj: The data loader function or class
+            
+        Returns:
+            Dict containing parameter information
+        """
+        import inspect
+        
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                params = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip common fixed parameters
+                    if param_name in ['data_dir', 'train_dir', 'val_dir', 'split']:
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    # Infer parameter type
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+                
+                return {
+                    'type': 'function',
+                    'parameters': params,
+                    'signature': str(sig),
+                    'description': inspect.getdoc(obj) or f"Data loader function: {obj.__name__}"
+                }
+                
+            elif inspect.isclass(obj):
+                # Get constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                params = {}
+                
+                if init_method:
+                    sig = inspect.signature(init_method)
+                    for param_name, param in sig.parameters.items():
+                        if param_name == 'self':
+                            continue
+                        if param_name in ['data_dir', 'train_dir', 'val_dir']:
+                            continue
+                            
+                        param_info = {
+                            'name': param_name,
+                            'required': param.default == inspect.Parameter.empty,
+                            'default': param.default if param.default != inspect.Parameter.empty else None,
+                            'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                        }
+                        
+                        if param.annotation != inspect.Parameter.empty:
+                            param_info['type'] = str(param.annotation)
+                        elif param.default is not None:
+                            param_info['type'] = type(param.default).__name__
+                        else:
+                            param_info['type'] = 'Any'
+                        
+                        params[param_name] = param_info
+                
+                return {
+                    'type': 'class',
+                    'parameters': params,
+                    'signature': f"class {obj.__name__}",
+                    'description': inspect.getdoc(obj) or f"Data loader class: {obj.__name__}"
+                }
+                
+        except Exception:
+            return {
+                'type': 'unknown',
+                'parameters': {},
+                'signature': '',
+                'description': f"Data loader: {getattr(obj, '__name__', 'Unknown')}"
+            }
+        
+        return {}
+
+    def analyze_custom_data_loader_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract data loader functions and classes.
+        
+        Args:
+            file_path: Path to the Python file
+            
+        Returns:
+            Tuple of (success, data_loader_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_data_loaders", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            data_loader_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_data_loader_function(obj, name):
+                    info = self._extract_data_loader_parameters(obj)
+                    if info:
+                        data_loader_info[name] = info
+            
+            return len(data_loader_info) > 0, data_loader_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing data loader file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_data_loader_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom data loader from analyzed file.
+        
+        Args:
+            file_path: Path to the custom data loader file
+            
+        Returns:
+            Tuple of (selected_loader_name, loader_info)
+        """
+        success, analysis_result = self.analyze_custom_data_loader_file(file_path)
+        
+        if not success or not analysis_result:
+            print("❌ No valid data loader functions found in the file")
+            return None, {}
+        
+        print(f"\n✅ Found {len(analysis_result)} data loader function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only name, not full descriptions
+        choices = []
+        for name, info in analysis_result.items():
+            if info['type'] == 'function' in info:
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name}"
+            
+            choices.append(choice_text)
+        
+        # Let user select
+        selected_choice = inquirer.list_input(
+            "Select custom data loader to use",
+            choices=choices
+        )
+        
+        # Extract the name from the choice (before any space or parenthesis)
+        selected_name = selected_choice.split(' ')[0] if ' ' in selected_choice else selected_choice
+        
+        if selected_name in analysis_result:
+            info = analysis_result[selected_name]
+            print(f"\n✅ Selected custom data loader: {selected_name}")
+            print(f"   Type: {info['type']}")
+            
+            # Ask for parameters if any
+            parameters = {}
+            if 'parameters' in info and info['parameters']:
+                param_count = len([p for p in info['parameters'].values() if not p['required']])
+                if param_count > 0:
+                    print(f"\n⚙️  Custom data loader parameters found: {param_count}")
+                    
+                    for param_name, param_info in info['parameters'].items():
+                        if not param_info['required']:  # Only ask for optional parameters
+                            default_val = param_info.get('default', '')
+                            user_value = inquirer.text(
+                                f"Enter {param_name} (default: {default_val})",
+                                default=str(default_val) if default_val is not None else ""
+                            )
+                            
+                            # Convert to appropriate type
+                            if user_value:
+                                try:
+                                    if param_info['type'] == 'int':
+                                        parameters[param_name] = int(user_value)
+                                    elif param_info['type'] == 'float':
+                                        parameters[param_name] = float(user_value)
+                                    elif param_info['type'] == 'bool':
+                                        parameters[param_name] = user_value.lower() in ['true', '1', 'yes', 'on']
+                                    else:
+                                        parameters[param_name] = user_value
+                                except ValueError:
+                                    parameters[param_name] = user_value
+            
+            result_info = info.copy()
+            if parameters:
+                result_info['user_parameters'] = parameters
+            
+            return selected_name, result_info
+        
+        return None, {}
+
+    def _is_loss_function(self, obj, name: str) -> bool:
+        """
+        Check if an object is a valid loss function.
+        
+        Args:
+            obj: The object to check
+            name: Name of the object
+            
+        Returns:
+            bool: True if it's a valid loss function
+        """
+        import inspect
+        
+        # Skip private functions, imports, and common utilities
+        if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'keras', 'K']:
+            return False
+        
+        # Skip objects from imported modules (except custom ones)
+        if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
+            if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+                return False
+            
+        try:
+            if inspect.isfunction(obj):
+                # Check function signature for loss function patterns
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Must have typical loss function parameters
+                loss_indicators = ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction', 'labels', 'logits']
+                has_loss_params = len(params) >= 2 and any(indicator in param.lower() for param in params for indicator in loss_indicators)
+                
+                # Check docstring for loss function keywords
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                loss_keywords = ['loss', 'cost', 'error', 'distance', 'divergence']
+                has_loss_keywords = any(keyword in docstring_lower for keyword in loss_keywords)
+                
+                return has_loss_params or has_loss_keywords
+                
+            elif inspect.isclass(obj):
+                # Check if class inherits from typical loss classes or has loss-like methods
+                methods = [method for method in dir(obj) if not method.startswith('_')]
+                loss_methods = ['call', '__call__', 'compute_loss', 'calculate_loss']
+                has_loss_methods = any(method.lower() in [m.lower() for m in loss_methods] for method in methods)
+                
+                # Check class docstring
+                docstring = inspect.getdoc(obj) or ""
+                docstring_lower = docstring.lower()
+                class_keywords = ['loss', 'cost function', 'objective function']
+                has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
+                
+                return has_loss_methods or has_class_keywords
+                
+        except Exception:
+            return False
+            
+        return False
+
+    def _extract_loss_parameters(self, obj) -> Dict[str, Any]:
+        """
+        Extract parameters from a loss function.
+        
+        Args:
+            obj: The loss function or class
+            
+        Returns:
+            Dict containing parameter information
+        """
+        import inspect
+        
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                params = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip y_true, y_pred parameters as they are provided during training
+                    if param_name.lower() in ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction']:
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    # Infer parameter type
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+                
+                return {
+                    'type': 'function',
+                    'parameters': params,
+                    'signature': str(sig),
+                    'description': inspect.getdoc(obj) or f"Loss function: {obj.__name__}"
+                }
+                
+            elif inspect.isclass(obj):
+                # Get constructor parameters
+                init_method = getattr(obj, '__init__', None)
+                params = {}
+                
+                if init_method:
+                    sig = inspect.signature(init_method)
+                    for param_name, param in sig.parameters.items():
+                        if param_name == 'self':
+                            continue
+                            
+                        param_info = {
+                            'name': param_name,
+                            'required': param.default == inspect.Parameter.empty,
+                            'default': param.default if param.default != inspect.Parameter.empty else None,
+                            'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                        }
+                        
+                        if param.annotation != inspect.Parameter.empty:
+                            param_info['type'] = str(param.annotation)
+                        elif param.default is not None:
+                            param_info['type'] = type(param.default).__name__
+                        else:
+                            param_info['type'] = 'Any'
+                        
+                        params[param_name] = param_info
+                
+                return {
+                    'type': 'class',
+                    'parameters': params,
+                    'signature': f"class {obj.__name__}",
+                    'description': inspect.getdoc(obj) or f"Loss class: {obj.__name__}"
+                }
+                
+        except Exception:
+            return {
+                'type': 'unknown',
+                'parameters': {},
+                'signature': '',
+                'description': f"Loss function: {getattr(obj, '__name__', 'Unknown')}"
+            }
+        
+        return {}
+
+    def analyze_custom_loss_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract loss functions.
+        
+        Args:
+            file_path: Path to the Python file
+            
+        Returns:
+            Tuple of (success, loss_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_losses", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            loss_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_loss_function(obj, name):
+                    info = self._extract_loss_parameters(obj)
+                    if info:
+                        loss_info[name] = info
+            
+            return len(loss_info) > 0, loss_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing loss function file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_loss_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom loss function from analyzed file.
+        
+        Args:
+            file_path: Path to the custom loss function file
+            
+        Returns:
+            Tuple of (selected_loss_name, loss_info)
+        """
+        success, analysis_result = self.analyze_custom_loss_file(file_path)
+        
+        if not success or not analysis_result:
+            print("❌ No valid loss functions found in the file")
+            return None, {}
+        
+        print(f"\n✅ Found {len(analysis_result)} loss function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only signatures, not full descriptions
+        choices = []
+        for name, info in analysis_result.items():
+            if info['type'] == 'function' and 'signature' in info:
+                choice_text = f"{name} {info['signature']}"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = f"{name} ({info['type']})"
+            
+            choices.append(choice_text)
+        
+        # Let user select
+        selected_choice = inquirer.list_input(
+            "Select custom loss function to use",
+            choices=choices
+        )
+        
+        # Extract the name from the choice (before any space or parenthesis)
+        selected_name = selected_choice.split(' ')[0] if ' ' in selected_choice else selected_choice
+        
+        if selected_name in analysis_result:
+            info = analysis_result[selected_name]
+            print(f"\n✅ Selected custom loss function: {selected_name}")
+            print(f"   Type: {info['type']}")
+            
+            # Ask for parameters if any
+            parameters = {}
+            if 'parameters' in info and info['parameters']:
+                param_count = len([p for p in info['parameters'].values() if not p['required']])
+                if param_count > 0:
+                    print(f"\n⚙️  Custom loss function parameters found: {param_count}")
+                    
+                    for param_name, param_info in info['parameters'].items():
+                        if not param_info['required']:  # Only ask for optional parameters
+                            default_val = param_info.get('default', '')
+                            user_value = inquirer.text(
+                                f"Enter {param_name} (default: {default_val})",
+                                default=str(default_val) if default_val is not None else ""
+                            )
+                            
+                            # Convert to appropriate type
+                            if user_value:
+                                try:
+                                    if param_info['type'] == 'int':
+                                        parameters[param_name] = int(user_value)
+                                    elif param_info['type'] == 'float':
+                                        parameters[param_name] = float(user_value)
+                                    elif param_info['type'] == 'bool':
+                                        parameters[param_name] = user_value.lower() in ['true', '1', 'yes', 'on']
+                                    else:
+                                        parameters[param_name] = user_value
+                                except ValueError:
+                                    parameters[param_name] = user_value
+            
+            result_info = info.copy()
+            if parameters:
+                result_info['user_parameters'] = parameters
+            
+            return selected_name, result_info
+        
+        return None, {}
+
+    def analyze_custom_metrics_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract custom metrics functions.
+        Similar to analyze_custom_loss_file but for metrics functions.
+        
+        Args:
+            file_path: Path to the Python file containing custom metrics
+            
+        Returns:
+            Tuple of (success, analysis_result)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Use AST to parse the file
+            tree = ast.parse(content)
+            
+            functions_info = {}
+            
+            # Look for function definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Skip private functions
+                    if func_name.startswith('_'):
+                        continue
+                    
+                    # Get function signature
+                    args = [arg.arg for arg in node.args.args]
+                    
+                    # Look for typical metrics function patterns
+                    if self._is_likely_metrics_function(func_name, args, content):
+                        # Extract parameters
+                        parameters = self._extract_function_parameters(node, content)
+                        
+                        # Get signature string
+                        signature = f"({', '.join(args)})"
+                        
+                        functions_info[func_name] = {
+                            'type': 'function',
+                            'function_name': func_name,
+                            'signature': signature,
+                            'parameters': parameters,
+                            'file_path': file_path
+                        }
+                
+                # Look for class definitions that might be custom metrics
+                elif isinstance(node, ast.ClassDef):
+                    class_name = node.name
+                    
+                    # Skip private classes
+                    if class_name.startswith('_'):
+                        continue
+                    
+                    # Look for classes that might be metrics (typically have __call__ or compute methods)
+                    has_call = any(isinstance(n, ast.FunctionDef) and n.name == '__call__' 
+                                 for n in node.body)
+                    has_compute = any(isinstance(n, ast.FunctionDef) and n.name == 'compute' 
+                                    for n in node.body)
+                    
+                    if has_call or has_compute or 'metric' in class_name.lower():
+                        functions_info[class_name] = {
+                            'type': 'class',
+                            'function_name': class_name,
+                            'signature': '(class)',
+                            'parameters': {},
+                            'file_path': file_path
+                        }
+            
+            return len(functions_info) > 0, functions_info
+            
+        except Exception as e:
+            print(f"Error analyzing metrics file {file_path}: {e}")
+            return False, {}
+
+    def _is_likely_metrics_function(self, func_name: str, args: List[str], content: str) -> bool:
+        """Check if a function is likely a metrics function."""
+        func_name_lower = func_name.lower()
+        
+        # Common metrics function name patterns
+        metrics_patterns = [
+            'accuracy', 'precision', 'recall', 'f1', 'auc', 'score', 'metric',
+            'mse', 'mae', 'rmse', 'loss', 'error', 'iou', 'dice'
+        ]
+        
+        # Check if function name contains metrics patterns
+        name_matches = any(pattern in func_name_lower for pattern in metrics_patterns)
+        
+        # Check for typical metrics function parameters
+        typical_params = ['y_true', 'y_pred', 'true', 'pred', 'actual', 'predicted', 'labels', 'outputs']
+        param_matches = any(param in ' '.join(args).lower() for param in typical_params)
+        
+        # Check if function has at least 2 parameters (typical for metrics: y_true, y_pred)
+        has_enough_params = len(args) >= 2
+        
+        return (name_matches or param_matches) and has_enough_params
+
+    def interactive_custom_metrics_selection(self, file_path: str, metrics_info: Dict[str, Any]) -> List[str]:
+        """
+        Interactive selection of custom metrics functions from analyzed file.
+        
+        Args:
+            file_path: Path to the custom metrics function file
+            metrics_info: Analysis result from analyze_custom_metrics_file
+            
+        Returns:
+            List of selected metrics names
+        """
+        if not metrics_info:
+            print("❌ No metrics functions found in the file")
+            return []
+        
+        print(f"\n✅ Found {len(metrics_info)} metrics function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only name, not full descriptions
+        choices = []
+        for name, info in metrics_info.items():
+            if info['type'] == 'function' and 'signature' in info:
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = name
+            choices.append(choice_text)
+        
+        # Let user select multiple metrics
+        if len(choices) == 1:
+            # Only one function available
+            selected_choices = inquirer.checkbox(
+                "Select metrics functions to load",
+                choices=choices,
+                default=choices
+            )
+        else:
+            selected_choices = inquirer.checkbox(
+                "Select metrics functions to load (use space to select, enter to confirm)",
+                choices=choices
+            )
+        
+        # Extract actual function names from choices
+        selected_metrics = []
+        for choice in selected_choices:
+            # Extract function name (everything before the space or parenthesis)
+            actual_name = choice.split(' ')[0] if ' ' in choice else choice.split('(')[0]
+            selected_metrics.append(f"{actual_name} (custom)")
+        
+        return selected_metrics
+
+    def analyze_model_outputs(self, config: Dict[str, Any]) -> Tuple[int, List[str]]:
+        """
+        Analyze the model configuration to determine the number of outputs and their names.
+        
+        Args:
+            config: The current configuration
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        model_config = config.get('configuration', {}).get('model', {})
+        model_family = model_config.get('model_family', '')
+        model_name = model_config.get('model_name', '')
+        
+        # Try to dynamically analyze custom models
+        if model_family == 'custom':
+            custom_model_info = model_config.get('model_parameters', {}).get('custom_info', {})
+            if custom_model_info:
+                file_path = custom_model_info.get('file_path', '')
+                function_name = custom_model_info.get('function_name', '')
+                
+                if file_path and function_name:
+                    try:
+                        # Attempt to load and analyze the custom model
+                        num_outputs, output_names = self._analyze_custom_model_outputs(
+                            file_path, function_name, model_config
+                        )
+                        if num_outputs > 0:
+                            return num_outputs, output_names
+                    except Exception:
+                        # Silently fall back to default behavior
+                        pass
+        
+        # For built-in models, most have single output by default
+        # Check model name for hints about multiple outputs
+        if 'multi' in model_name.lower() or 'multiple' in model_name.lower():
+            # Ask user for number of outputs
+            try:
+                num_outputs = int(inquirer.text("Enter number of model outputs", default="2"))
+                output_names = []
+                for i in range(num_outputs):
+                    name = inquirer.text(f"Enter name for output {i+1}", 
+                                       default=f"output_{i+1}" if i > 0 else "main_output")
+                    output_names.append(name)
+                return num_outputs, output_names
+            except ValueError:
+                pass
+        
+        # Default: single output
+        return 1, ['main_output']
+
+    def _analyze_custom_model_outputs(self, file_path: str, function_name: str, 
+                                    model_config: Dict[str, Any]) -> Tuple[int, List[str]]:
+        """
+        Analyze a custom model function to determine its outputs.
+        
+        Args:
+            file_path: Path to the Python file containing the model
+            function_name: Name of the model function
+            model_config: Model configuration parameters
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        import importlib.util
+        import inspect
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Model file not found: {file_path}")
+        
+        # Load the module
+        spec = importlib.util.spec_from_file_location("custom_model", file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load module from: {file_path}")
+        
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Get the model function
+        if not hasattr(module, function_name):
+            raise AttributeError(f"Function {function_name} not found in {file_path}")
+        
+        model_func = getattr(module, function_name)
+        
+        # Try to build the model to analyze its structure
+        try:
+            # Complete suppression of TensorFlow warnings during model building
+            import sys
+            import contextlib
+            from io import StringIO
+            
+            # Create context manager to suppress all output
+            @contextlib.contextmanager
+            def suppress_output():
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                sys.stdout = StringIO()
+                sys.stderr = StringIO()
+                try:
+                    yield
+                finally:
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
+            
+            # Prepare model parameters
+            model_params = model_config.get('model_parameters', {})
+            input_shape = (
+                model_params.get('input_shape', {}).get('height', 224),
+                model_params.get('input_shape', {}).get('width', 224), 
+                model_params.get('input_shape', {}).get('channels', 3)
+            )
+            num_classes = model_params.get('classes', 10)
+            
+            # Build the model with complete output suppression
+            with suppress_output():
+                import keras
+                
+                if inspect.isclass(model_func):
+                    # If it's a class, instantiate it
+                    model = model_func(input_shape=input_shape, num_classes=num_classes)
+                else:
+                    # If it's a function, call it
+                    model = model_func(input_shape=input_shape, num_classes=num_classes)
+            
+            if hasattr(model, 'outputs') and hasattr(model.outputs, '__len__'):
+                num_outputs = len(model.outputs)
+                output_names = []
+                
+                for i, output in enumerate(model.outputs):
+                    output_name = None
+                    
+                    if hasattr(output, 'name') and output.name:
+                        # Extract clean name from tensor name (remove :0 suffix and path)
+                        clean_name = output.name.split(':')[0].split('/')[-1]
+                        
+                        # Check if it's a meaningful name (not generic tensor names)
+                        if clean_name and not any(generic in clean_name.lower() for generic in 
+                                                ['keras_tensor', 'dense_', 'sequential_', 'functional_']):
+                            output_name = clean_name
+                        
+                        # Special case: look for aux/auxiliary patterns
+                        if 'aux' in clean_name.lower() or 'auxiliary' in clean_name.lower():
+                            output_name = clean_name
+                    
+                    # If no meaningful name found, generate a sensible default
+                    if not output_name:
+                        if i == 0:
+                            output_name = 'main_output'
+                        else:
+                            output_name = f'aux_output_{i}' if i == 1 else f'output_{i+1}'
+                    
+                    output_names.append(output_name)
+                
+                return num_outputs, output_names
+            else:
+                return 1, ['main_output']
+                
+        except Exception:
+            # Fall back to source code analysis
+            return self._analyze_model_source_code(model_func)
+
+    def _analyze_model_source_code(self, model_func) -> Tuple[int, List[str]]:
+        """
+        Analyze model function source code to detect multiple outputs.
+        
+        Args:
+            model_func: The model function to analyze
+            
+        Returns:
+            Tuple of (num_outputs, output_names)
+        """
+        import inspect
+        
+        try:
+            source = inspect.getsource(model_func)
+            source_lower = source.lower()
+            
+            # Look for multiple outputs patterns
+            multiple_output_patterns = [
+                'model(inputs, [',  # keras.Model(inputs, [output1, output2])
+                'return [',         # return [output1, output2]
+                ', name=',         # multiple named outputs
+                'outputs = [',     # outputs = [...]
+                'aux_output',      # auxiliary outputs
+            ]
+            
+            pattern_count = sum(1 for pattern in multiple_output_patterns if pattern in source_lower)
+            
+            if pattern_count >= 2 or 'aux_output' in source_lower:
+                # Likely multiple outputs - try to extract names
+                output_names = []
+                
+                # Look for name= patterns in layer definitions
+                import re
+                name_patterns = re.findall(r'name=[\'"]([^\'\"]+)[\'"]', source)
+                for name in name_patterns:
+                    if any(keyword in name.lower() for keyword in ['output', 'aux', 'auxiliary']):
+                        output_names.append(name)
+                
+                # Look for variable names that suggest outputs
+                variable_patterns = re.findall(r'(\w*(?:output|aux)\w*)\s*=', source_lower)
+                for var_name in variable_patterns:
+                    if var_name and var_name not in output_names:
+                        output_names.append(var_name)
+                
+                # Clean up and validate output names
+                clean_names = []
+                for name in output_names:
+                    if name and len(name) > 0:
+                        clean_names.append(name)
+                
+                if not clean_names:
+                    clean_names = ['main_output', 'aux_output']
+                elif len(clean_names) == 1:
+                    clean_names = ['main_output', clean_names[0]]
+                
+                # Limit to reasonable number of outputs
+                if len(clean_names) > 5:
+                    clean_names = clean_names[:5]
+                
+                return len(clean_names), clean_names
+            
+            return 1, ['main_output']
+            
+        except Exception:
+            return 1, ['main_output']
+
+    def configure_loss_functions(self, config: Dict[str, Any], num_outputs: int = 1) -> Dict[str, Any]:
+        """Configure loss functions for single or multiple outputs with improved workflow."""
+        print("\n📊 Loss Function Configuration")
+        
+        # Analyze model outputs automatically (silently)
+        detected_outputs, detected_names = self.analyze_model_outputs(config)
+        
+        # Always use detected configuration - no confirmation needed
+        if detected_outputs > 1:
+            print(f"Detected {detected_outputs} model outputs: {', '.join(detected_names)}")
+        
+        # Determine loss strategy based on number of outputs
+        if detected_outputs == 1:
+            loss_strategy = 'single_loss_all_outputs'
+        else:
+            loss_strategy_choice = inquirer.list_input(
+                "Select loss strategy for multiple outputs",
+                choices=[
+                    'single_loss_all_outputs - Use the same loss function for all outputs',
+                    'different_loss_each_output - Use different loss functions for each output'
+                ],
+                default='single_loss_all_outputs - Use the same loss function for all outputs'
+            )
+            loss_strategy = loss_strategy_choice.split(' - ')[0]
+        
+        # Configure loss functions based on strategy
+        if loss_strategy == 'single_loss_all_outputs':
+            # Configure single loss function for all outputs
+            loss_config = self._configure_single_loss([], {})
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'loss_strategy': 'single_loss_all_outputs'
+                },
+                'Loss Selection': loss_config
+            }
+        else:
+            # Configure different loss functions for each output
+            loss_configs = self._configure_multiple_losses(detected_outputs, detected_names)
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'loss_strategy': 'different_loss_each_output'
+                },
+                'Loss Selection': loss_configs
+            }
+
+    def _configure_single_loss(self, available_custom_losses: List[str] = None, loaded_custom_configs: Dict[str, Dict] = None) -> Dict[str, Any]:
+        """Configure a single loss function with preset or custom options."""
+        # Add Custom option to available losses, plus any already loaded custom losses
+        loss_choices = self.available_losses.copy()
+        
+        # Add previously loaded custom losses to the choices with (custom) indicator
+        if available_custom_losses:
+            custom_choices = [f"{loss} (custom)" for loss in available_custom_losses]
+            loss_choices.extend(custom_choices)
+        
+        # Add option to load new custom losses
+        loss_choices.append('Load Custom Loss Functions')
+        
+        loss_function = inquirer.list_input(
+            "Select loss function",
+            choices=loss_choices,
+            default='Categorical Crossentropy'
+        )
+        
+        if loss_function == 'Load Custom Loss Functions':
+            print("\n🔧 Custom Loss Function Configuration")
+            custom_loss_path = inquirer.text(
+                "Enter path to Python file containing custom loss functions"
+            )
+            
+            if not custom_loss_path or not os.path.exists(custom_loss_path):
+                print("❌ Invalid file path. Using default loss function.")
+                loss_name = 'Categorical Crossentropy'
+                loss_params = {}
+            else:
+                # Analyze custom loss function file
+                success, loss_info = self.analyze_custom_loss_file(custom_loss_path)
+                
+                if not success or not loss_info:
+                    print("❌ No valid loss functions found in the file. Using default loss function.")
+                    loss_name = 'Categorical Crossentropy'
+                    loss_params = {}
+                else:
+                    print(f"\n✅ Found {len(loss_info)} loss function(s) in {custom_loss_path}")
+                    
+                    # Let user select from available loss functions
+                    loss_name, loss_params = self.interactive_custom_loss_selection(custom_loss_path)
+            
+            return {
+                'selected_loss': loss_name or 'Categorical Crossentropy',
+                'custom_loss_path': custom_loss_path if loss_name else None,
+                'parameters': loss_params.get('user_parameters', {}) if loss_params else {}
+            }
+        else:
+            # Handle custom loss functions (remove "(custom)" indicator if present)
+            actual_loss_name = loss_function.replace(' (custom)', '') if ' (custom)' in loss_function else loss_function
+            
+            # Check if this is a custom loss function
+            is_custom = ' (custom)' in loss_function
+            
+            if is_custom and loaded_custom_configs and actual_loss_name in loaded_custom_configs:
+                # Use the stored configuration for previously loaded custom loss
+                stored_config = loaded_custom_configs[actual_loss_name]
+                return {
+                    'selected_loss': actual_loss_name,
+                    'custom_loss_path': stored_config['custom_loss_path'],
+                    'parameters': copy.deepcopy(stored_config['parameters'])
+                }
+            else:
+                return {
+                    'selected_loss': actual_loss_name,
+                    'custom_loss_path': None,
+                    'parameters': {}
+                }
+
+    def _configure_multiple_losses(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
+        """Configure different loss functions for multiple outputs."""
+        loss_configs = {}
+        loaded_custom_losses = []  # Track custom loss names
+        loaded_custom_configs = {}  # Track full configurations of loaded custom losses
+        
+        # Use provided names or generate default ones
+        if output_names is None:
+            output_names = [f"output_{i + 1}" for i in range(num_outputs)]
+        
+        for i in range(num_outputs):
+            output_name = output_names[i] if i < len(output_names) else f"output_{i + 1}"
+            print(f"\n🎯 Configuring loss function for '{output_name}':")
+            
+            # Pass previously loaded custom losses to avoid re-loading
+            loss_config = self._configure_single_loss(loaded_custom_losses, loaded_custom_configs)
+            loss_configs[output_name] = loss_config
+            
+            # If a custom loss was selected, add it to the available list for next outputs
+            selected_loss = loss_config.get('selected_loss', '')
+            if loss_config.get('custom_loss_path') and selected_loss not in loaded_custom_losses:
+                loaded_custom_losses.append(selected_loss)
+                # Store the full configuration for reuse (create deep copy to avoid YAML anchors)
+                if loss_config.get('custom_loss_path') != 'previously_loaded':
+                    loaded_custom_configs[selected_loss] = {
+                        'custom_loss_path': loss_config.get('custom_loss_path'),
+                        'parameters': copy.deepcopy(loss_config.get('parameters', {}))
+                    }
+        
+        return loss_configs
+
+    def configure_metrics(self, config: Dict[str, Any], loss_functions_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Configure metrics for single or multiple outputs with improved workflow similar to loss functions."""
+        print("\n📈 Metrics Configuration")
+        
+        # Reuse output analysis from loss functions configuration
+        model_output_config = loss_functions_config.get('Model Output Configuration', {})
+        detected_outputs = model_output_config.get('num_outputs', 1)
+        detected_names = model_output_config.get('output_names', 'main_output').split(',')
+        detected_names = [name.strip() for name in detected_names]
+        
+        # Always use detected configuration from loss functions
+        if detected_outputs > 1:
+            print(f"Using same outputs as loss functions: {detected_outputs} outputs: {', '.join(detected_names)}")
+        
+        # Determine metrics strategy based on number of outputs
+        if detected_outputs == 1:
+            metrics_strategy = 'shared_metrics_all_outputs'
+        else:
+            metrics_strategy_choice = inquirer.list_input(
+                "Select metrics strategy for multiple outputs",
+                choices=[
+                    'shared_metrics_all_outputs - Use the same metrics for all outputs',
+                    'different_metrics_per_output - Use different metrics for each output'
+                ],
+                default='shared_metrics_all_outputs - Use the same metrics for all outputs'
+            )
+            metrics_strategy = metrics_strategy_choice.split(' - ')[0]
+        
+        # Configure metrics based on strategy
+        if metrics_strategy == 'shared_metrics_all_outputs':
+            # Configure shared metrics for all outputs
+            metrics_config = self._configure_single_metrics([], {})
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'metrics_strategy': 'shared_metrics_all_outputs'
+                },
+                'Metrics Selection': metrics_config
+            }
+        else:
+            # Configure different metrics for each output
+            metrics_configs = self._configure_multiple_metrics(detected_outputs, detected_names)
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'metrics_strategy': 'different_metrics_per_output'
+                },
+                'Metrics Selection': metrics_configs
+            }
+
+    def _configure_single_metrics(self, available_custom_metrics: List[str] = None, loaded_custom_configs: Dict[str, Dict] = None) -> Dict[str, Any]:
+        """Configure metrics for single output or shared across outputs."""
+        # Add Custom option to available metrics, plus any already loaded custom metrics
+        metrics_choices = self.available_metrics.copy()
+        
+        # Add previously loaded custom metrics to the choices with (custom) indicator
+        if available_custom_metrics:
+            custom_choices = [f"{metric} (custom)" for metric in available_custom_metrics]
+            metrics_choices.extend(custom_choices)
+        
+        # Add option to load new custom metrics
+        metrics_choices.append('Load Custom Metrics Functions')
+        
+        # Use checkbox for multiple selection
+        selected_metrics = inquirer.checkbox(
+            "Select metrics (use space to select, enter to confirm)",
+            choices=metrics_choices,
+            default=['Accuracy']
+        )
+        
+        # Track newly loaded custom metrics for return to caller
+        newly_loaded_custom_metrics = []
+        custom_metrics_path = None
+        metrics_info = {}
+        
+        # Handle custom metrics loading
+        if 'Load Custom Metrics Functions' in selected_metrics:
+            selected_metrics.remove('Load Custom Metrics Functions')  # Remove the option from selection
+            print("\n🔧 Custom Metrics Function Configuration")
+            custom_metrics_path = inquirer.text(
+                "Enter path to Python file containing custom metrics functions"
+            )
+            
+            if not custom_metrics_path or not os.path.exists(custom_metrics_path):
+                print("❌ Invalid file path. Using selected built-in metrics only.")
+            else:
+                # Analyze custom metrics function file
+                success, metrics_info = self.analyze_custom_metrics_file(custom_metrics_path)
+                
+                if not success or not metrics_info:
+                    print("❌ No valid metrics functions found in the file. Using selected built-in metrics only.")
+                else:
+                    print(f"\n✅ Found {len(metrics_info)} metrics function(s) in {custom_metrics_path}")
+                    
+                    # Let user select from available metrics functions
+                    additional_custom_metrics = self.interactive_custom_metrics_selection(custom_metrics_path, metrics_info)
+                    if additional_custom_metrics:
+                        selected_metrics.extend(additional_custom_metrics)
+                        
+                        # Store the newly loaded custom metrics configurations
+                        if loaded_custom_configs is None:
+                            loaded_custom_configs = {}
+                        
+                        for custom_metric in additional_custom_metrics:
+                            actual_name = custom_metric.replace(' (custom)', '')
+                            newly_loaded_custom_metrics.append(actual_name)
+                            if actual_name in metrics_info:
+                                loaded_custom_configs[actual_name] = {
+                                    'custom_metrics_path': custom_metrics_path,
+                                    'parameters': {}  # Initialize with empty parameters
+                                }
+        
+        # Build final metrics configuration
+        final_metrics = []
+        custom_metrics_configs = {}
+        
+        for metric in selected_metrics:
+            if ' (custom)' in metric:
+                # Handle custom metrics
+                actual_metric_name = metric.replace(' (custom)', '')
+                
+                # First check if it's in loaded_custom_configs (from current or previous loads)
+                if loaded_custom_configs and actual_metric_name in loaded_custom_configs:
+                    stored_config = loaded_custom_configs[actual_metric_name]
+                    custom_metrics_configs[actual_metric_name] = {
+                        'custom_metrics_path': stored_config['custom_metrics_path'],
+                        'parameters': copy.deepcopy(stored_config.get('parameters', {}))
+                    }
+                else:
+                    # Fallback: try to find it in the current metrics_info if available
+                    if metrics_info and actual_metric_name in metrics_info:
+                        custom_metrics_configs[actual_metric_name] = {
+                            'custom_metrics_path': custom_metrics_path,
+                            'parameters': {}
+                        }
+                
+                final_metrics.append(actual_metric_name)
+            else:
+                # Handle built-in metrics
+                final_metrics.append(metric)
+        
+        result = {
+            'selected_metrics': ','.join(final_metrics),
+            'custom_metrics_configs': custom_metrics_configs
+        }
+        
+        # Add information about newly loaded custom metrics for caller to track
+        if newly_loaded_custom_metrics:
+            result['_newly_loaded_custom_metrics'] = newly_loaded_custom_metrics
+        
+        return result
+
+    def _configure_multiple_metrics(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
+        """Configure different metrics for multiple outputs."""
+        metrics_configs = {}
+        loaded_custom_metrics = []  # Track custom metrics names
+        loaded_custom_configs = {}  # Track full configurations of loaded custom metrics
+        
+        # Use provided names or generate default ones
+        if output_names is None:
+            output_names = [f"output_{i + 1}" for i in range(num_outputs)]
+        
+        for i in range(num_outputs):
+            output_name = output_names[i] if i < len(output_names) else f"output_{i + 1}"
+            print(f"\n🎯 Configuring metrics for '{output_name}':")
+            
+            # Pass previously loaded custom metrics to avoid re-loading
+            metrics_config = self._configure_single_metrics(loaded_custom_metrics, loaded_custom_configs)
+            metrics_configs[output_name] = metrics_config
+            
+            # Handle newly loaded custom metrics from this configuration
+            if '_newly_loaded_custom_metrics' in metrics_config:
+                for new_metric_name in metrics_config['_newly_loaded_custom_metrics']:
+                    if new_metric_name not in loaded_custom_metrics:
+                        loaded_custom_metrics.append(new_metric_name)
+                # Remove the temporary tracking info from the final config
+                del metrics_config['_newly_loaded_custom_metrics']
+            
+            # If custom metrics were configured, add them to the available list for next outputs
+            custom_configs = metrics_config.get('custom_metrics_configs', {})
+            for metric_name, config_data in custom_configs.items():
+                if metric_name not in loaded_custom_metrics:
+                    loaded_custom_metrics.append(metric_name)
+                # Always update/store the full configuration for reuse
+                loaded_custom_configs[metric_name] = {
+                    'custom_metrics_path': config_data.get('custom_metrics_path'),
+                    'parameters': copy.deepcopy(config_data.get('parameters', {}))
+                }
+        
+        return metrics_configs
 
     def create_default_config(self) -> Dict[str, Any]:
         """Create a default configuration structure."""
@@ -516,9 +1827,9 @@ class ModelConfigCLI:
             'input_shape': {'width': 32, 'height': 32, 'channels': 3},
             'num_classes': 10,  # CIFAR-10 classes
             'dropout_rate': 0.5,
-            'custom_model_file_path': './custom_modules/custom_models.py',
+            'custom_model_file_path': None,
             'custom_info': {
-                'file_path': './custom_modules/custom_models.py',
+                'file_path': None,
                 'type': 'function'
             }
         }
@@ -553,12 +1864,61 @@ class ModelConfigCLI:
         config['configuration']['data']['train_dir'] = train_dir
         config['configuration']['data']['val_dir'] = val_dir
         
+        # Data Loader Selection
+        print("\n📊 Data Loader Configuration")
+        data_loader = inquirer.list_input(
+            "Select data loader",
+            choices=self.available_data_loaders,
+            default='ImageDataGenerator'
+        )
+        config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
+        
+        # Handle custom data loader selection
+        if data_loader == 'Custom':
+            print("\n🔧 Custom Data Loader Configuration")
+            custom_data_loader_path = inquirer.text(
+                "Enter path to Python file containing custom data loader"
+            )
+            
+            if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
+                print("❌ Invalid file path. Using default data loader.")
+                data_loader_name = 'ImageDataGenerator'
+                data_loader_params = {}
+            else:
+                # Analyze custom data loader file
+                success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
+                
+                if not success or not loader_info:
+                    print("❌ No valid data loader functions found in the file. Using default data loader.")
+                    data_loader_name = 'ImageDataGenerator'
+                    data_loader_params = {}
+                else:
+                    print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
+                    
+                    # Let user select from available data loaders
+                    data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
+                    
+                    # Add custom data loader path to config
+                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+            
+            config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
+            
+            # Update data loader parameters if available
+            if data_loader_params and 'user_parameters' in data_loader_params:
+                if 'parameters' not in config['configuration']['data']['data_loader']:
+                    config['configuration']['data']['data_loader']['parameters'] = {}
+                config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
+        
         # Batch size
         batch_size = inquirer.text("Enter batch size", default="32")
         try:
             config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
         except ValueError:
             config['configuration']['data']['data_loader']['parameters']['batch_size'] = 32
+        
+        # Preprocessing Configuration
+        preprocessing_config = self.configure_preprocessing(config)
+        config['configuration']['data']['preprocessing'] = preprocessing_config
         
         # Model Configuration
         print("\n🤖 Model Configuration")
@@ -576,8 +1936,7 @@ class ModelConfigCLI:
         if model_family == 'custom':
             print("\n📁 Custom Model Configuration")
             custom_model_path = inquirer.text(
-                "Enter path to Python file containing custom model",
-                default="./custom_modules/custom_models.py"
+                "Enter path to Python file containing custom model"
             )
             
             # Validate file exists
@@ -604,8 +1963,7 @@ class ModelConfigCLI:
                         'description': model_info.get('description', '')
                     }
                     print(f"✅ Selected custom model: {model_name}")
-                    if model_info.get('description'):
-                        print(f"   Description: {model_info['description']}")
+                    print(f"   Type: {model_info.get('type', 'function')}")
                 else:
                     print("⚠️  No valid model selected, using default...")
                     model_name = 'CustomModel'
@@ -699,23 +2057,13 @@ class ModelConfigCLI:
         except ValueError:
             config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = 0.001
         
-        # Loss Function Configuration
-        print("\n📊 Loss Function Configuration")
-        loss_function = inquirer.list_input(
-            "Select loss function",
-            choices=self.available_losses,
-            default='Categorical Crossentropy'
-        )
-        config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
+        # Loss Function Configuration - using improved workflow
+        loss_functions_config = self.configure_loss_functions(config)
+        config['configuration']['model']['loss_functions'] = loss_functions_config
         
-        # Metrics Configuration
-        print("\n📈 Metrics Configuration")
-        metrics = inquirer.checkbox(
-            "Select metrics (use space to select, enter to confirm)",
-            choices=self.available_metrics,
-            default=['Accuracy']
-        )
-        config['configuration']['model']['metrics']['Metrics Selection']['selected_metrics'] = ','.join(metrics)
+        # Metrics Configuration - using improved workflow similar to loss functions
+        metrics_config = self.configure_metrics(config, loss_functions_config)
+        config['configuration']['model']['metrics'] = metrics_config
         
         # Training Configuration
         print("\n🏃 Training Configuration")
@@ -1663,6 +3011,55 @@ class ModelConfigCLI:
             
             config['configuration']['data']['train_dir'] = train_dir
             config['configuration']['data']['val_dir'] = val_dir
+            
+            # Data Loader Selection
+            current_data_loader = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('selected_data_loader', 'ImageDataGenerator')
+            print(f"\n📊 Current Data Loader: {current_data_loader}")
+            
+            change_data_loader = inquirer.confirm("Change data loader?", default=False)
+            if change_data_loader:
+                data_loader = inquirer.list_input(
+                    "Select data loader",
+                    choices=self.available_data_loaders,
+                    default=current_data_loader if current_data_loader in self.available_data_loaders else 'ImageDataGenerator'
+                )
+                config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
+                
+                # Handle custom data loader selection
+                if data_loader == 'Custom':
+                    print("\n🔧 Custom Data Loader Configuration")
+                    custom_data_loader_path = inquirer.text(
+                        "Enter path to Python file containing custom data loader"
+                    )
+                    
+                    if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
+                        print("❌ Invalid file path. Using default data loader.")
+                        data_loader_name = 'ImageDataGenerator'
+                        data_loader_params = {}
+                    else:
+                        # Analyze custom data loader file
+                        success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
+                        
+                        if not success or not loader_info:
+                            print("❌ No valid data loader functions found in the file. Using default data loader.")
+                            data_loader_name = 'ImageDataGenerator'
+                            data_loader_params = {}
+                        else:
+                            print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
+                            
+                            # Let user select from available data loaders
+                            data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
+                            
+                            # Add custom data loader path to config
+                            config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+                    
+                    config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
+                    
+                    # Update data loader parameters if available
+                    if data_loader_params and 'user_parameters' in data_loader_params:
+                        if 'parameters' not in config['configuration']['data']['data_loader']:
+                            config['configuration']['data']['data_loader']['parameters'] = {}
+                        config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
         
         # Batch size
         current_batch_size = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('parameters', {}).get('batch_size', 32)
@@ -1675,6 +3072,20 @@ class ModelConfigCLI:
                 config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
             except ValueError:
                 print("⚠️  Invalid batch size, keeping current value")
+        
+        # Preprocessing Configuration
+        current_preprocessing = config.get('configuration', {}).get('data', {}).get('preprocessing', {})
+        current_resizing_enabled = current_preprocessing.get('Resizing', {}).get('enabled', False)
+        current_normalization_enabled = current_preprocessing.get('Normalization', {}).get('enabled', True)
+        
+        print(f"\n🔧 Current Preprocessing:")
+        print(f"   Resizing: {'Enabled' if current_resizing_enabled else 'Disabled'}")
+        print(f"   Normalization: {'Enabled' if current_normalization_enabled else 'Disabled'}")
+        
+        change_preprocessing = inquirer.confirm("Configure preprocessing?", default=False)
+        if change_preprocessing:
+            preprocessing_config = self.configure_preprocessing(config)
+            config['configuration']['data']['preprocessing'] = preprocessing_config
         
         # Model Configuration
         current_family = config.get('configuration', {}).get('model', {}).get('model_family', 'resnet')
@@ -1694,14 +3105,50 @@ class ModelConfigCLI:
             )
             config['configuration']['model']['model_family'] = model_family
             
-            # Model name selection
-            model_names = self.available_models[model_family]
-            model_name = inquirer.list_input(
-                f"Select {model_family} model",
-                choices=model_names,
-                default=current_model if current_model in model_names else model_names[0]
-            )
-            config['configuration']['model']['model_name'] = model_name
+            if model_family == 'custom':
+                # Custom model handling
+                print("\n🔧 Custom Model Configuration")
+                print("=" * 40)
+                
+                custom_model_path = inquirer.text("Enter path to custom model Python file")
+                
+                if not custom_model_path or not os.path.exists(custom_model_path):
+                    print("❌ Invalid file path. Using default custom model.")
+                    model_name = 'CustomModel'
+                    model_params = {}
+                else:
+                    # Analyze custom model file
+                    success, model_info = self.analyze_custom_model_file(custom_model_path)
+                    
+                    if not success or not model_info:
+                        print("❌ No valid model functions found in the file. Using default custom model.")
+                        model_name = 'CustomModel'
+                        model_params = {}
+                    else:
+                        print(f"\n✅ Found {len(model_info)} model function(s) in {custom_model_path}")
+                        
+                        # Let user select from available models
+                        model_name, model_params = self.interactive_custom_model_selection(custom_model_path)
+                        
+                        # Add custom model path to config
+                        config['configuration']['model']['custom_model_path'] = custom_model_path
+                
+                config['configuration']['model']['model_name'] = model_name
+                
+                # Update model parameters if available
+                if model_params and 'parameters' in model_params:
+                    if 'model_parameters' not in config['configuration']['model']:
+                        config['configuration']['model']['model_parameters'] = {}
+                    config['configuration']['model']['model_parameters'].update(model_params['parameters'])
+            else:
+                # Standard model name selection
+                model_names = self.available_models[model_family]
+                model_name = inquirer.list_input(
+                    f"Select {model_family} model",
+                    choices=model_names,
+                    default=current_model if current_model in model_names else model_names[0]
+                )
+                config['configuration']['model']['model_name'] = model_name
         
         # Input shape configuration
         current_shape = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('input_shape', {})
@@ -1765,18 +3212,37 @@ class ModelConfigCLI:
                 print("⚠️  Invalid learning rate, keeping current value")
         
         # Loss Function Configuration
-        current_loss = config.get('configuration', {}).get('model', {}).get('loss_functions', {}).get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
+        current_loss_config = config.get('configuration', {}).get('model', {}).get('loss_functions', {})
+        current_loss = current_loss_config.get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
+        current_num_outputs = current_loss_config.get('Model Output Configuration', {}).get('num_outputs', 1)
+        current_loss_strategy = current_loss_config.get('Model Output Configuration', {}).get('loss_strategy', 'single_loss_all_outputs')
         
         print(f"\n📉 Current Loss Function: {current_loss}")
+        print(f"    Number of outputs: {current_num_outputs}")
+        print(f"    Loss strategy: {current_loss_strategy}")
         
-        change_loss = inquirer.confirm("Change loss function?", default=False)
+        change_loss = inquirer.confirm("Change loss function configuration?", default=False)
         if change_loss:
-            loss_function = inquirer.list_input(
-                "Select loss function",
-                choices=self.available_losses,
-                default=current_loss if current_loss in self.available_losses else 'Categorical Crossentropy'
-            )
-            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
+            # Use improved loss configuration workflow
+            loss_functions_config = self.configure_loss_functions(config)
+            config['configuration']['model']['loss_functions'] = loss_functions_config
+        
+        # Metrics Configuration - Enhanced metrics workflow
+        current_metrics_config = config.get('configuration', {}).get('model', {}).get('metrics', {})
+        current_metrics = current_metrics_config.get('Metrics Selection', {}).get('selected_metrics', 'Accuracy')
+        current_metrics_num_outputs = current_metrics_config.get('Model Output Configuration', {}).get('num_outputs', 1)
+        current_metrics_strategy = current_metrics_config.get('Model Output Configuration', {}).get('metrics_strategy', 'shared_metrics_all_outputs')
+        
+        print(f"\n📈 Current Metrics: {current_metrics}")
+        print(f"    Number of outputs: {current_metrics_num_outputs}")
+        print(f"    Metrics strategy: {current_metrics_strategy}")
+        
+        change_metrics = inquirer.confirm("Change metrics configuration?", default=False)
+        if change_metrics:
+            # Use enhanced metrics configuration workflow - reuse loss functions config
+            current_loss_config = config.get('configuration', {}).get('model', {}).get('loss_functions', {})
+            metrics_config = self.configure_metrics(config, current_loss_config)
+            config['configuration']['model']['metrics'] = metrics_config
         
         # Training Configuration
         current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
@@ -1886,6 +3352,423 @@ class ModelConfigCLI:
         
         return config
 
+    def _is_preprocessing_function(self, obj, name: str) -> bool:
+        """Check if an object is likely a preprocessing function."""
+        try:
+            if inspect.isfunction(obj):
+                # Check if function signature includes typical preprocessing parameters
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Look for common preprocessing function patterns
+                preprocessing_indicators = [
+                    'data', 'image', 'img', 'input', 'x', 'array', 'tensor'
+                ]
+                
+                # Check if function has data-related parameters
+                has_data_params = any(indicator in param.lower() for param in params for indicator in preprocessing_indicators)
+                
+                # Check function name patterns
+                name_lower = name.lower()
+                name_patterns = [
+                    'preprocess', 'process', 'transform', 'normalize', 'resize', 'augment',
+                    'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad'
+                ]
+                has_preprocessing_name = any(pattern in name_lower for pattern in name_patterns)
+                
+                # Check docstring for preprocessing-related keywords
+                has_preprocessing_keywords = False
+                if obj.__doc__:
+                    docstring_lower = obj.__doc__.lower()
+                    preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'augment', 'enhance', 'filter']
+                    has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
+                
+                return has_data_params and (has_preprocessing_name or has_preprocessing_keywords)
+                
+        except Exception:
+            pass
+        
+        return False
+
+    def _extract_preprocessing_parameters(self, obj) -> Dict[str, Any]:
+        """Extract parameters from preprocessing function."""
+        parameters = {}
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                param_info = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip the first parameter (usually 'data', 'image', etc.)
+                    if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor']:
+                        continue
+                        
+                    param_details = {'type': 'str', 'default': None}
+                    if param.default != inspect.Parameter.empty:
+                        param_details['default'] = param.default
+                        # Infer type from default value
+                        if isinstance(param.default, bool):
+                            param_details['type'] = 'bool'
+                        elif isinstance(param.default, int):
+                            param_details['type'] = 'int'
+                        elif isinstance(param.default, float):
+                            param_details['type'] = 'float'
+                        elif isinstance(param.default, (list, tuple)):
+                            param_details['type'] = 'list'
+                    param_info[param_name] = param_details
+                
+                # Extract function metadata
+                function_info = {
+                    'name': obj.__name__,
+                    'parameters': param_info,
+                    'signature': str(sig),
+                    'description': obj.__doc__.strip().split('\n')[0] if obj.__doc__ else f"Preprocessing function: {obj.__name__}"
+                }
+                
+                return function_info
+                
+        except Exception:
+            pass
+        
+        return {}
+
+    def analyze_custom_preprocessing_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract custom preprocessing functions.
+
+        Args:
+            file_path: Path to the Python file
+
+        Returns:
+            Tuple of (success, preprocessing_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_preprocessing", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            preprocessing_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_preprocessing_function(obj, name):
+                    info = self._extract_preprocessing_parameters(obj)
+                    if info:
+                        preprocessing_info[name] = info
+            
+            return len(preprocessing_info) > 0, preprocessing_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing preprocessing file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_preprocessing_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom preprocessing functions from analyzed file.
+        
+        Args:
+            file_path: Path to the Python file containing preprocessing functions
+            
+        Returns:
+            Tuple of (selected_function_name, function_info_with_user_params)
+        """
+        success, analysis_result = self.analyze_custom_preprocessing_file(file_path)
+        
+        if not success:
+            print("❌ No valid preprocessing functions found in the file")
+            return None, {}
+        
+        if not analysis_result:
+            print("❌ No preprocessing functions found in the file")
+            return None, {}
+        
+        print(f"\n🔍 Found {len(analysis_result)} preprocessing function(s):")
+        for name, info in analysis_result.items():
+            print(f"   • {name}: {info.get('description', 'No description')}")
+        
+        # Let user select function
+        function_names = list(analysis_result.keys())
+        selected_function = inquirer.list_input(
+            "Select preprocessing function",
+            choices=function_names
+        )
+        
+        if not selected_function:
+            return None, {}
+        
+        function_info = analysis_result[selected_function]
+        user_parameters = {}
+        
+        # Configure parameters for selected function
+        if function_info.get('parameters'):
+            print(f"\n⚙️  Configuring parameters for {selected_function}:")
+            
+            for param_name, param_info in function_info['parameters'].items():
+                param_type = param_info.get('type', 'str')
+                default_val = param_info.get('default')
+                
+                if param_type == 'bool':
+                    value = inquirer.confirm(
+                        f"Set {param_name}",
+                        default=bool(default_val) if default_val is not None else False
+                    )
+                else:
+                    prompt_text = f"Enter {param_name}"
+                    if default_val is not None:
+                        prompt_text += f" (default: {default_val})"
+                    
+                    value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
+                    
+                    # Convert to appropriate type
+                    try:
+                        if param_type == 'int':
+                            value = int(value_str) if value_str else (default_val if default_val is not None else 0)
+                        elif param_type == 'float':
+                            value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
+                        elif param_type == 'list':
+                            if value_str:
+                                # Try to parse as list
+                                try:
+                                    value = ast.literal_eval(value_str)
+                                except:
+                                    value = value_str.split(',') if ',' in value_str else [value_str]
+                            else:
+                                value = default_val if default_val is not None else []
+                        else:
+                            value = value_str if value_str else (default_val if default_val is not None else "")
+                    except ValueError:
+                        value = default_val if default_val is not None else ""
+                        print(f"⚠️  Invalid value for {param_name}, using default: {value}")
+                
+                user_parameters[param_name] = value
+        
+        # Return function info with user parameters
+        result_info = function_info.copy()
+        result_info['user_parameters'] = user_parameters
+        result_info['file_path'] = file_path
+        
+        return selected_function, result_info
+
+    def configure_preprocessing(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Interactive configuration of preprocessing settings.
+        
+        Args:
+            config: Current configuration dictionary
+            
+        Returns:
+            Updated preprocessing configuration
+        """
+        print("\n🔧 Preprocessing Configuration")
+        print("=" * 40)
+        
+        preprocessing_config = {
+            "Resizing": {
+                "enabled": False,
+                "target_size": {"width": 224, "height": 224, "depth": 1},
+                "interpolation": "bilinear",
+                "preserve_aspect_ratio": True,
+                "data_format": "2D"
+            },
+            "Normalization": {
+                "enabled": True,
+                "method": "zero-center",
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "mean": {"r": 0.485, "g": 0.456, "b": 0.406},
+                "std": {"r": 0.229, "g": 0.224, "b": 0.225},
+                "axis": -1,
+                "epsilon": 1e-07
+            }
+        }
+        
+        # 1. Configure Resizing
+        print("\n📏 Step 1: Resizing Configuration")
+        resizing_strategies = ['None', 'scaling', 'crop-padding']
+        resizing_strategy = inquirer.list_input(
+            "Select resizing strategy",
+            choices=resizing_strategies,
+            default='scaling'
+        )
+        
+        if resizing_strategy != 'None':
+            preprocessing_config["Resizing"]["enabled"] = True
+            
+            # Select method for the chosen strategy
+            if resizing_strategy == 'scaling':
+                scaling_methods = ['nearest', 'bilinear', 'bicubic', 'area', 'lanczos']
+                method = inquirer.list_input(
+                    "Select scaling method",
+                    choices=scaling_methods,
+                    default='bilinear'
+                )
+                preprocessing_config["Resizing"]["interpolation"] = method
+                
+                # Ask about preserving aspect ratio
+                preserve_aspect = inquirer.confirm(
+                    "Preserve aspect ratio?",
+                    default=True
+                )
+                preprocessing_config["Resizing"]["preserve_aspect_ratio"] = preserve_aspect
+                
+            elif resizing_strategy == 'crop-padding':
+                crop_methods = ['central_cropping', 'random_cropping']
+                method = inquirer.list_input(
+                    "Select crop-padding method",
+                    choices=crop_methods,
+                    default='central_cropping'
+                )
+                preprocessing_config["Resizing"]["crop_method"] = method
+                preprocessing_config["Resizing"]["interpolation"] = "nearest"  # Default for cropping
+            
+            # Set target size
+            print("\n📐 Configure target dimensions:")
+            width = inquirer.text("Enter target width", default="224")
+            height = inquirer.text("Enter target height", default="224")
+            depth = inquirer.text("Enter depth (channels)", default="3")
+            
+            try:
+                preprocessing_config["Resizing"]["target_size"] = {
+                    "width": int(width),
+                    "height": int(height),
+                    "depth": int(depth)
+                }
+            except ValueError:
+                print("⚠️  Invalid dimensions, using defaults")
+        
+        # 2. Configure Normalization
+        print("\n📊 Step 2: Normalization Configuration")
+        enable_normalization = inquirer.confirm("Enable normalization?", default=True)
+        
+        if enable_normalization:
+            preprocessing_config["Normalization"]["enabled"] = True
+            
+            # Select normalization method
+            normalization_methods = [
+                'zero-center',  # (x - mean) / std
+                'min-max',      # (x - min) / (max - min)
+                'unit-norm',    # x / |x|
+                'standard',     # (x - mean) / std (same as zero-center)
+                'robust'        # (x - median) / IQR
+            ]
+            
+            norm_method = inquirer.list_input(
+                "Select normalization method",
+                choices=normalization_methods,
+                default='zero-center'
+            )
+            preprocessing_config["Normalization"]["method"] = norm_method
+            
+            # Configure parameters based on selected method
+            if norm_method in ['zero-center', 'standard']:
+                print("\n⚙️  Configure normalization parameters:")
+                
+                use_imagenet = inquirer.confirm(
+                    "Use ImageNet statistics? (recommended for pre-trained models)",
+                    default=True
+                )
+                
+                if not use_imagenet:
+                    # Custom mean and std
+                    mean_r = inquirer.text("Enter mean for R channel", default="0.485")
+                    mean_g = inquirer.text("Enter mean for G channel", default="0.456")
+                    mean_b = inquirer.text("Enter mean for B channel", default="0.406")
+                    
+                    std_r = inquirer.text("Enter std for R channel", default="0.229")
+                    std_g = inquirer.text("Enter std for G channel", default="0.224")
+                    std_b = inquirer.text("Enter std for B channel", default="0.225")
+                    
+                    try:
+                        preprocessing_config["Normalization"]["mean"] = {
+                            "r": float(mean_r),
+                            "g": float(mean_g),
+                            "b": float(mean_b)
+                        }
+                        preprocessing_config["Normalization"]["std"] = {
+                            "r": float(std_r),
+                            "g": float(std_g),
+                            "b": float(std_b)
+                        }
+                    except ValueError:
+                        print("⚠️  Invalid values, using ImageNet defaults")
+            
+            elif norm_method == 'min-max':
+                min_val = inquirer.text("Enter minimum value", default="0.0")
+                max_val = inquirer.text("Enter maximum value", default="1.0")
+                
+                try:
+                    preprocessing_config["Normalization"]["min_value"] = float(min_val)
+                    preprocessing_config["Normalization"]["max_value"] = float(max_val)
+                except ValueError:
+                    print("⚠️  Invalid values, using defaults")
+            
+            # Common parameters
+            axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
+            epsilon = inquirer.text("Enter epsilon value", default="1e-07")
+            
+            try:
+                preprocessing_config["Normalization"]["axis"] = int(axis)
+                preprocessing_config["Normalization"]["epsilon"] = float(epsilon)
+            except ValueError:
+                print("⚠️  Invalid values, using defaults")
+        else:
+            preprocessing_config["Normalization"]["enabled"] = False
+        
+        # 3. Custom Preprocessing
+        print("\n🛠️  Step 3: Custom Preprocessing")
+        add_custom = inquirer.confirm("Add custom preprocessing functions?", default=False)
+        
+        custom_preprocessing = []
+        
+        if add_custom:
+            custom_preprocessing_path = inquirer.text(
+                "Enter path to Python file containing custom preprocessing functions",
+                default="./example_funcs/example_custom_preprocessing.py"
+            )
+            
+            if custom_preprocessing_path and os.path.exists(custom_preprocessing_path):
+                # Analyze and select custom preprocessing functions
+                success, preprocessing_info = self.analyze_custom_preprocessing_file(custom_preprocessing_path)
+                
+                if success and preprocessing_info:
+                    print(f"\n✅ Found {len(preprocessing_info)} preprocessing function(s)")
+                    
+                    # Allow multiple selections
+                    add_more = True
+                    while add_more:
+                        func_name, func_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
+                        
+                        if func_name and func_info:
+                            custom_func_config = {
+                                "function_name": func_name,
+                                "enabled": True,
+                                "file_path": custom_preprocessing_path,
+                                "parameters": func_info.get('user_parameters', {})
+                            }
+                            custom_preprocessing.append(custom_func_config)
+                            print(f"✅ Added custom preprocessing: {func_name}")
+                        
+                        add_more = inquirer.confirm("Add another custom preprocessing function?", default=False)
+                else:
+                    print("❌ No valid preprocessing functions found in the file")
+            else:
+                print("❌ Invalid file path or file does not exist")
+        
+        # Add custom preprocessing to config if any were selected
+        if custom_preprocessing:
+            preprocessing_config["Custom"] = custom_preprocessing
+        
+        return preprocessing_config
 
 def create_argument_parser():
     """Create argument parser for CLI."""
@@ -2012,269 +3895,424 @@ def main():
         print(f"📝 Format: {args.format.upper()}")
         print(f"\n💡 You can now use this configuration with ModelGardener")
 
-    def interactive_configuration_with_existing(self, existing_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Interactive configuration using existing config as base."""
-        print("\n🌱 ModelGardener CLI Configuration Modifier")
-        print("=" * 50)
-        print("✨ Current configuration will be used as the starting point")
-        
-        config = existing_config.copy()
-        
-        # Show current task type
-        current_task = config.get('configuration', {}).get('task_type', 'image_classification')
-        print(f"\n📋 Current task type: {current_task}")
-        
-        # Task Type Selection
-        task_types = ['image_classification', 'object_detection', 'semantic_segmentation']
-        change_task = inquirer.confirm(f"Change task type from '{current_task}'?", default=False)
-        
-        if change_task:
-            task_type = inquirer.list_input(
-                "Select new task type",
-                choices=task_types,
-                default=current_task
-            )
-            config['configuration']['task_type'] = task_type
-        
-        # Data Configuration
-        current_train_dir = config.get('configuration', {}).get('data', {}).get('train_dir', './example_data/train')
-        current_val_dir = config.get('configuration', {}).get('data', {}).get('val_dir', './example_data/val')
-        
-        print(f"\n📁 Current Data Configuration:")
-        print(f"   Training directory: {current_train_dir}")
-        print(f"   Validation directory: {current_val_dir}")
-        
-        change_data = inquirer.confirm("Modify data configuration?", default=False)
-        
-        if change_data:
-            train_dir = inquirer.text("Enter training data directory", default=current_train_dir)
-            val_dir = inquirer.text("Enter validation data directory", default=current_val_dir)
-            
-            config['configuration']['data']['train_dir'] = train_dir
-            config['configuration']['data']['val_dir'] = val_dir
-        
-        # Batch size
-        current_batch_size = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('parameters', {}).get('batch_size', 32)
-        print(f"\n📦 Current batch size: {current_batch_size}")
-        
-        change_batch = inquirer.confirm("Change batch size?", default=False)
-        if change_batch:
-            batch_size = inquirer.text("Enter batch size", default=str(current_batch_size))
-            try:
-                config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
-            except ValueError:
-                print("⚠️  Invalid batch size, keeping current value")
-        
-        # Model Configuration
-        current_family = config.get('configuration', {}).get('model', {}).get('model_family', 'resnet')
-        current_model = config.get('configuration', {}).get('model', {}).get('model_name', 'ResNet-50')
-        
-        print(f"\n🤖 Current Model: {current_family} - {current_model}")
-        
-        change_model = inquirer.confirm("Change model?", default=False)
-        
-        if change_model:
-            # Model family selection
-            model_families = list(self.available_models.keys())
-            model_family = inquirer.list_input(
-                "Select model family",
-                choices=model_families,
-                default=current_family if current_family in model_families else 'resnet'
-            )
-            config['configuration']['model']['model_family'] = model_family
-            
-            # Model name selection
-            model_names = self.available_models[model_family]
-            model_name = inquirer.list_input(
-                f"Select {model_family} model",
-                choices=model_names,
-                default=current_model if current_model in model_names else model_names[0]
-            )
-            config['configuration']['model']['model_name'] = model_name
-        
-        # Input shape configuration
-        current_shape = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('input_shape', {})
-        current_height = current_shape.get('height', 224)
-        current_width = current_shape.get('width', 224)
-        current_channels = current_shape.get('channels', 3)
-        
-        print(f"\n📐 Current Input Shape: {current_height}x{current_width}x{current_channels}")
-        
-        change_shape = inquirer.confirm("Change input shape?", default=False)
-        
-        if change_shape:
-            height = inquirer.text("Enter image height", default=str(current_height))
-            width = inquirer.text("Enter image width", default=str(current_width))
-            channels = inquirer.text("Enter image channels", default=str(current_channels))
-            
-            try:
-                config['configuration']['model']['model_parameters']['input_shape'] = {
-                    'height': int(height),
-                    'width': int(width),
-                    'channels': int(channels)
-                }
-                # Update preprocessing size to match input shape
-                config['configuration']['data']['preprocessing']['Resizing']['target_size']['height'] = int(height)
-                config['configuration']['data']['preprocessing']['Resizing']['target_size']['width'] = int(width)
-            except ValueError:
-                print("⚠️  Invalid input shape values, keeping current values")
-        
-        # Number of classes
-        current_classes = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('classes', 1000)
-        print(f"\n🔢 Current number of classes: {current_classes}")
-        
-        change_classes = inquirer.confirm("Change number of classes?", default=False)
-        if change_classes:
-            num_classes = inquirer.text("Enter number of classes", default=str(current_classes))
-            try:
-                config['configuration']['model']['model_parameters']['classes'] = int(num_classes)
-            except ValueError:
-                print("⚠️  Invalid number of classes, keeping current value")
-        
-        # Optimizer Configuration
-        current_optimizer = config.get('configuration', {}).get('model', {}).get('optimizer', {}).get('Optimizer Selection', {}).get('selected_optimizer', 'Adam')
-        current_lr = config.get('configuration', {}).get('model', {}).get('optimizer', {}).get('Optimizer Selection', {}).get('learning_rate', 0.001)
-        
-        print(f"\n⚡ Current Optimizer: {current_optimizer} (lr: {current_lr})")
-        
-        change_optimizer = inquirer.confirm("Change optimizer settings?", default=False)
-        
-        if change_optimizer:
-            optimizer = inquirer.list_input(
-                "Select optimizer",
-                choices=self.available_optimizers,
-                default=current_optimizer if current_optimizer in self.available_optimizers else 'Adam'
-            )
-            config['configuration']['model']['optimizer']['Optimizer Selection']['selected_optimizer'] = optimizer
-            
-            learning_rate = inquirer.text("Enter learning rate", default=str(current_lr))
-            try:
-                config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = float(learning_rate)
-            except ValueError:
-                print("⚠️  Invalid learning rate, keeping current value")
-        
-        # Loss Function Configuration
-        current_loss = config.get('configuration', {}).get('model', {}).get('loss_functions', {}).get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
-        
-        print(f"\n📉 Current Loss Function: {current_loss}")
-        
-        change_loss = inquirer.confirm("Change loss function?", default=False)
-        if change_loss:
-            loss_function = inquirer.list_input(
-                "Select loss function",
-                choices=self.available_losses,
-                default=current_loss if current_loss in self.available_losses else 'Categorical Crossentropy'
-            )
-            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
-        
-        # Training Configuration
-        current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
-        
-        print(f"\n🏃 Current training epochs: {current_epochs}")
-        
-        change_training = inquirer.confirm("Change training settings?", default=False)
-        if change_training:
-            epochs = inquirer.text("Enter number of epochs", default=str(current_epochs))
-            try:
-                config['configuration']['training']['epochs'] = int(epochs)
-            except ValueError:
-                print("⚠️  Invalid number of epochs, keeping current value")
-        
-        # Runtime Configuration
-        current_model_dir = config.get('configuration', {}).get('runtime', {}).get('model_dir', './logs')
-        current_gpus = config.get('configuration', {}).get('runtime', {}).get('num_gpus', 1)
-        
-        print(f"\n💾 Current Runtime Settings:")
-        print(f"   Model directory: {current_model_dir}")
-        print(f"   Number of GPUs: {current_gpus}")
-        
-        change_runtime = inquirer.confirm("Change runtime settings?", default=False)
-        if change_runtime:
-            model_dir = inquirer.text("Enter model output directory", default=current_model_dir)
-            num_gpus = inquirer.text("Enter number of GPUs", default=str(current_gpus))
-            
-            config['configuration']['runtime']['model_dir'] = model_dir
-            try:
-                config['configuration']['runtime']['num_gpus'] = int(num_gpus)
-            except ValueError:
-                print("⚠️  Invalid number of GPUs, keeping current value")
-        
-        # Update modification timestamp
-        from datetime import datetime
-        if 'metadata' not in config:
-            config['metadata'] = {}
-        config['metadata']['last_modified'] = datetime.now().isoformat()
-        config['metadata']['modified_via'] = 'CLI Interactive Mode'
-        
-        print("\n✅ Configuration modification completed!")
-        
-        return config
 
-    def batch_configuration_with_existing(self, existing_config: Dict[str, Any], modifications: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply batch modifications to existing configuration."""
-        config = existing_config.copy()
+    def _is_preprocessing_function(self, obj, name: str) -> bool:
+        """Check if an object is likely a preprocessing function."""
+        try:
+            if inspect.isfunction(obj):
+                # Check if function signature includes typical preprocessing parameters
+                sig = inspect.signature(obj)
+                params = list(sig.parameters.keys())
+                
+                # Look for common preprocessing function patterns
+                preprocessing_indicators = [
+                    'data', 'image', 'img', 'input', 'x', 'array', 'tensor'
+                ]
+                
+                # Check if function has data-related parameters
+                has_data_params = any(indicator in param.lower() for param in params for indicator in preprocessing_indicators)
+                
+                # Check function name patterns
+                name_lower = name.lower()
+                name_patterns = [
+                    'preprocess', 'process', 'transform', 'normalize', 'resize', 'augment',
+                    'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad'
+                ]
+                has_preprocessing_name = any(pattern in name_lower for pattern in name_patterns)
+                
+                # Check docstring for preprocessing-related keywords
+                has_preprocessing_keywords = False
+                if obj.__doc__:
+                    docstring_lower = obj.__doc__.lower()
+                    preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'augment', 'enhance', 'filter']
+                    has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
+                
+                return has_data_params and (has_preprocessing_name or has_preprocessing_keywords)
+                
+        except Exception:
+            pass
         
-        print("⚡ Applying batch modifications to existing configuration...")
+        return False
+
+    def _extract_preprocessing_parameters(self, obj) -> Dict[str, Any]:
+        """Extract parameters from preprocessing function."""
+        parameters = {}
+        try:
+            if inspect.isfunction(obj):
+                sig = inspect.signature(obj)
+                param_info = {}
+                
+                for param_name, param in sig.parameters.items():
+                    # Skip the first parameter (usually 'data', 'image', etc.)
+                    if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor']:
+                        continue
+                        
+                    param_details = {'type': 'str', 'default': None}
+                    if param.default != inspect.Parameter.empty:
+                        param_details['default'] = param.default
+                        # Infer type from default value
+                        if isinstance(param.default, bool):
+                            param_details['type'] = 'bool'
+                        elif isinstance(param.default, int):
+                            param_details['type'] = 'int'
+                        elif isinstance(param.default, float):
+                            param_details['type'] = 'float'
+                        elif isinstance(param.default, (list, tuple)):
+                            param_details['type'] = 'list'
+                    param_info[param_name] = param_details
+                
+                # Extract function metadata
+                function_info = {
+                    'name': obj.__name__,
+                    'parameters': param_info,
+                    'signature': str(sig),
+                    'description': obj.__doc__.strip().split('\n')[0] if obj.__doc__ else f"Preprocessing function: {obj.__name__}"
+                }
+                
+                return function_info
+                
+        except Exception:
+            pass
         
-        # Apply modifications
-        if 'train_dir' in modifications:
-            config['configuration']['data']['train_dir'] = modifications['train_dir']
-            print(f"  ✓ Updated training directory: {modifications['train_dir']}")
+        return {}
+
+    def analyze_custom_preprocessing_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract custom preprocessing functions.
+
+        Args:
+            file_path: Path to the Python file
+
+        Returns:
+            Tuple of (success, preprocessing_info)
+        """
+        import importlib.util
+        import inspect
         
-        if 'val_dir' in modifications:
-            config['configuration']['data']['val_dir'] = modifications['val_dir']
-            print(f"  ✓ Updated validation directory: {modifications['val_dir']}")
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_preprocessing", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            preprocessing_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_preprocessing_function(obj, name):
+                    info = self._extract_preprocessing_parameters(obj)
+                    if info:
+                        preprocessing_info[name] = info
+            
+            return len(preprocessing_info) > 0, preprocessing_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing preprocessing file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_preprocessing_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom preprocessing functions from analyzed file.
         
-        if 'batch_size' in modifications:
-            config['configuration']['data']['data_loader']['parameters']['batch_size'] = modifications['batch_size']
-            print(f"  ✓ Updated batch size: {modifications['batch_size']}")
+        Args:
+            file_path: Path to the Python file containing preprocessing functions
+            
+        Returns:
+            Tuple of (selected_function_name, function_info_with_user_params)
+        """
+        success, analysis_result = self.analyze_custom_preprocessing_file(file_path)
         
-        if 'model_family' in modifications:
-            config['configuration']['model']['model_family'] = modifications['model_family']
-            print(f"  ✓ Updated model family: {modifications['model_family']}")
+        if not success:
+            print("❌ No valid preprocessing functions found in the file")
+            return None, {}
         
-        if 'model_name' in modifications:
-            config['configuration']['model']['model_name'] = modifications['model_name']
-            print(f"  ✓ Updated model name: {modifications['model_name']}")
+        if not analysis_result:
+            print("❌ No preprocessing functions found in the file")
+            return None, {}
         
-        if 'epochs' in modifications:
-            config['configuration']['training']['epochs'] = modifications['epochs']
-            print(f"  ✓ Updated epochs: {modifications['epochs']}")
+        print(f"\n🔍 Found {len(analysis_result)} preprocessing function(s):")
+        for name, info in analysis_result.items():
+            print(f"   • {name}: {info.get('description', 'No description')}")
         
-        if 'learning_rate' in modifications:
-            config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = modifications['learning_rate']
-            print(f"  ✓ Updated learning rate: {modifications['learning_rate']}")
+        # Let user select function
+        function_names = list(analysis_result.keys())
+        selected_function = inquirer.list_input(
+            "Select preprocessing function",
+            choices=function_names
+        )
         
-        if 'optimizer' in modifications:
-            config['configuration']['model']['optimizer']['Optimizer Selection']['selected_optimizer'] = modifications['optimizer']
-            print(f"  ✓ Updated optimizer: {modifications['optimizer']}")
+        if not selected_function:
+            return None, {}
         
-        if 'loss_function' in modifications:
-            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = modifications['loss_function']
-            print(f"  ✓ Updated loss function: {modifications['loss_function']}")
+        function_info = analysis_result[selected_function]
+        user_parameters = {}
         
-        if 'num_classes' in modifications:
-            config['configuration']['model']['model_parameters']['classes'] = modifications['num_classes']
-            print(f"  ✓ Updated number of classes: {modifications['num_classes']}")
+        # Configure parameters for selected function
+        if function_info.get('parameters'):
+            print(f"\n⚙️  Configuring parameters for {selected_function}:")
+            
+            for param_name, param_info in function_info['parameters'].items():
+                param_type = param_info.get('type', 'str')
+                default_val = param_info.get('default')
+                
+                if param_type == 'bool':
+                    value = inquirer.confirm(
+                        f"Set {param_name}",
+                        default=bool(default_val) if default_val is not None else False
+                    )
+                else:
+                    prompt_text = f"Enter {param_name}"
+                    if default_val is not None:
+                        prompt_text += f" (default: {default_val})"
+                    
+                    value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
+                    
+                    # Convert to appropriate type
+                    try:
+                        if param_type == 'int':
+                            value = int(value_str) if value_str else (default_val if default_val is not None else 0)
+                        elif param_type == 'float':
+                            value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
+                        elif param_type == 'list':
+                            if value_str:
+                                # Try to parse as list
+                                try:
+                                    value = ast.literal_eval(value_str)
+                                except:
+                                    value = value_str.split(',') if ',' in value_str else [value_str]
+                            else:
+                                value = default_val if default_val is not None else []
+                        else:
+                            value = value_str if value_str else (default_val if default_val is not None else "")
+                    except ValueError:
+                        value = default_val if default_val is not None else ""
+                        print(f"⚠️  Invalid value for {param_name}, using default: {value}")
+                
+                user_parameters[param_name] = value
         
-        if 'model_dir' in modifications:
-            config['configuration']['runtime']['model_dir'] = modifications['model_dir']
-            print(f"  ✓ Updated model directory: {modifications['model_dir']}")
+        # Return function info with user parameters
+        result_info = function_info.copy()
+        result_info['user_parameters'] = user_parameters
+        result_info['file_path'] = file_path
         
-        if 'num_gpus' in modifications:
-            config['configuration']['runtime']['num_gpus'] = modifications['num_gpus']
-            print(f"  ✓ Updated number of GPUs: {modifications['num_gpus']}")
+        return selected_function, result_info
+
+    def configure_preprocessing(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Interactive configuration of preprocessing settings.
         
-        # Update modification timestamp
-        from datetime import datetime
-        if 'metadata' not in config:
-            config['metadata'] = {}
-        config['metadata']['last_modified'] = datetime.now().isoformat()
-        config['metadata']['modified_via'] = 'CLI Batch Mode'
+        Args:
+            config: Current configuration dictionary
+            
+        Returns:
+            Updated preprocessing configuration
+        """
+        print("\n🔧 Preprocessing Configuration")
+        print("=" * 40)
         
-        print("✅ Batch modifications applied successfully!")
+        preprocessing_config = {
+            "Resizing": {
+                "enabled": False,
+                "target_size": {"width": 224, "height": 224, "depth": 1},
+                "interpolation": "bilinear",
+                "preserve_aspect_ratio": True,
+                "data_format": "2D"
+            },
+            "Normalization": {
+                "enabled": True,
+                "method": "zero-center",
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "mean": {"r": 0.485, "g": 0.456, "b": 0.406},
+                "std": {"r": 0.229, "g": 0.224, "b": 0.225},
+                "axis": -1,
+                "epsilon": 1e-07
+            }
+        }
         
-        return config
+        # 1. Configure Resizing
+        print("\n📏 Step 1: Resizing Configuration")
+        resizing_strategies = ['None', 'scaling', 'crop-padding']
+        resizing_strategy = inquirer.list_input(
+            "Select resizing strategy",
+            choices=resizing_strategies,
+            default='scaling'
+        )
+        
+        if resizing_strategy != 'None':
+            preprocessing_config["Resizing"]["enabled"] = True
+            
+            # Select method for the chosen strategy
+            if resizing_strategy == 'scaling':
+                scaling_methods = ['nearest', 'bilinear', 'bicubic', 'area', 'lanczos']
+                method = inquirer.list_input(
+                    "Select scaling method",
+                    choices=scaling_methods,
+                    default='bilinear'
+                )
+                preprocessing_config["Resizing"]["interpolation"] = method
+                
+                # Ask about preserving aspect ratio
+                preserve_aspect = inquirer.confirm(
+                    "Preserve aspect ratio?",
+                    default=True
+                )
+                preprocessing_config["Resizing"]["preserve_aspect_ratio"] = preserve_aspect
+                
+            elif resizing_strategy == 'crop-padding':
+                crop_methods = ['central_cropping', 'random_cropping']
+                method = inquirer.list_input(
+                    "Select crop-padding method",
+                    choices=crop_methods,
+                    default='central_cropping'
+                )
+                preprocessing_config["Resizing"]["crop_method"] = method
+                preprocessing_config["Resizing"]["interpolation"] = "nearest"  # Default for cropping
+            
+            # Set target size
+            print("\n📐 Configure target dimensions:")
+            width = inquirer.text("Enter target width", default="224")
+            height = inquirer.text("Enter target height", default="224")
+            depth = inquirer.text("Enter depth (channels)", default="3")
+            
+            try:
+                preprocessing_config["Resizing"]["target_size"] = {
+                    "width": int(width),
+                    "height": int(height),
+                    "depth": int(depth)
+                }
+            except ValueError:
+                print("⚠️  Invalid dimensions, using defaults")
+        
+        # 2. Configure Normalization
+        print("\n📊 Step 2: Normalization Configuration")
+        enable_normalization = inquirer.confirm("Enable normalization?", default=True)
+        
+        if enable_normalization:
+            preprocessing_config["Normalization"]["enabled"] = True
+            
+            # Select normalization method
+            normalization_methods = [
+                'zero-center',  # (x - mean) / std
+                'min-max',      # (x - min) / (max - min)
+                'unit-norm',    # x / |x|
+                'standard',     # (x - mean) / std (same as zero-center)
+                'robust'        # (x - median) / IQR
+            ]
+            
+            norm_method = inquirer.list_input(
+                "Select normalization method",
+                choices=normalization_methods,
+                default='zero-center'
+            )
+            preprocessing_config["Normalization"]["method"] = norm_method
+            
+            # Configure parameters based on selected method
+            if norm_method in ['zero-center', 'standard']:
+                print("\n⚙️  Configure normalization parameters:")
+                
+                use_imagenet = inquirer.confirm(
+                    "Use ImageNet statistics? (recommended for pre-trained models)",
+                    default=True
+                )
+                
+                if not use_imagenet:
+                    # Custom mean and std
+                    mean_r = inquirer.text("Enter mean for R channel", default="0.485")
+                    mean_g = inquirer.text("Enter mean for G channel", default="0.456")
+                    mean_b = inquirer.text("Enter mean for B channel", default="0.406")
+                    
+                    std_r = inquirer.text("Enter std for R channel", default="0.229")
+                    std_g = inquirer.text("Enter std for G channel", default="0.224")
+                    std_b = inquirer.text("Enter std for B channel", default="0.225")
+                    
+                    try:
+                        preprocessing_config["Normalization"]["mean"] = {
+                            "r": float(mean_r),
+                            "g": float(mean_g),
+                            "b": float(mean_b)
+                        }
+                        preprocessing_config["Normalization"]["std"] = {
+                            "r": float(std_r),
+                            "g": float(std_g),
+                            "b": float(std_b)
+                        }
+                    except ValueError:
+                        print("⚠️  Invalid values, using ImageNet defaults")
+            
+            elif norm_method == 'min-max':
+                min_val = inquirer.text("Enter minimum value", default="0.0")
+                max_val = inquirer.text("Enter maximum value", default="1.0")
+                
+                try:
+                    preprocessing_config["Normalization"]["min_value"] = float(min_val)
+                    preprocessing_config["Normalization"]["max_value"] = float(max_val)
+                except ValueError:
+                    print("⚠️  Invalid values, using defaults")
+            
+            # Common parameters
+            axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
+            epsilon = inquirer.text("Enter epsilon value", default="1e-07")
+            
+            try:
+                preprocessing_config["Normalization"]["axis"] = int(axis)
+                preprocessing_config["Normalization"]["epsilon"] = float(epsilon)
+            except ValueError:
+                print("⚠️  Invalid values, using defaults")
+        else:
+            preprocessing_config["Normalization"]["enabled"] = False
+        
+        # 3. Custom Preprocessing
+        print("\n🛠️  Step 3: Custom Preprocessing")
+        add_custom = inquirer.confirm("Add custom preprocessing functions?", default=False)
+        
+        custom_preprocessing = []
+        
+        if add_custom:
+            custom_preprocessing_path = inquirer.text(
+                "Enter path to Python file containing custom preprocessing functions",
+                default="./example_funcs/example_custom_preprocessing.py"
+            )
+            
+            if custom_preprocessing_path and os.path.exists(custom_preprocessing_path):
+                # Analyze and select custom preprocessing functions
+                success, preprocessing_info = self.analyze_custom_preprocessing_file(custom_preprocessing_path)
+                
+                if success and preprocessing_info:
+                    print(f"\n✅ Found {len(preprocessing_info)} preprocessing function(s)")
+                    
+                    # Allow multiple selections
+                    add_more = True
+                    while add_more:
+                        func_name, func_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
+                        
+                        if func_name and func_info:
+                            custom_func_config = {
+                                "function_name": func_name,
+                                "enabled": True,
+                                "file_path": custom_preprocessing_path,
+                                "parameters": func_info.get('user_parameters', {})
+                            }
+                            custom_preprocessing.append(custom_func_config)
+                            print(f"✅ Added custom preprocessing: {func_name}")
+                        
+                        add_more = inquirer.confirm("Add another custom preprocessing function?", default=False)
+                else:
+                    print("❌ No valid preprocessing functions found in the file")
+            else:
+                print("❌ Invalid file path or file does not exist")
+        
+        # Add custom preprocessing to config if any were selected
+        if custom_preprocessing:
+            preprocessing_config["Custom"] = custom_preprocessing
+        
+        return preprocessing_config
 
 
 if __name__ == '__main__':
