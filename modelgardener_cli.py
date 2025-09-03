@@ -202,22 +202,23 @@ class ModelGardenerCLI:
     def create_project_template(self, project_name: str = None, project_dir: str = ".", interactive: bool = False, **kwargs):
         """Create a new project template with CLI configuration."""
         
-        # Handle case where no project name is provided - use current directory
-        if not project_name:
-            project_path = Path(project_dir).resolve()
-            project_name = project_path.name
-            print(f"🌱 Creating ModelGardener project in current directory: {project_name}")
-            print(f"📁 Project directory: {project_path}")
-        else:
+        # Create project path - if project_name is provided, create a subfolder
+        if project_name:
             project_path = Path(project_dir) / project_name
             project_path.mkdir(parents=True, exist_ok=True)
-            print(f"🌱 Creating ModelGardener project: {project_name}")
-            print(f"📁 Project directory: {project_path}")
+        else:
+            # If no project name provided, use current directory
+            project_path = Path(project_dir).resolve()
+            project_name = project_path.name
+        
+        print(f"🌱 Creating ModelGardener project: {project_name}")
+        print(f"📁 Project directory: {project_path}")
 
         # Create project structure
         (project_path / "data" / "train").mkdir(parents=True, exist_ok=True)
         (project_path / "data" / "val").mkdir(parents=True, exist_ok=True)
         (project_path / "logs").mkdir(exist_ok=True)
+        (project_path / "custom_modules").mkdir(exist_ok=True)
 
         # Create configuration based on mode
         config_file = project_path / "config.yaml"
@@ -233,14 +234,15 @@ class ModelGardenerCLI:
             try:
                 config = self.config_cli.interactive_configuration()
 
-                # Validate and save configuration
+                # Validate and save configuration using relative path
+                config_file_relative = "config.yaml"
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
-                    if self.config_cli.save_config(config, str(config_file), 'yaml'):
+                    if self.config_cli.save_config(config, config_file_relative, 'yaml'):
                         print(f"✅ Configuration saved to {config_file}")
                 else:
                     print("❌ Configuration validation failed, using default template")
-                    self.config_cli.create_template(str(config_file), 'yaml')
+                    self.config_cli.create_template(config_file_relative, 'yaml')
             finally:
                 os.chdir(old_cwd)
         else:
@@ -273,7 +275,7 @@ class ModelGardenerCLI:
 │   ├── train/          # Training data
 │   └── val/            # Validation data
 ├── logs/               # Training logs and models
-├── custom_modules/     # Custom function templates (auto-generated)
+├── custom_modules/     # Custom functions (models, losses, etc.)
 ├── config.yaml         # Model configuration
 ├── train.py           # Training script (auto-generated)
 ├── evaluation.py      # Evaluation script (auto-generated)
@@ -324,21 +326,11 @@ This project includes auto-generated files to help you get started:
 - **evaluation.py** - Model evaluation script
 - **prediction.py** - Inference script for new data
 - **deploy.py** - Deployment utilities
-- **custom_modules/** - Template files for custom functions:
-  - `custom_models.py` - Custom model architectures
-  - `custom_data_loaders.py` - Custom data loading functions
-  - `custom_loss_functions.py` - Custom loss functions
-  - `custom_optimizers.py` - Custom optimizers
-  - `custom_metrics.py` - Custom metrics
-  - `custom_callbacks.py` - Custom training callbacks
-  - `custom_augmentations.py` - Custom data augmentation
-  - `custom_preprocessing.py` - Custom preprocessing functions
-  - `custom_training_loops.py` - Custom training strategies
 
 ## Configuration Options
 
 The `config.yaml` file includes comprehensive settings for:
-- Model architecture selection (ResNet, EfficientNet, Custom, etc.)
+- Model architecture selection (ResNet, EfficientNet, Custom, etc.)  
 - Training parameters (epochs, learning rate, batch size, etc.)
 - Data preprocessing and augmentation options
 - Runtime settings (GPU usage, model directory, etc.)
@@ -346,9 +338,9 @@ The `config.yaml` file includes comprehensive settings for:
 
 ## Custom Functions
 
-You can customize any aspect of the training pipeline by editing the files in `custom_modules/`:
-1. Edit the template functions to implement your custom logic
-2. Update the `config.yaml` to reference your custom functions
+You can customize any aspect of the training pipeline by creating your own Python files:
+1. Create Python files with your custom functions (models, loss functions, etc.)
+2. Update the `config.yaml` to reference your custom function files
 3. The training scripts will automatically load and use your custom functions
 
 ## Need Help?
@@ -363,7 +355,6 @@ You can customize any aspect of the training pipeline by editing the files in `c
         with open(readme_file, 'w') as f:
             f.write(readme_content)
         
-        print(f"✅ Project template created successfully!")
         print(f"✅ Project template created successfully!")
         print(f"📖 See {readme_file} for instructions")
 

@@ -1,13 +1,13 @@
-# . - ModelGardener Project
+# test_ - ModelGardener Project
 
 ## Project Structure
 ```
-./
+test_/
 ├── data/
 │   ├── train/          # Training data
 │   └── val/            # Validation data
 ├── logs/               # Training logs and models
-├── custom_modules/     # Custom function templates (auto-generated)
+├── custom_modules/     # Custom functions (models, losses, etc.)
 ├── config.yaml         # Model configuration
 ├── train.py           # Training script (auto-generated)
 ├── evaluation.py      # Evaluation script (auto-generated)
@@ -58,21 +58,11 @@ This project includes auto-generated files to help you get started:
 - **evaluation.py** - Model evaluation script
 - **prediction.py** - Inference script for new data
 - **deploy.py** - Deployment utilities
-- **custom_modules/** - Template files for custom functions:
-  - `custom_models.py` - Custom model architectures
-  - `custom_data_loaders.py` - Custom data loading functions
-  - `custom_loss_functions.py` - Custom loss functions
-  - `custom_optimizers.py` - Custom optimizers
-  - `custom_metrics.py` - Custom metrics
-  - `custom_callbacks.py` - Custom training callbacks
-  - `custom_augmentations.py` - Custom data augmentation
-  - `custom_preprocessing.py` - Custom preprocessing functions
-  - `custom_training_loops.py` - Custom training strategies
 
 ## Configuration Options
 
 The `config.yaml` file includes comprehensive settings for:
-- Model architecture selection (ResNet, EfficientNet, Custom, etc.)
+- Model architecture selection (ResNet, EfficientNet, Custom, etc.)  
 - Training parameters (epochs, learning rate, batch size, etc.)
 - Data preprocessing and augmentation options
 - Runtime settings (GPU usage, model directory, etc.)
@@ -80,9 +70,9 @@ The `config.yaml` file includes comprehensive settings for:
 
 ## Custom Functions
 
-You can customize any aspect of the training pipeline by editing the files in `custom_modules/`:
-1. Edit the template functions to implement your custom logic
-2. Update the `config.yaml` to reference your custom functions
+You can customize any aspect of the training pipeline by creating your own Python files:
+1. Create Python files with your custom functions (models, loss functions, etc.)
+2. Update the `config.yaml` to reference your custom function files
 3. The training scripts will automatically load and use your custom functions
 
 ## Need Help?

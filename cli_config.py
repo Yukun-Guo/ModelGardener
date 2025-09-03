@@ -4,11 +4,18 @@ CLI Configuration Tool for ModelGardener
 Provides a command-line interface to configure model_config.json without the GUI.
 """
 
+# Suppress TensorFlow warnings as early as possible
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+import warnings
+warnings.filterwarnings('ignore')
+
 import argparse
 import json
 import yaml
-import os
 import sys
+import copy
 import inspect
 import importlib.util
 from pathlib import Path
@@ -825,16 +832,12 @@ class ModelConfigCLI:
         model_family = model_config.get('model_family', '')
         model_name = model_config.get('model_name', '')
         
-        print(f"\n🔍 Analyzing model: {model_family}/{model_name}")
-        
         # Try to dynamically analyze custom models
         if model_family == 'custom':
             custom_model_info = model_config.get('model_parameters', {}).get('custom_info', {})
             if custom_model_info:
                 file_path = custom_model_info.get('file_path', '')
                 function_name = custom_model_info.get('function_name', '')
-                
-                print(f"   Custom model: {function_name} from {file_path}")
                 
                 if file_path and function_name:
                     try:
@@ -843,15 +846,14 @@ class ModelConfigCLI:
                             file_path, function_name, model_config
                         )
                         if num_outputs > 0:
-                            print(f"   ✅ Detected {num_outputs} output(s): {output_names}")
                             return num_outputs, output_names
-                    except Exception as e:
-                        print(f"   ⚠️  Could not analyze custom model: {e}")
+                    except Exception:
+                        # Silently fall back to default behavior
+                        pass
         
         # For built-in models, most have single output by default
         # Check model name for hints about multiple outputs
         if 'multi' in model_name.lower() or 'multiple' in model_name.lower():
-            print("   💡 Model name suggests multiple outputs")
             # Ask user for number of outputs
             try:
                 num_outputs = int(inquirer.text("Enter number of model outputs", default="2"))
@@ -865,7 +867,6 @@ class ModelConfigCLI:
                 pass
         
         # Default: single output
-        print("   ✅ Detected 1 output (default)")
         return 1, ['main_output']
 
     def _analyze_custom_model_outputs(self, file_path: str, function_name: str, 
@@ -903,6 +904,24 @@ class ModelConfigCLI:
         
         # Try to build the model to analyze its structure
         try:
+            # Complete suppression of TensorFlow warnings during model building
+            import sys
+            import contextlib
+            from io import StringIO
+            
+            # Create context manager to suppress all output
+            @contextlib.contextmanager
+            def suppress_output():
+                old_stdout = sys.stdout
+                old_stderr = sys.stderr
+                sys.stdout = StringIO()
+                sys.stderr = StringIO()
+                try:
+                    yield
+                finally:
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
+            
             # Prepare model parameters
             model_params = model_config.get('model_parameters', {})
             input_shape = (
@@ -912,14 +931,16 @@ class ModelConfigCLI:
             )
             num_classes = model_params.get('classes', 10)
             
-            # Build the model with basic parameters
-            import keras
-            if inspect.isclass(model_func):
-                # If it's a class, instantiate it
-                model = model_func(input_shape=input_shape, num_classes=num_classes)
-            else:
-                # If it's a function, call it
-                model = model_func(input_shape=input_shape, num_classes=num_classes)
+            # Build the model with complete output suppression
+            with suppress_output():
+                import keras
+                
+                if inspect.isclass(model_func):
+                    # If it's a class, instantiate it
+                    model = model_func(input_shape=input_shape, num_classes=num_classes)
+                else:
+                    # If it's a function, call it
+                    model = model_func(input_shape=input_shape, num_classes=num_classes)
             
             if hasattr(model, 'outputs') and hasattr(model.outputs, '__len__'):
                 num_outputs = len(model.outputs)
@@ -954,8 +975,7 @@ class ModelConfigCLI:
             else:
                 return 1, ['main_output']
                 
-        except Exception as e:
-            print(f"   ⚠️  Could not build model for analysis: {e}")
+        except Exception:
             # Fall back to source code analysis
             return self._analyze_model_source_code(model_func)
 
@@ -1029,38 +1049,17 @@ class ModelConfigCLI:
         """Configure loss functions for single or multiple outputs with improved workflow."""
         print("\n📊 Loss Function Configuration")
         
-        # Step 1: Analyze model outputs automatically
-        print("🔍 Step 1: Analyzing model outputs...")
+        # Analyze model outputs automatically (silently)
         detected_outputs, detected_names = self.analyze_model_outputs(config)
         
-        # Step 2: Update model output configuration
-        print(f"\n📝 Step 2: Model Output Information")
-        print(f"   Detected outputs: {detected_outputs}")
-        print(f"   Output names: {detected_names}")
+        # Always use detected configuration - no confirmation needed
+        if detected_outputs > 1:
+            print(f"Detected {detected_outputs} model outputs: {', '.join(detected_names)}")
         
-        # Allow user to override if needed
-        confirm_outputs = inquirer.confirm(
-            f"Use detected configuration ({detected_outputs} outputs)?", 
-            default=True
-        )
-        
-        if not confirm_outputs:
-            detected_outputs = int(inquirer.text("Enter number of outputs", default=str(detected_outputs)))
-            detected_names = []
-            for i in range(detected_outputs):
-                name = inquirer.text(f"Enter name for output {i+1}", 
-                                   default=detected_names[i] if i < len(detected_names) else f"output_{i+1}")
-                detected_names.append(name)
-        
-        # Step 3: Determine loss strategy based on number of outputs
-        print(f"\n⚙️ Step 3: Loss Strategy Selection")
-        
+        # Determine loss strategy based on number of outputs
         if detected_outputs == 1:
-            print("   Single output detected - using 'single_loss_all_outputs' strategy")
             loss_strategy = 'single_loss_all_outputs'
         else:
-            print(f"   Multiple outputs detected ({detected_outputs}) - please select strategy:")
-            
             loss_strategy_choice = inquirer.list_input(
                 "Select loss strategy for multiple outputs",
                 choices=[
@@ -1071,13 +1070,10 @@ class ModelConfigCLI:
             )
             loss_strategy = loss_strategy_choice.split(' - ')[0]
         
-        # Step 4: Configure loss functions based on strategy
-        print(f"\n🎯 Step 4: Loss Function Selection")
-        print(f"   Strategy: {loss_strategy}")
-        
+        # Configure loss functions based on strategy
         if loss_strategy == 'single_loss_all_outputs':
             # Configure single loss function for all outputs
-            loss_config = self._configure_single_loss()
+            loss_config = self._configure_single_loss([], {})
             return {
                 'Model Output Configuration': {
                     'num_outputs': detected_outputs,
@@ -1098,10 +1094,18 @@ class ModelConfigCLI:
                 'Loss Selection': loss_configs
             }
 
-    def _configure_single_loss(self) -> Dict[str, Any]:
+    def _configure_single_loss(self, available_custom_losses: List[str] = None, loaded_custom_configs: Dict[str, Dict] = None) -> Dict[str, Any]:
         """Configure a single loss function with preset or custom options."""
-        # Add Custom option to available losses
-        loss_choices = self.available_losses + ['Custom']
+        # Add Custom option to available losses, plus any already loaded custom losses
+        loss_choices = self.available_losses.copy()
+        
+        # Add previously loaded custom losses to the choices with (custom) indicator
+        if available_custom_losses:
+            custom_choices = [f"{loss} (custom)" for loss in available_custom_losses]
+            loss_choices.extend(custom_choices)
+        
+        # Add option to load new custom losses
+        loss_choices.append('Load Custom Loss Functions')
         
         loss_function = inquirer.list_input(
             "Select loss function",
@@ -1109,11 +1113,10 @@ class ModelConfigCLI:
             default='Categorical Crossentropy'
         )
         
-        if loss_function == 'Custom':
+        if loss_function == 'Load Custom Loss Functions':
             print("\n🔧 Custom Loss Function Configuration")
             custom_loss_path = inquirer.text(
-                "Enter path to Python file containing custom loss functions",
-                default="./custom_modules/custom_loss_functions.py"
+                "Enter path to Python file containing custom loss functions"
             )
             
             if not custom_loss_path or not os.path.exists(custom_loss_path):
@@ -1140,15 +1143,32 @@ class ModelConfigCLI:
                 'parameters': loss_params.get('user_parameters', {}) if loss_params else {}
             }
         else:
-            return {
-                'selected_loss': loss_function,
-                'custom_loss_path': None,
-                'parameters': {}
-            }
+            # Handle custom loss functions (remove "(custom)" indicator if present)
+            actual_loss_name = loss_function.replace(' (custom)', '') if ' (custom)' in loss_function else loss_function
+            
+            # Check if this is a custom loss function
+            is_custom = ' (custom)' in loss_function
+            
+            if is_custom and loaded_custom_configs and actual_loss_name in loaded_custom_configs:
+                # Use the stored configuration for previously loaded custom loss
+                stored_config = loaded_custom_configs[actual_loss_name]
+                return {
+                    'selected_loss': actual_loss_name,
+                    'custom_loss_path': stored_config['custom_loss_path'],
+                    'parameters': copy.deepcopy(stored_config['parameters'])
+                }
+            else:
+                return {
+                    'selected_loss': actual_loss_name,
+                    'custom_loss_path': None,
+                    'parameters': {}
+                }
 
     def _configure_multiple_losses(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
         """Configure different loss functions for multiple outputs."""
         loss_configs = {}
+        loaded_custom_losses = []  # Track custom loss names
+        loaded_custom_configs = {}  # Track full configurations of loaded custom losses
         
         # Use provided names or generate default ones
         if output_names is None:
@@ -1157,7 +1177,21 @@ class ModelConfigCLI:
         for i in range(num_outputs):
             output_name = output_names[i] if i < len(output_names) else f"output_{i + 1}"
             print(f"\n🎯 Configuring loss function for '{output_name}':")
-            loss_configs[output_name] = self._configure_single_loss()
+            
+            # Pass previously loaded custom losses to avoid re-loading
+            loss_config = self._configure_single_loss(loaded_custom_losses, loaded_custom_configs)
+            loss_configs[output_name] = loss_config
+            
+            # If a custom loss was selected, add it to the available list for next outputs
+            selected_loss = loss_config.get('selected_loss', '')
+            if loss_config.get('custom_loss_path') and selected_loss not in loaded_custom_losses:
+                loaded_custom_losses.append(selected_loss)
+                # Store the full configuration for reuse (create deep copy to avoid YAML anchors)
+                if loss_config.get('custom_loss_path') != 'previously_loaded':
+                    loaded_custom_configs[selected_loss] = {
+                        'custom_loss_path': loss_config.get('custom_loss_path'),
+                        'parameters': copy.deepcopy(loss_config.get('parameters', {}))
+                    }
         
         return loss_configs
 
@@ -1445,9 +1479,9 @@ class ModelConfigCLI:
             'input_shape': {'width': 32, 'height': 32, 'channels': 3},
             'num_classes': 10,  # CIFAR-10 classes
             'dropout_rate': 0.5,
-            'custom_model_file_path': './custom_modules/custom_models.py',
+            'custom_model_file_path': None,
             'custom_info': {
-                'file_path': './custom_modules/custom_models.py',
+                'file_path': None,
                 'type': 'function'
             }
         }
@@ -1495,8 +1529,7 @@ class ModelConfigCLI:
         if data_loader == 'Custom':
             print("\n🔧 Custom Data Loader Configuration")
             custom_data_loader_path = inquirer.text(
-                "Enter path to Python file containing custom data loader",
-                default="./custom_modules/custom_data_loaders.py"
+                "Enter path to Python file containing custom data loader"
             )
             
             if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
@@ -1551,8 +1584,7 @@ class ModelConfigCLI:
         if model_family == 'custom':
             print("\n📁 Custom Model Configuration")
             custom_model_path = inquirer.text(
-                "Enter path to Python file containing custom model",
-                default="./custom_modules/custom_models.py"
+                "Enter path to Python file containing custom model"
             )
             
             # Validate file exists
@@ -2650,8 +2682,7 @@ class ModelConfigCLI:
                 if data_loader == 'Custom':
                     print("\n🔧 Custom Data Loader Configuration")
                     custom_data_loader_path = inquirer.text(
-                        "Enter path to Python file containing custom data loader",
-                        default="./custom_modules/custom_data_loaders.py"
+                        "Enter path to Python file containing custom data loader"
                     )
                     
                     if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
