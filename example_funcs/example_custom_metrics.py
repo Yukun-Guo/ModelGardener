@@ -42,3 +42,30 @@ def balanced_accuracy(y_true, y_pred, threshold=0.5):
     balanced_acc = (sensitivity + specificity) / 2.0
     
     return balanced_acc
+
+def weighted_dice(y_true, y_pred, smooth=1e-6):
+    """
+    Weighted Dice coefficient for multi-class segmentation.
+
+    Args:
+        y_true: True labels (one-hot encoded)
+        y_pred: Predicted labels (one-hot encoded)
+        smooth: Smoothing factor to avoid division by zero
+
+    Returns:
+        Weighted Dice coefficient
+    """
+    # Calculate intersection and union
+    intersection = tf.reduce_sum(y_true * y_pred, axis=[0, 1])
+    union = tf.reduce_sum(y_true + y_pred, axis=[0, 1])
+
+    # Calculate Dice coefficient for each class
+    dice = (2.0 * intersection + smooth) / (union + smooth)
+
+    # Calculate class weights (e.g., based on frequency)
+    class_weights = tf.reduce_sum(y_true, axis=[0, 1]) / tf.reduce_sum(y_true)
+
+    # Calculate weighted Dice
+    weighted_dice = tf.reduce_sum(class_weights * dice)
+
+    return weighted_dice

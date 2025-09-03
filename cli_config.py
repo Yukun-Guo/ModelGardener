@@ -12,6 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 import argparse
+import ast
 import json
 import yaml
 import sys
@@ -818,6 +819,160 @@ class ModelConfigCLI:
         
         return None, {}
 
+    def analyze_custom_metrics_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract custom metrics functions.
+        Similar to analyze_custom_loss_file but for metrics functions.
+        
+        Args:
+            file_path: Path to the Python file containing custom metrics
+            
+        Returns:
+            Tuple of (success, analysis_result)
+        """
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Read and parse the file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Use AST to parse the file
+            tree = ast.parse(content)
+            
+            functions_info = {}
+            
+            # Look for function definitions
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    func_name = node.name
+                    
+                    # Skip private functions
+                    if func_name.startswith('_'):
+                        continue
+                    
+                    # Get function signature
+                    args = [arg.arg for arg in node.args.args]
+                    
+                    # Look for typical metrics function patterns
+                    if self._is_likely_metrics_function(func_name, args, content):
+                        # Extract parameters
+                        parameters = self._extract_function_parameters(node, content)
+                        
+                        # Get signature string
+                        signature = f"({', '.join(args)})"
+                        
+                        functions_info[func_name] = {
+                            'type': 'function',
+                            'function_name': func_name,
+                            'signature': signature,
+                            'parameters': parameters,
+                            'file_path': file_path
+                        }
+                
+                # Look for class definitions that might be custom metrics
+                elif isinstance(node, ast.ClassDef):
+                    class_name = node.name
+                    
+                    # Skip private classes
+                    if class_name.startswith('_'):
+                        continue
+                    
+                    # Look for classes that might be metrics (typically have __call__ or compute methods)
+                    has_call = any(isinstance(n, ast.FunctionDef) and n.name == '__call__' 
+                                 for n in node.body)
+                    has_compute = any(isinstance(n, ast.FunctionDef) and n.name == 'compute' 
+                                    for n in node.body)
+                    
+                    if has_call or has_compute or 'metric' in class_name.lower():
+                        functions_info[class_name] = {
+                            'type': 'class',
+                            'function_name': class_name,
+                            'signature': '(class)',
+                            'parameters': {},
+                            'file_path': file_path
+                        }
+            
+            return len(functions_info) > 0, functions_info
+            
+        except Exception as e:
+            print(f"Error analyzing metrics file {file_path}: {e}")
+            return False, {}
+
+    def _is_likely_metrics_function(self, func_name: str, args: List[str], content: str) -> bool:
+        """Check if a function is likely a metrics function."""
+        func_name_lower = func_name.lower()
+        
+        # Common metrics function name patterns
+        metrics_patterns = [
+            'accuracy', 'precision', 'recall', 'f1', 'auc', 'score', 'metric',
+            'mse', 'mae', 'rmse', 'loss', 'error', 'iou', 'dice'
+        ]
+        
+        # Check if function name contains metrics patterns
+        name_matches = any(pattern in func_name_lower for pattern in metrics_patterns)
+        
+        # Check for typical metrics function parameters
+        typical_params = ['y_true', 'y_pred', 'true', 'pred', 'actual', 'predicted', 'labels', 'outputs']
+        param_matches = any(param in ' '.join(args).lower() for param in typical_params)
+        
+        # Check if function has at least 2 parameters (typical for metrics: y_true, y_pred)
+        has_enough_params = len(args) >= 2
+        
+        return (name_matches or param_matches) and has_enough_params
+
+    def interactive_custom_metrics_selection(self, file_path: str, metrics_info: Dict[str, Any]) -> List[str]:
+        """
+        Interactive selection of custom metrics functions from analyzed file.
+        
+        Args:
+            file_path: Path to the custom metrics function file
+            metrics_info: Analysis result from analyze_custom_metrics_file
+            
+        Returns:
+            List of selected metrics names
+        """
+        if not metrics_info:
+            print("❌ No metrics functions found in the file")
+            return []
+        
+        print(f"\n✅ Found {len(metrics_info)} metrics function(s) in {os.path.basename(file_path)}")
+        
+        # Create choices for the user - show only name, not full descriptions
+        choices = []
+        for name, info in metrics_info.items():
+            if info['type'] == 'function' and 'signature' in info:
+                choice_text = f"{name} (function)"
+            elif info['type'] == 'class':
+                choice_text = f"{name} (class)"
+            else:
+                choice_text = name
+            choices.append(choice_text)
+        
+        # Let user select multiple metrics
+        if len(choices) == 1:
+            # Only one function available
+            selected_choices = inquirer.checkbox(
+                "Select metrics functions to load",
+                choices=choices,
+                default=choices
+            )
+        else:
+            selected_choices = inquirer.checkbox(
+                "Select metrics functions to load (use space to select, enter to confirm)",
+                choices=choices
+            )
+        
+        # Extract actual function names from choices
+        selected_metrics = []
+        for choice in selected_choices:
+            # Extract function name (everything before the space or parenthesis)
+            actual_name = choice.split(' ')[0] if ' ' in choice else choice.split('(')[0]
+            selected_metrics.append(f"{actual_name} (custom)")
+        
+        return selected_metrics
+
     def analyze_model_outputs(self, config: Dict[str, Any]) -> Tuple[int, List[str]]:
         """
         Analyze the model configuration to determine the number of outputs and their names.
@@ -1194,6 +1349,199 @@ class ModelConfigCLI:
                     }
         
         return loss_configs
+
+    def configure_metrics(self, config: Dict[str, Any], loss_functions_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Configure metrics for single or multiple outputs with improved workflow similar to loss functions."""
+        print("\n📈 Metrics Configuration")
+        
+        # Reuse output analysis from loss functions configuration
+        model_output_config = loss_functions_config.get('Model Output Configuration', {})
+        detected_outputs = model_output_config.get('num_outputs', 1)
+        detected_names = model_output_config.get('output_names', 'main_output').split(',')
+        detected_names = [name.strip() for name in detected_names]
+        
+        # Always use detected configuration from loss functions
+        if detected_outputs > 1:
+            print(f"Using same outputs as loss functions: {detected_outputs} outputs: {', '.join(detected_names)}")
+        
+        # Determine metrics strategy based on number of outputs
+        if detected_outputs == 1:
+            metrics_strategy = 'shared_metrics_all_outputs'
+        else:
+            metrics_strategy_choice = inquirer.list_input(
+                "Select metrics strategy for multiple outputs",
+                choices=[
+                    'shared_metrics_all_outputs - Use the same metrics for all outputs',
+                    'different_metrics_per_output - Use different metrics for each output'
+                ],
+                default='shared_metrics_all_outputs - Use the same metrics for all outputs'
+            )
+            metrics_strategy = metrics_strategy_choice.split(' - ')[0]
+        
+        # Configure metrics based on strategy
+        if metrics_strategy == 'shared_metrics_all_outputs':
+            # Configure shared metrics for all outputs
+            metrics_config = self._configure_single_metrics([], {})
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'metrics_strategy': 'shared_metrics_all_outputs'
+                },
+                'Metrics Selection': metrics_config
+            }
+        else:
+            # Configure different metrics for each output
+            metrics_configs = self._configure_multiple_metrics(detected_outputs, detected_names)
+            return {
+                'Model Output Configuration': {
+                    'num_outputs': detected_outputs,
+                    'output_names': ','.join(detected_names),
+                    'metrics_strategy': 'different_metrics_per_output'
+                },
+                'Metrics Selection': metrics_configs
+            }
+
+    def _configure_single_metrics(self, available_custom_metrics: List[str] = None, loaded_custom_configs: Dict[str, Dict] = None) -> Dict[str, Any]:
+        """Configure metrics for single output or shared across outputs."""
+        # Add Custom option to available metrics, plus any already loaded custom metrics
+        metrics_choices = self.available_metrics.copy()
+        
+        # Add previously loaded custom metrics to the choices with (custom) indicator
+        if available_custom_metrics:
+            custom_choices = [f"{metric} (custom)" for metric in available_custom_metrics]
+            metrics_choices.extend(custom_choices)
+        
+        # Add option to load new custom metrics
+        metrics_choices.append('Load Custom Metrics Functions')
+        
+        # Use checkbox for multiple selection
+        selected_metrics = inquirer.checkbox(
+            "Select metrics (use space to select, enter to confirm)",
+            choices=metrics_choices,
+            default=['Accuracy']
+        )
+        
+        # Track newly loaded custom metrics for return to caller
+        newly_loaded_custom_metrics = []
+        custom_metrics_path = None
+        metrics_info = {}
+        
+        # Handle custom metrics loading
+        if 'Load Custom Metrics Functions' in selected_metrics:
+            selected_metrics.remove('Load Custom Metrics Functions')  # Remove the option from selection
+            print("\n🔧 Custom Metrics Function Configuration")
+            custom_metrics_path = inquirer.text(
+                "Enter path to Python file containing custom metrics functions"
+            )
+            
+            if not custom_metrics_path or not os.path.exists(custom_metrics_path):
+                print("❌ Invalid file path. Using selected built-in metrics only.")
+            else:
+                # Analyze custom metrics function file
+                success, metrics_info = self.analyze_custom_metrics_file(custom_metrics_path)
+                
+                if not success or not metrics_info:
+                    print("❌ No valid metrics functions found in the file. Using selected built-in metrics only.")
+                else:
+                    print(f"\n✅ Found {len(metrics_info)} metrics function(s) in {custom_metrics_path}")
+                    
+                    # Let user select from available metrics functions
+                    additional_custom_metrics = self.interactive_custom_metrics_selection(custom_metrics_path, metrics_info)
+                    if additional_custom_metrics:
+                        selected_metrics.extend(additional_custom_metrics)
+                        
+                        # Store the newly loaded custom metrics configurations
+                        if loaded_custom_configs is None:
+                            loaded_custom_configs = {}
+                        
+                        for custom_metric in additional_custom_metrics:
+                            actual_name = custom_metric.replace(' (custom)', '')
+                            newly_loaded_custom_metrics.append(actual_name)
+                            if actual_name in metrics_info:
+                                loaded_custom_configs[actual_name] = {
+                                    'custom_metrics_path': custom_metrics_path,
+                                    'parameters': {}  # Initialize with empty parameters
+                                }
+        
+        # Build final metrics configuration
+        final_metrics = []
+        custom_metrics_configs = {}
+        
+        for metric in selected_metrics:
+            if ' (custom)' in metric:
+                # Handle custom metrics
+                actual_metric_name = metric.replace(' (custom)', '')
+                
+                # First check if it's in loaded_custom_configs (from current or previous loads)
+                if loaded_custom_configs and actual_metric_name in loaded_custom_configs:
+                    stored_config = loaded_custom_configs[actual_metric_name]
+                    custom_metrics_configs[actual_metric_name] = {
+                        'custom_metrics_path': stored_config['custom_metrics_path'],
+                        'parameters': copy.deepcopy(stored_config.get('parameters', {}))
+                    }
+                else:
+                    # Fallback: try to find it in the current metrics_info if available
+                    if metrics_info and actual_metric_name in metrics_info:
+                        custom_metrics_configs[actual_metric_name] = {
+                            'custom_metrics_path': custom_metrics_path,
+                            'parameters': {}
+                        }
+                
+                final_metrics.append(actual_metric_name)
+            else:
+                # Handle built-in metrics
+                final_metrics.append(metric)
+        
+        result = {
+            'selected_metrics': ','.join(final_metrics),
+            'custom_metrics_configs': custom_metrics_configs
+        }
+        
+        # Add information about newly loaded custom metrics for caller to track
+        if newly_loaded_custom_metrics:
+            result['_newly_loaded_custom_metrics'] = newly_loaded_custom_metrics
+        
+        return result
+
+    def _configure_multiple_metrics(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
+        """Configure different metrics for multiple outputs."""
+        metrics_configs = {}
+        loaded_custom_metrics = []  # Track custom metrics names
+        loaded_custom_configs = {}  # Track full configurations of loaded custom metrics
+        
+        # Use provided names or generate default ones
+        if output_names is None:
+            output_names = [f"output_{i + 1}" for i in range(num_outputs)]
+        
+        for i in range(num_outputs):
+            output_name = output_names[i] if i < len(output_names) else f"output_{i + 1}"
+            print(f"\n🎯 Configuring metrics for '{output_name}':")
+            
+            # Pass previously loaded custom metrics to avoid re-loading
+            metrics_config = self._configure_single_metrics(loaded_custom_metrics, loaded_custom_configs)
+            metrics_configs[output_name] = metrics_config
+            
+            # Handle newly loaded custom metrics from this configuration
+            if '_newly_loaded_custom_metrics' in metrics_config:
+                for new_metric_name in metrics_config['_newly_loaded_custom_metrics']:
+                    if new_metric_name not in loaded_custom_metrics:
+                        loaded_custom_metrics.append(new_metric_name)
+                # Remove the temporary tracking info from the final config
+                del metrics_config['_newly_loaded_custom_metrics']
+            
+            # If custom metrics were configured, add them to the available list for next outputs
+            custom_configs = metrics_config.get('custom_metrics_configs', {})
+            for metric_name, config_data in custom_configs.items():
+                if metric_name not in loaded_custom_metrics:
+                    loaded_custom_metrics.append(metric_name)
+                # Always update/store the full configuration for reuse
+                loaded_custom_configs[metric_name] = {
+                    'custom_metrics_path': config_data.get('custom_metrics_path'),
+                    'parameters': copy.deepcopy(config_data.get('parameters', {}))
+                }
+        
+        return metrics_configs
 
     def create_default_config(self) -> Dict[str, Any]:
         """Create a default configuration structure."""
@@ -1709,14 +2057,9 @@ class ModelConfigCLI:
         loss_functions_config = self.configure_loss_functions(config)
         config['configuration']['model']['loss_functions'] = loss_functions_config
         
-        # Metrics Configuration
-        print("\n📈 Metrics Configuration")
-        metrics = inquirer.checkbox(
-            "Select metrics (use space to select, enter to confirm)",
-            choices=self.available_metrics,
-            default=['Accuracy']
-        )
-        config['configuration']['model']['metrics']['Metrics Selection']['selected_metrics'] = ','.join(metrics)
+        # Metrics Configuration - using improved workflow similar to loss functions
+        metrics_config = self.configure_metrics(config, loss_functions_config)
+        config['configuration']['model']['metrics'] = metrics_config
         
         # Training Configuration
         print("\n🏃 Training Configuration")
@@ -2865,6 +3208,23 @@ class ModelConfigCLI:
             # Use improved loss configuration workflow
             loss_functions_config = self.configure_loss_functions(config)
             config['configuration']['model']['loss_functions'] = loss_functions_config
+        
+        # Metrics Configuration - Enhanced metrics workflow
+        current_metrics_config = config.get('configuration', {}).get('model', {}).get('metrics', {})
+        current_metrics = current_metrics_config.get('Metrics Selection', {}).get('selected_metrics', 'Accuracy')
+        current_metrics_num_outputs = current_metrics_config.get('Model Output Configuration', {}).get('num_outputs', 1)
+        current_metrics_strategy = current_metrics_config.get('Model Output Configuration', {}).get('metrics_strategy', 'shared_metrics_all_outputs')
+        
+        print(f"\n📈 Current Metrics: {current_metrics}")
+        print(f"    Number of outputs: {current_metrics_num_outputs}")
+        print(f"    Metrics strategy: {current_metrics_strategy}")
+        
+        change_metrics = inquirer.confirm("Change metrics configuration?", default=False)
+        if change_metrics:
+            # Use enhanced metrics configuration workflow - reuse loss functions config
+            current_loss_config = config.get('configuration', {}).get('model', {}).get('loss_functions', {})
+            metrics_config = self.configure_metrics(config, current_loss_config)
+            config['configuration']['model']['metrics'] = metrics_config
         
         # Training Configuration
         current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
