@@ -1,182 +1,93 @@
-# ModelGardener - CLI-Only Deep Learning Training Tool
+# . - ModelGardener Project
 
-**A command-line interface for deep learning model training with TensorFlow/Keras**
-
-## Overview
-
-ModelGardener is a CLI-only tool that provides a streamlined interface for configuring and training deep learning models. It has been refactored to remove all GUI dependencies, making it more stable and suitable for server environments.
-
-## Features
-
-✨ **CLI-Only Interface**: No GUI dependencies - perfect for servers and automated workflows
-🔧 **Configuration Management**: YAML-based configuration with automatic parameter extraction
-📊 **Multiple Architectures**: Support for ResNet, VGG, DenseNet, EfficientNet, and custom models
-🎯 **Custom Functions**: Easy integration of custom models, data loaders, preprocessing, and training loops
-🔄 **Project Generation**: Automated generation of complete training projects with sample data
-⚡ **TensorFlow Integration**: Built on TensorFlow 2.x with Keras high-level API
-
-## Installation & Usage
-
-### Development Mode
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd ModelGardener
+## Project Structure
 ```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-### Package Installation
-
-Install as a system-wide package:
-```bash
-# From source
-git clone <repository-url>
-cd ModelGardener
-pip install -e .  # Development mode
-# or
-pip install .     # Regular installation
-```
-
-## Usage Methods
-
-ModelGardener can be run in several ways:
-
-### 1. Short Command (Recommended - after pip install)
-
-```bash
-mgd --help
-mgd create my_project
-mgd models
-```
-
-### 2. As a Python Module
-
-```bash
-python -m modelgardener --help
-python -m modelgardener create my_project
-python -m modelgardener models
-```
-
-### 3. Direct Script Execution
-
-```bash
-python main.py --help
-python main.py create my_project
-python main.py models
+./
+├── data/
+│   ├── train/          # Training data
+│   └── val/            # Validation data
+├── logs/               # Training logs and models
+├── custom_modules/     # Custom function templates (auto-generated)
+├── config.yaml         # Model configuration
+├── train.py           # Training script (auto-generated)
+├── evaluation.py      # Evaluation script (auto-generated)
+├── prediction.py      # Prediction script (auto-generated)
+├── deploy.py          # Deployment script (auto-generated)
+├── requirements.txt   # Python dependencies (auto-generated)
+└── README.md          # This file
 ```
 
 ## Quick Start
 
-1. **Create a new project**:
+### 1. Prepare Your Data
+Place your training images in `data/train/` and validation images in `data/val/`
+
+### 2. Configure Your Model
+Edit the `config.yaml` file to customize your model settings, or use the interactive configuration:
 ```bash
-python main.py create my_classifier
-cd my_classifier
+# Interactive configuration (overwrites config.yaml)
+python /path/to/ModelGardener/modelgardener_cli.py config --interactive --output config.yaml
+
+# Or directly edit config.yaml
 ```
 
-2. **Configure training** (interactive mode):
+### 3. Train Your Model
 ```bash
-python /path/to/ModelGardener/main.py config --interactive
-```
-
-3. **Train the model**:
-```bash
+# Use the generated training script
 python train.py
+
+# Or use the CLI
+python /path/to/ModelGardener/modelgardener_cli.py train --config config.yaml
 ```
 
-## Key Commands
+### 4. Evaluate Your Model
+```bash
+# Use the generated evaluation script  
+python evaluation.py
 
-- `python main.py create <project_name>` - Create a new project
-- `python main.py config` - Configure training parameters
-- `python main.py train` - Start training
-- `python main.py models` - List available model architectures
-
-## Project Structure
-
-When you create a new project, you'll get:
-
-```
-my_project/
-├── config.yaml                    # Training configuration
-├── train.py                      # Training script
-├── evaluation.py                 # Model evaluation
-├── prediction.py                 # Inference script
-├── requirements.txt              # Dependencies
-├── data/                         # Sample training data
-│   ├── train/
-│   └── val/
-└── custom_modules/               # Custom function templates
-    ├── custom_models.py
-    ├── custom_data_loaders.py
-    └── README.md
+# Or use the CLI
+python /path/to/ModelGardener/modelgardener_cli.py evaluate --config config.yaml --model-path logs/final_model.keras
 ```
 
-## Supported Model Architectures
+## Generated Files
 
-- **ResNet**: ResNet-50, ResNet-101, ResNet-152
-- **VGG**: VGG-16, VGG-19
-- **DenseNet**: DenseNet-121, DenseNet-169
-- **EfficientNet**: EfficientNetB0, EfficientNetB1
-- **Custom Models**: Load your own model architectures
+This project includes auto-generated files to help you get started:
 
-## Configuration
+- **config.yaml** - Complete model configuration with examples and documentation
+- **train.py** - Ready-to-use training script
+- **evaluation.py** - Model evaluation script
+- **prediction.py** - Inference script for new data
+- **deploy.py** - Deployment utilities
+- **custom_modules/** - Template files for custom functions:
+  - `custom_models.py` - Custom model architectures
+  - `custom_data_loaders.py` - Custom data loading functions
+  - `custom_loss_functions.py` - Custom loss functions
+  - `custom_optimizers.py` - Custom optimizers
+  - `custom_metrics.py` - Custom metrics
+  - `custom_callbacks.py` - Custom training callbacks
+  - `custom_augmentations.py` - Custom data augmentation
+  - `custom_preprocessing.py` - Custom preprocessing functions
+  - `custom_training_loops.py` - Custom training strategies
 
-Training configuration is managed through YAML files with automatic parameter extraction:
+## Configuration Options
 
-```yaml
-configuration:
-  task_type: image_classification
-  data:
-    train_dir: ./data/train
-    val_dir: ./data/val
-  model:
-    model_family: resnet
-    model_name: ResNet-50
-    model_parameters:
-      input_shape: {height: 224, width: 224, channels: 3}
-      classes: 10
-  training:
-    epochs: 50
-    batch_size: 32
-    learning_rate: 0.001
-```
+The `config.yaml` file includes comprehensive settings for:
+- Model architecture selection (ResNet, EfficientNet, Custom, etc.)
+- Training parameters (epochs, learning rate, batch size, etc.)
+- Data preprocessing and augmentation options
+- Runtime settings (GPU usage, model directory, etc.)
+- Custom function integration
 
 ## Custom Functions
 
-Easily integrate custom functionality:
+You can customize any aspect of the training pipeline by editing the files in `custom_modules/`:
+1. Edit the template functions to implement your custom logic
+2. Update the `config.yaml` to reference your custom functions
+3. The training scripts will automatically load and use your custom functions
 
-1. **Custom Models**: Define model architectures in `custom_modules/custom_models.py`
-2. **Custom Data Loaders**: Custom data loading logic
-3. **Custom Preprocessing**: Data preprocessing functions
-4. **Custom Training Loops**: Advanced training strategies
+## Need Help?
 
-## CLI Documentation
-
-For detailed CLI usage, see [CLI_README.md](CLI_README.md)
-
-## Changes in CLI-Only Version
-
-This version has been refactored to remove all PySide6/GUI dependencies:
-
-- ❌ Removed main GUI window
-- ❌ Removed interactive parameter trees
-- ❌ Removed file dialog boxes
-- ❌ Removed progress widgets
-- ✅ Retained all core training functionality
-- ✅ Maintained custom function support
-- ✅ Kept configuration management
-- ✅ Enhanced CLI interface
-
-## Requirements
-
-- Python 3.8+
-- TensorFlow 2.10+
-- Other dependencies listed in `requirements.txt`
-
-## License
-
-This project is licensed under the MIT License.
+- Run ModelGardener CLI with `--help` to see all available options
+- Use interactive mode for guided configuration: `modelgardener_cli.py config --interactive`
+- Check the custom_modules/README.md for detailed examples
+- See the ModelGardener documentation for advanced usage

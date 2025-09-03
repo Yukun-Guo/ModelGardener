@@ -1694,50 +1694,14 @@ class ModelConfigCLI:
             )
             config['configuration']['model']['model_family'] = model_family
             
-            if model_family == 'custom':
-                # Custom model handling
-                print("\n🔧 Custom Model Configuration")
-                print("=" * 40)
-                
-                custom_model_path = inquirer.text("Enter path to custom model Python file")
-                
-                if not custom_model_path or not os.path.exists(custom_model_path):
-                    print("❌ Invalid file path. Using default custom model.")
-                    model_name = 'CustomModel'
-                    model_params = {}
-                else:
-                    # Analyze custom model file
-                    success, model_info = self.analyze_custom_model_file(custom_model_path)
-                    
-                    if not success or not model_info:
-                        print("❌ No valid model functions found in the file. Using default custom model.")
-                        model_name = 'CustomModel'
-                        model_params = {}
-                    else:
-                        print(f"\n✅ Found {len(model_info)} model function(s) in {custom_model_path}")
-                        
-                        # Let user select from available models
-                        model_name, model_params = self.interactive_custom_model_selection(custom_model_path)
-                        
-                        # Add custom model path to config
-                        config['configuration']['model']['custom_model_path'] = custom_model_path
-                
-                config['configuration']['model']['model_name'] = model_name
-                
-                # Update model parameters if available
-                if model_params and 'parameters' in model_params:
-                    if 'model_parameters' not in config['configuration']['model']:
-                        config['configuration']['model']['model_parameters'] = {}
-                    config['configuration']['model']['model_parameters'].update(model_params['parameters'])
-            else:
-                # Standard model name selection
-                model_names = self.available_models[model_family]
-                model_name = inquirer.list_input(
-                    f"Select {model_family} model",
-                    choices=model_names,
-                    default=current_model if current_model in model_names else model_names[0]
-                )
-                config['configuration']['model']['model_name'] = model_name
+            # Model name selection
+            model_names = self.available_models[model_family]
+            model_name = inquirer.list_input(
+                f"Select {model_family} model",
+                choices=model_names,
+                default=current_model if current_model in model_names else model_names[0]
+            )
+            config['configuration']['model']['model_name'] = model_name
         
         # Input shape configuration
         current_shape = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('input_shape', {})
@@ -2048,6 +2012,269 @@ def main():
         print(f"📝 Format: {args.format.upper()}")
         print(f"\n💡 You can now use this configuration with ModelGardener")
 
+    def interactive_configuration_with_existing(self, existing_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Interactive configuration using existing config as base."""
+        print("\n🌱 ModelGardener CLI Configuration Modifier")
+        print("=" * 50)
+        print("✨ Current configuration will be used as the starting point")
+        
+        config = existing_config.copy()
+        
+        # Show current task type
+        current_task = config.get('configuration', {}).get('task_type', 'image_classification')
+        print(f"\n📋 Current task type: {current_task}")
+        
+        # Task Type Selection
+        task_types = ['image_classification', 'object_detection', 'semantic_segmentation']
+        change_task = inquirer.confirm(f"Change task type from '{current_task}'?", default=False)
+        
+        if change_task:
+            task_type = inquirer.list_input(
+                "Select new task type",
+                choices=task_types,
+                default=current_task
+            )
+            config['configuration']['task_type'] = task_type
+        
+        # Data Configuration
+        current_train_dir = config.get('configuration', {}).get('data', {}).get('train_dir', './example_data/train')
+        current_val_dir = config.get('configuration', {}).get('data', {}).get('val_dir', './example_data/val')
+        
+        print(f"\n📁 Current Data Configuration:")
+        print(f"   Training directory: {current_train_dir}")
+        print(f"   Validation directory: {current_val_dir}")
+        
+        change_data = inquirer.confirm("Modify data configuration?", default=False)
+        
+        if change_data:
+            train_dir = inquirer.text("Enter training data directory", default=current_train_dir)
+            val_dir = inquirer.text("Enter validation data directory", default=current_val_dir)
+            
+            config['configuration']['data']['train_dir'] = train_dir
+            config['configuration']['data']['val_dir'] = val_dir
+        
+        # Batch size
+        current_batch_size = config.get('configuration', {}).get('data', {}).get('data_loader', {}).get('parameters', {}).get('batch_size', 32)
+        print(f"\n📦 Current batch size: {current_batch_size}")
+        
+        change_batch = inquirer.confirm("Change batch size?", default=False)
+        if change_batch:
+            batch_size = inquirer.text("Enter batch size", default=str(current_batch_size))
+            try:
+                config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
+            except ValueError:
+                print("⚠️  Invalid batch size, keeping current value")
+        
+        # Model Configuration
+        current_family = config.get('configuration', {}).get('model', {}).get('model_family', 'resnet')
+        current_model = config.get('configuration', {}).get('model', {}).get('model_name', 'ResNet-50')
+        
+        print(f"\n🤖 Current Model: {current_family} - {current_model}")
+        
+        change_model = inquirer.confirm("Change model?", default=False)
+        
+        if change_model:
+            # Model family selection
+            model_families = list(self.available_models.keys())
+            model_family = inquirer.list_input(
+                "Select model family",
+                choices=model_families,
+                default=current_family if current_family in model_families else 'resnet'
+            )
+            config['configuration']['model']['model_family'] = model_family
+            
+            # Model name selection
+            model_names = self.available_models[model_family]
+            model_name = inquirer.list_input(
+                f"Select {model_family} model",
+                choices=model_names,
+                default=current_model if current_model in model_names else model_names[0]
+            )
+            config['configuration']['model']['model_name'] = model_name
+        
+        # Input shape configuration
+        current_shape = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('input_shape', {})
+        current_height = current_shape.get('height', 224)
+        current_width = current_shape.get('width', 224)
+        current_channels = current_shape.get('channels', 3)
+        
+        print(f"\n📐 Current Input Shape: {current_height}x{current_width}x{current_channels}")
+        
+        change_shape = inquirer.confirm("Change input shape?", default=False)
+        
+        if change_shape:
+            height = inquirer.text("Enter image height", default=str(current_height))
+            width = inquirer.text("Enter image width", default=str(current_width))
+            channels = inquirer.text("Enter image channels", default=str(current_channels))
+            
+            try:
+                config['configuration']['model']['model_parameters']['input_shape'] = {
+                    'height': int(height),
+                    'width': int(width),
+                    'channels': int(channels)
+                }
+                # Update preprocessing size to match input shape
+                config['configuration']['data']['preprocessing']['Resizing']['target_size']['height'] = int(height)
+                config['configuration']['data']['preprocessing']['Resizing']['target_size']['width'] = int(width)
+            except ValueError:
+                print("⚠️  Invalid input shape values, keeping current values")
+        
+        # Number of classes
+        current_classes = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('classes', 1000)
+        print(f"\n🔢 Current number of classes: {current_classes}")
+        
+        change_classes = inquirer.confirm("Change number of classes?", default=False)
+        if change_classes:
+            num_classes = inquirer.text("Enter number of classes", default=str(current_classes))
+            try:
+                config['configuration']['model']['model_parameters']['classes'] = int(num_classes)
+            except ValueError:
+                print("⚠️  Invalid number of classes, keeping current value")
+        
+        # Optimizer Configuration
+        current_optimizer = config.get('configuration', {}).get('model', {}).get('optimizer', {}).get('Optimizer Selection', {}).get('selected_optimizer', 'Adam')
+        current_lr = config.get('configuration', {}).get('model', {}).get('optimizer', {}).get('Optimizer Selection', {}).get('learning_rate', 0.001)
+        
+        print(f"\n⚡ Current Optimizer: {current_optimizer} (lr: {current_lr})")
+        
+        change_optimizer = inquirer.confirm("Change optimizer settings?", default=False)
+        
+        if change_optimizer:
+            optimizer = inquirer.list_input(
+                "Select optimizer",
+                choices=self.available_optimizers,
+                default=current_optimizer if current_optimizer in self.available_optimizers else 'Adam'
+            )
+            config['configuration']['model']['optimizer']['Optimizer Selection']['selected_optimizer'] = optimizer
+            
+            learning_rate = inquirer.text("Enter learning rate", default=str(current_lr))
+            try:
+                config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = float(learning_rate)
+            except ValueError:
+                print("⚠️  Invalid learning rate, keeping current value")
+        
+        # Loss Function Configuration
+        current_loss = config.get('configuration', {}).get('model', {}).get('loss_functions', {}).get('Loss Selection', {}).get('selected_loss', 'Categorical Crossentropy')
+        
+        print(f"\n📉 Current Loss Function: {current_loss}")
+        
+        change_loss = inquirer.confirm("Change loss function?", default=False)
+        if change_loss:
+            loss_function = inquirer.list_input(
+                "Select loss function",
+                choices=self.available_losses,
+                default=current_loss if current_loss in self.available_losses else 'Categorical Crossentropy'
+            )
+            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = loss_function
+        
+        # Training Configuration
+        current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
+        
+        print(f"\n🏃 Current training epochs: {current_epochs}")
+        
+        change_training = inquirer.confirm("Change training settings?", default=False)
+        if change_training:
+            epochs = inquirer.text("Enter number of epochs", default=str(current_epochs))
+            try:
+                config['configuration']['training']['epochs'] = int(epochs)
+            except ValueError:
+                print("⚠️  Invalid number of epochs, keeping current value")
+        
+        # Runtime Configuration
+        current_model_dir = config.get('configuration', {}).get('runtime', {}).get('model_dir', './logs')
+        current_gpus = config.get('configuration', {}).get('runtime', {}).get('num_gpus', 1)
+        
+        print(f"\n💾 Current Runtime Settings:")
+        print(f"   Model directory: {current_model_dir}")
+        print(f"   Number of GPUs: {current_gpus}")
+        
+        change_runtime = inquirer.confirm("Change runtime settings?", default=False)
+        if change_runtime:
+            model_dir = inquirer.text("Enter model output directory", default=current_model_dir)
+            num_gpus = inquirer.text("Enter number of GPUs", default=str(current_gpus))
+            
+            config['configuration']['runtime']['model_dir'] = model_dir
+            try:
+                config['configuration']['runtime']['num_gpus'] = int(num_gpus)
+            except ValueError:
+                print("⚠️  Invalid number of GPUs, keeping current value")
+        
+        # Update modification timestamp
+        from datetime import datetime
+        if 'metadata' not in config:
+            config['metadata'] = {}
+        config['metadata']['last_modified'] = datetime.now().isoformat()
+        config['metadata']['modified_via'] = 'CLI Interactive Mode'
+        
+        print("\n✅ Configuration modification completed!")
+        
+        return config
+
+    def batch_configuration_with_existing(self, existing_config: Dict[str, Any], modifications: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply batch modifications to existing configuration."""
+        config = existing_config.copy()
+        
+        print("⚡ Applying batch modifications to existing configuration...")
+        
+        # Apply modifications
+        if 'train_dir' in modifications:
+            config['configuration']['data']['train_dir'] = modifications['train_dir']
+            print(f"  ✓ Updated training directory: {modifications['train_dir']}")
+        
+        if 'val_dir' in modifications:
+            config['configuration']['data']['val_dir'] = modifications['val_dir']
+            print(f"  ✓ Updated validation directory: {modifications['val_dir']}")
+        
+        if 'batch_size' in modifications:
+            config['configuration']['data']['data_loader']['parameters']['batch_size'] = modifications['batch_size']
+            print(f"  ✓ Updated batch size: {modifications['batch_size']}")
+        
+        if 'model_family' in modifications:
+            config['configuration']['model']['model_family'] = modifications['model_family']
+            print(f"  ✓ Updated model family: {modifications['model_family']}")
+        
+        if 'model_name' in modifications:
+            config['configuration']['model']['model_name'] = modifications['model_name']
+            print(f"  ✓ Updated model name: {modifications['model_name']}")
+        
+        if 'epochs' in modifications:
+            config['configuration']['training']['epochs'] = modifications['epochs']
+            print(f"  ✓ Updated epochs: {modifications['epochs']}")
+        
+        if 'learning_rate' in modifications:
+            config['configuration']['model']['optimizer']['Optimizer Selection']['learning_rate'] = modifications['learning_rate']
+            print(f"  ✓ Updated learning rate: {modifications['learning_rate']}")
+        
+        if 'optimizer' in modifications:
+            config['configuration']['model']['optimizer']['Optimizer Selection']['selected_optimizer'] = modifications['optimizer']
+            print(f"  ✓ Updated optimizer: {modifications['optimizer']}")
+        
+        if 'loss_function' in modifications:
+            config['configuration']['model']['loss_functions']['Loss Selection']['selected_loss'] = modifications['loss_function']
+            print(f"  ✓ Updated loss function: {modifications['loss_function']}")
+        
+        if 'num_classes' in modifications:
+            config['configuration']['model']['model_parameters']['classes'] = modifications['num_classes']
+            print(f"  ✓ Updated number of classes: {modifications['num_classes']}")
+        
+        if 'model_dir' in modifications:
+            config['configuration']['runtime']['model_dir'] = modifications['model_dir']
+            print(f"  ✓ Updated model directory: {modifications['model_dir']}")
+        
+        if 'num_gpus' in modifications:
+            config['configuration']['runtime']['num_gpus'] = modifications['num_gpus']
+            print(f"  ✓ Updated number of GPUs: {modifications['num_gpus']}")
+        
+        # Update modification timestamp
+        from datetime import datetime
+        if 'metadata' not in config:
+            config['metadata'] = {}
+        config['metadata']['last_modified'] = datetime.now().isoformat()
+        config['metadata']['modified_via'] = 'CLI Batch Mode'
+        
+        print("✅ Batch modifications applied successfully!")
+        
+        return config
 
 
 if __name__ == '__main__':
