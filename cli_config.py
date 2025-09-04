@@ -1916,9 +1916,15 @@ class ModelConfigCLI:
         except ValueError:
             config['configuration']['data']['data_loader']['parameters']['batch_size'] = 32
         
-        # Preprocessing Configuration
-        preprocessing_config = self.configure_preprocessing(config)
-        config['configuration']['data']['preprocessing'] = preprocessing_config
+            # Preprocessing Configuration
+            preprocessing_config = self.configure_preprocessing(config)
+            config['configuration']['data']['preprocessing'] = preprocessing_config
+            
+            # Augmentation Configuration
+            augmentation_config = self.configure_augmentation(config)
+            config['configuration']['data']['augmentation'] = augmentation_config        # Augmentation Configuration
+        augmentation_config = self.configure_augmentation(config)
+        config['configuration']['data']['augmentation'] = augmentation_config
         
         # Model Configuration
         print("\n🤖 Model Configuration")
@@ -3353,26 +3359,15 @@ class ModelConfigCLI:
         return config
 
     def _is_preprocessing_function(self, obj, name: str) -> bool:
-        """Check if an object is likely a preprocessing function."""
+        """Check if an object is likely a preprocessing function (including wrapper pattern)."""
         try:
             if inspect.isfunction(obj):
-                # Check if function signature includes typical preprocessing parameters
-                sig = inspect.signature(obj)
-                params = list(sig.parameters.keys())
-                
-                # Look for common preprocessing function patterns
-                preprocessing_indicators = [
-                    'data', 'image', 'img', 'input', 'x', 'array', 'tensor'
-                ]
-                
-                # Check if function has data-related parameters
-                has_data_params = any(indicator in param.lower() for param in params for indicator in preprocessing_indicators)
-                
                 # Check function name patterns
                 name_lower = name.lower()
                 name_patterns = [
                     'preprocess', 'process', 'transform', 'normalize', 'resize', 'augment',
-                    'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad'
+                    'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad', 'tf_', 'cv_',
+                    'gamma', 'histogram', 'edge', 'adaptive', 'enhancement', 'correction'
                 ]
                 has_preprocessing_name = any(pattern in name_lower for pattern in name_patterns)
                 
@@ -3380,10 +3375,13 @@ class ModelConfigCLI:
                 has_preprocessing_keywords = False
                 if obj.__doc__:
                     docstring_lower = obj.__doc__.lower()
-                    preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'augment', 'enhance', 'filter']
+                    preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'enhance', 'filter', 'gamma', 'histogram', 'edge', 'contrast', 'brightness', 'correction', 'adaptive']
                     has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
                 
-                return has_data_params and (has_preprocessing_name or has_preprocessing_keywords)
+                # Accept functions with preprocessing names/keywords regardless of signature
+                # This supports both wrapper pattern and legacy pattern
+                if has_preprocessing_name or has_preprocessing_keywords:
+                    return True
                 
         except Exception:
             pass
@@ -3784,6 +3782,471 @@ class ModelConfigCLI:
         
         return preprocessing_config
 
+    def _is_augmentation_function(self, obj, name: str) -> bool:
+        """
+        Check if an object is a valid augmentation function (including wrapper pattern).
+        
+        Args:
+            obj: The object to check
+            name: Name of the object
+            
+        Returns:
+            True if it's a valid augmentation function
+        """
+        import inspect
+        
+        # Must be callable
+        if not callable(obj):
+            return False
+        
+        # Skip private/magic methods
+        if name.startswith('_'):
+            return False
+            
+        # Skip common non-augmentation functions
+        skip_names = {'main', 'setup', 'init', 'test', 'demo'}
+        if name.lower() in skip_names:
+            return False
+        
+        try:
+            # Check function name patterns for augmentation
+            name_lower = name.lower()
+            augmentation_patterns = [
+                'augment', 'flip', 'rotate', 'brightness', 'contrast', 'blur', 'noise',
+                'crop', 'zoom', 'shift', 'color', 'hue', 'saturation', 'jitter',
+                'distort', 'elastic', 'tf_', 'cv_', 'random', 'transform'
+            ]
+            has_augmentation_name = any(pattern in name_lower for pattern in augmentation_patterns)
+            
+            # Check docstring for augmentation-related keywords  
+            has_augmentation_keywords = False
+            if obj.__doc__:
+                docstring_lower = obj.__doc__.lower()
+                augmentation_keywords = ['augment', 'random', 'flip', 'rotate', 'brightness', 'contrast', 'blur', 'noise', 'crop', 'zoom', 'distort', 'transform', 'color', 'hue', 'saturation']
+                has_augmentation_keywords = any(keyword in docstring_lower for keyword in augmentation_keywords)
+            
+            # Accept functions with augmentation names/keywords regardless of signature
+            # This supports both wrapper pattern and legacy pattern
+            if has_augmentation_name or has_augmentation_keywords:
+                return True
+                
+        except Exception:
+            return False
+        
+        return False
+
+    def _extract_augmentation_parameters(self, func) -> Dict[str, Any]:
+        """
+        Extract parameters from an augmentation function.
+        
+        Args:
+            func: The function to analyze
+            
+        Returns:
+            Dictionary containing function information
+        """
+        import inspect
+        import ast
+        
+        try:
+            sig = inspect.signature(func)
+            doc = inspect.getdoc(func) or "Custom augmentation function"
+            
+            # Extract parameters (skip first parameter - image/data)
+            parameters = {}
+            param_names = list(sig.parameters.keys())[1:]  # Skip first parameter
+            
+            for param_name in param_names:
+                param = sig.parameters[param_name]
+                param_info = {'name': param_name}
+                
+                # Get type annotation if available
+                if param.annotation != inspect.Parameter.empty:
+                    param_info['type'] = param.annotation.__name__ if hasattr(param.annotation, '__name__') else 'str'
+                else:
+                    # Try to infer type from default value
+                    if param.default != inspect.Parameter.empty:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'str'
+                
+                # Get default value
+                if param.default != inspect.Parameter.empty:
+                    param_info['default'] = param.default
+                else:
+                    # Set sensible defaults based on type and name
+                    if param_info['type'] == 'bool':
+                        param_info['default'] = True
+                    elif param_info['type'] in ['int', 'float']:
+                        if 'probability' in param_name.lower():
+                            param_info['default'] = 0.5
+                        else:
+                            param_info['default'] = 1.0 if param_info['type'] == 'float' else 1
+                    else:
+                        param_info['default'] = ""
+                
+                parameters[param_name] = param_info
+            
+            return {
+                'description': doc.split('\n')[0] if doc else f"Custom augmentation: {func.__name__}",
+                'parameters': parameters,
+                'signature': str(sig)
+            }
+                
+        except Exception:
+            pass
+        
+        return {}
+
+    def analyze_custom_augmentation_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Analyze a Python file to extract custom augmentation functions.
+
+        Args:
+            file_path: Path to the Python file
+
+        Returns:
+            Tuple of (success, augmentation_info)
+        """
+        import importlib.util
+        import inspect
+        
+        try:
+            if not os.path.exists(file_path):
+                return False, {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_augmentation", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            augmentation_info = {}
+            
+            # Analyze module contents
+            for name, obj in inspect.getmembers(module):
+                if self._is_augmentation_function(obj, name):
+                    info = self._extract_augmentation_parameters(obj)
+                    if info:
+                        augmentation_info[name] = info
+            
+            return len(augmentation_info) > 0, augmentation_info
+            
+        except Exception as e:
+            print(f"❌ Error analyzing augmentation file: {str(e)}")
+            return False, {}
+
+    def interactive_custom_augmentation_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Interactive selection of custom augmentation functions from analyzed file.
+        
+        Args:
+            file_path: Path to the Python file containing augmentation functions
+            
+        Returns:
+            Tuple of (selected_function_name, function_info_with_user_params)
+        """
+        success, analysis_result = self.analyze_custom_augmentation_file(file_path)
+        
+        if not success:
+            print("❌ No valid augmentation functions found in the file")
+            return None, {}
+        
+        if not analysis_result:
+            print("❌ No augmentation functions found in the file")
+            return None, {}
+        
+        print(f"\n🔍 Found {len(analysis_result)} augmentation function(s):")
+        for name, info in analysis_result.items():
+            print(f"   • {name}: {info.get('description', 'No description')}")
+        
+        # Let user select function
+        function_names = list(analysis_result.keys())
+        selected_function = inquirer.list_input(
+            "Select augmentation function",
+            choices=function_names
+        )
+        
+        if not selected_function:
+            return None, {}
+        
+        function_info = analysis_result[selected_function]
+        user_parameters = {}
+        
+        # Configure parameters for selected function
+        if function_info.get('parameters'):
+            print(f"\n⚙️  Configuring parameters for {selected_function}:")
+            
+            for param_name, param_info in function_info['parameters'].items():
+                param_type = param_info.get('type', 'str')
+                default_val = param_info.get('default')
+                
+                if param_type == 'bool':
+                    value = inquirer.confirm(
+                        f"Set {param_name}",
+                        default=bool(default_val) if default_val is not None else False
+                    )
+                else:
+                    prompt_text = f"Enter {param_name}"
+                    if default_val is not None:
+                        prompt_text += f" (default: {default_val})"
+                    
+                    value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
+                    
+                    # Convert to appropriate type
+                    try:
+                        if param_type == 'int':
+                            value = int(value_str) if value_str else (default_val if default_val is not None else 0)
+                        elif param_type == 'float':
+                            value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
+                        elif param_type == 'list':
+                            if value_str:
+                                # Try to parse as list
+                                try:
+                                    value = ast.literal_eval(value_str)
+                                except:
+                                    value = value_str.split(',') if ',' in value_str else [value_str]
+                            else:
+                                value = default_val if default_val is not None else []
+                        else:
+                            value = value_str if value_str else (default_val if default_val is not None else "")
+                    except ValueError:
+                        value = default_val if default_val is not None else ""
+                        print(f"⚠️  Invalid value for {param_name}, using default: {value}")
+                
+                user_parameters[param_name] = value
+        
+        # Return function info with user parameters
+        result_info = function_info.copy()
+        result_info['user_parameters'] = user_parameters
+        result_info['file_path'] = file_path
+        
+        return selected_function, result_info
+
+    def configure_augmentation(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Interactive configuration of data augmentation settings.
+        
+        Args:
+            config: Current configuration dictionary
+            
+        Returns:
+            Updated augmentation configuration
+        """
+        print("\n🔄 Data Augmentation Configuration")
+        print("=" * 45)
+        
+        # Default augmentation configuration with common augmentations
+        augmentation_config = {
+            "Horizontal Flip": {
+                "enabled": False,
+                "probability": 0.5
+            },
+            "Vertical Flip": {
+                "enabled": False,
+                "probability": 0.5
+            },
+            "Rotation": {
+                "enabled": False,
+                "angle_range": 15.0,
+                "probability": 0.5
+            },
+            "Gaussian Noise": {
+                "enabled": False,
+                "variance_limit": 0.01,
+                "probability": 0.2
+            },
+            "Brightness Adjustment": {
+                "enabled": False,
+                "brightness_limit": 0.2,
+                "probability": 0.5
+            },
+            "Contrast Adjustment": {
+                "enabled": False,
+                "contrast_limit": 0.2,
+                "probability": 0.5
+            },
+            "Color Jittering": {
+                "enabled": False,
+                "hue_shift_limit": 20,
+                "sat_shift_limit": 30,
+                "val_shift_limit": 20,
+                "probability": 0.5
+            },
+            "Random Cropping": {
+                "enabled": False,
+                "crop_area_min": 0.08,
+                "crop_area_max": 1.0,
+                "aspect_ratio_min": 0.75,
+                "aspect_ratio_max": 1.33,
+                "probability": 1.0
+            }
+        }
+        
+        # 1. Configure Preset Augmentations
+        print("\n🎯 Step 1: Preset Augmentation Selection")
+        
+        # Present augmentations as categories
+        geometric_augs = ["Horizontal Flip", "Vertical Flip", "Rotation", "Random Cropping"]
+        color_augs = ["Brightness Adjustment", "Contrast Adjustment", "Color Jittering"]
+        noise_augs = ["Gaussian Noise"]
+        
+        print("\n📐 Geometric Augmentations:")
+        for aug_name in geometric_augs:
+            enable_aug = inquirer.confirm(
+                f"Enable {aug_name}?",
+                default=False
+            )
+            
+            if enable_aug:
+                augmentation_config[aug_name]["enabled"] = True
+                
+                # Configure specific parameters for each augmentation
+                if aug_name == "Horizontal Flip" or aug_name == "Vertical Flip":
+                    prob = inquirer.text(f"Probability for {aug_name}", default="0.5")
+                    try:
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid probability, using default")
+                        
+                elif aug_name == "Rotation":
+                    angle = inquirer.text("Maximum rotation angle (degrees)", default="15.0")
+                    prob = inquirer.text("Probability", default="0.5")
+                    try:
+                        augmentation_config[aug_name]["angle_range"] = float(angle)
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+                        
+                elif aug_name == "Random Cropping":
+                    crop_min = inquirer.text("Minimum crop area (0.01-1.0)", default="0.08")
+                    crop_max = inquirer.text("Maximum crop area (0.01-1.0)", default="1.0")
+                    aspect_min = inquirer.text("Minimum aspect ratio", default="0.75")
+                    aspect_max = inquirer.text("Maximum aspect ratio", default="1.33")
+                    try:
+                        augmentation_config[aug_name]["crop_area_min"] = float(crop_min)
+                        augmentation_config[aug_name]["crop_area_max"] = float(crop_max)
+                        augmentation_config[aug_name]["aspect_ratio_min"] = float(aspect_min)
+                        augmentation_config[aug_name]["aspect_ratio_max"] = float(aspect_max)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+        
+        print("\n🎨 Color Augmentations:")
+        for aug_name in color_augs:
+            enable_aug = inquirer.confirm(
+                f"Enable {aug_name}?",
+                default=False
+            )
+            
+            if enable_aug:
+                augmentation_config[aug_name]["enabled"] = True
+                
+                if aug_name == "Brightness Adjustment":
+                    limit = inquirer.text("Brightness change limit (±)", default="0.2")
+                    prob = inquirer.text("Probability", default="0.5")
+                    try:
+                        augmentation_config[aug_name]["brightness_limit"] = float(limit)
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+                        
+                elif aug_name == "Contrast Adjustment":
+                    limit = inquirer.text("Contrast change limit (±)", default="0.2")
+                    prob = inquirer.text("Probability", default="0.5")
+                    try:
+                        augmentation_config[aug_name]["contrast_limit"] = float(limit)
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+                        
+                elif aug_name == "Color Jittering":
+                    hue = inquirer.text("Hue shift limit", default="20")
+                    sat = inquirer.text("Saturation shift limit", default="30")
+                    val = inquirer.text("Value shift limit", default="20")
+                    prob = inquirer.text("Probability", default="0.5")
+                    try:
+                        augmentation_config[aug_name]["hue_shift_limit"] = int(hue)
+                        augmentation_config[aug_name]["sat_shift_limit"] = int(sat)
+                        augmentation_config[aug_name]["val_shift_limit"] = int(val)
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+        
+        print("\n🔊 Noise Augmentations:")
+        for aug_name in noise_augs:
+            enable_aug = inquirer.confirm(
+                f"Enable {aug_name}?",
+                default=False
+            )
+            
+            if enable_aug:
+                augmentation_config[aug_name]["enabled"] = True
+                
+                if aug_name == "Gaussian Noise":
+                    variance = inquirer.text("Noise variance limit", default="0.01")
+                    prob = inquirer.text("Probability", default="0.2")
+                    try:
+                        augmentation_config[aug_name]["variance_limit"] = float(variance)
+                        augmentation_config[aug_name]["probability"] = float(prob)
+                    except ValueError:
+                        print("⚠️  Invalid values, using defaults")
+        
+        # 2. Custom Augmentation Functions
+        print("\n🛠️  Step 2: Custom Augmentation Functions")
+        add_custom = inquirer.confirm("Add custom augmentation functions?", default=False)
+        
+        custom_augmentations = []
+        
+        if add_custom:
+            custom_augmentation_path = inquirer.text(
+                "Enter path to Python file containing custom augmentation functions",
+                default="./example_funcs/example_custom_augmentations.py"
+            )
+            
+            if custom_augmentation_path and os.path.exists(custom_augmentation_path):
+                # Analyze and select custom augmentation functions
+                success, augmentation_info = self.analyze_custom_augmentation_file(custom_augmentation_path)
+                
+                if success and augmentation_info:
+                    print(f"\n✅ Found {len(augmentation_info)} augmentation function(s)")
+                    
+                    # Allow multiple selections
+                    add_more = True
+                    while add_more:
+                        func_name, func_info = self.interactive_custom_augmentation_selection(custom_augmentation_path)
+                        
+                        if func_name and func_info:
+                            # Always add probability parameter for custom augmentations
+                            probability = inquirer.text("Set probability for this augmentation", default="0.5")
+                            try:
+                                prob_value = float(probability)
+                            except ValueError:
+                                prob_value = 0.5
+                                print("⚠️  Invalid probability, using 0.5")
+                            
+                            custom_func_config = {
+                                "enabled": True,
+                                "function_name": func_name,
+                                "file_path": custom_augmentation_path,
+                                "probability": prob_value,
+                                "parameters": func_info.get('user_parameters', {})
+                            }
+                            
+                            # Add to augmentation config with descriptive name
+                            display_name = f"{func_name} (custom)"
+                            augmentation_config[display_name] = custom_func_config
+                            print(f"✅ Added custom augmentation: {display_name}")
+                        
+                        add_more = inquirer.confirm("Add another custom augmentation function?", default=False)
+                else:
+                    print("❌ No valid augmentation functions found in the file")
+            else:
+                print("❌ Invalid file path or file does not exist")
+        
+        return augmentation_config
+
 def create_argument_parser():
     """Create argument parser for CLI."""
     parser = argparse.ArgumentParser(
@@ -3909,213 +4372,6 @@ def main():
         print(f"📝 Format: {args.format.upper()}")
         print(f"\n💡 You can now use this configuration with ModelGardener")
 
-
-    def _is_preprocessing_function(self, obj, name: str) -> bool:
-        """Check if an object is likely a preprocessing function."""
-        try:
-            if inspect.isfunction(obj):
-                # Check if function signature includes typical preprocessing parameters
-                sig = inspect.signature(obj)
-                params = list(sig.parameters.keys())
-                
-                # Look for common preprocessing function patterns
-                preprocessing_indicators = [
-                    'data', 'image', 'img', 'input', 'x', 'array', 'tensor'
-                ]
-                
-                # Check if function has data-related parameters
-                has_data_params = any(indicator in param.lower() for param in params for indicator in preprocessing_indicators)
-                
-                # Check function name patterns
-                name_lower = name.lower()
-                name_patterns = [
-                    'preprocess', 'process', 'transform', 'normalize', 'resize', 'augment',
-                    'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad'
-                ]
-                has_preprocessing_name = any(pattern in name_lower for pattern in name_patterns)
-                
-                # Check docstring for preprocessing-related keywords
-                has_preprocessing_keywords = False
-                if obj.__doc__:
-                    docstring_lower = obj.__doc__.lower()
-                    preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'augment', 'enhance', 'filter']
-                    has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
-                
-                return has_data_params and (has_preprocessing_name or has_preprocessing_keywords)
-                
-        except Exception:
-            pass
-        
-        return False
-
-    def _extract_preprocessing_parameters(self, obj) -> Dict[str, Any]:
-        """Extract parameters from preprocessing function."""
-        parameters = {}
-        try:
-            if inspect.isfunction(obj):
-                sig = inspect.signature(obj)
-                param_info = {}
-                
-                for param_name, param in sig.parameters.items():
-                    # Skip the first parameter (usually 'data', 'image', etc.)
-                    if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor']:
-                        continue
-                        
-                    param_details = {'type': 'str', 'default': None}
-                    if param.default != inspect.Parameter.empty:
-                        param_details['default'] = param.default
-                        # Infer type from default value
-                        if isinstance(param.default, bool):
-                            param_details['type'] = 'bool'
-                        elif isinstance(param.default, int):
-                            param_details['type'] = 'int'
-                        elif isinstance(param.default, float):
-                            param_details['type'] = 'float'
-                        elif isinstance(param.default, (list, tuple)):
-                            param_details['type'] = 'list'
-                    param_info[param_name] = param_details
-                
-                # Extract function metadata
-                function_info = {
-                    'name': obj.__name__,
-                    'parameters': param_info,
-                    'signature': str(sig),
-                    'description': obj.__doc__.strip().split('\n')[0] if obj.__doc__ else f"Preprocessing function: {obj.__name__}"
-                }
-                
-                return function_info
-                
-        except Exception:
-            pass
-        
-        return {}
-
-    def analyze_custom_preprocessing_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
-        """
-        Analyze a Python file to extract custom preprocessing functions.
-
-        Args:
-            file_path: Path to the Python file
-
-        Returns:
-            Tuple of (success, preprocessing_info)
-        """
-        import importlib.util
-        import inspect
-        
-        try:
-            if not os.path.exists(file_path):
-                return False, {}
-            
-            # Load the module
-            spec = importlib.util.spec_from_file_location("custom_preprocessing", file_path)
-            if spec is None or spec.loader is None:
-                return False, {}
-            
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            preprocessing_info = {}
-            
-            # Analyze module contents
-            for name, obj in inspect.getmembers(module):
-                if self._is_preprocessing_function(obj, name):
-                    info = self._extract_preprocessing_parameters(obj)
-                    if info:
-                        preprocessing_info[name] = info
-            
-            return len(preprocessing_info) > 0, preprocessing_info
-            
-        except Exception as e:
-            print(f"❌ Error analyzing preprocessing file: {str(e)}")
-            return False, {}
-
-    def interactive_custom_preprocessing_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
-        """
-        Interactive selection of custom preprocessing functions from analyzed file.
-        
-        Args:
-            file_path: Path to the Python file containing preprocessing functions
-            
-        Returns:
-            Tuple of (selected_function_name, function_info_with_user_params)
-        """
-        success, analysis_result = self.analyze_custom_preprocessing_file(file_path)
-        
-        if not success:
-            print("❌ No valid preprocessing functions found in the file")
-            return None, {}
-        
-        if not analysis_result:
-            print("❌ No preprocessing functions found in the file")
-            return None, {}
-        
-        print(f"\n🔍 Found {len(analysis_result)} preprocessing function(s):")
-        for name, info in analysis_result.items():
-            print(f"   • {name}: {info.get('description', 'No description')}")
-        
-        # Let user select function
-        function_names = list(analysis_result.keys())
-        selected_function = inquirer.list_input(
-            "Select preprocessing function",
-            choices=function_names
-        )
-        
-        if not selected_function:
-            return None, {}
-        
-        function_info = analysis_result[selected_function]
-        user_parameters = {}
-        
-        # Configure parameters for selected function
-        if function_info.get('parameters'):
-            print(f"\n⚙️  Configuring parameters for {selected_function}:")
-            
-            for param_name, param_info in function_info['parameters'].items():
-                param_type = param_info.get('type', 'str')
-                default_val = param_info.get('default')
-                
-                if param_type == 'bool':
-                    value = inquirer.confirm(
-                        f"Set {param_name}",
-                        default=bool(default_val) if default_val is not None else False
-                    )
-                else:
-                    prompt_text = f"Enter {param_name}"
-                    if default_val is not None:
-                        prompt_text += f" (default: {default_val})"
-                    
-                    value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
-                    
-                    # Convert to appropriate type
-                    try:
-                        if param_type == 'int':
-                            value = int(value_str) if value_str else (default_val if default_val is not None else 0)
-                        elif param_type == 'float':
-                            value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
-                        elif param_type == 'list':
-                            if value_str:
-                                # Try to parse as list
-                                try:
-                                    value = ast.literal_eval(value_str)
-                                except:
-                                    value = value_str.split(',') if ',' in value_str else [value_str]
-                            else:
-                                value = default_val if default_val is not None else []
-                        else:
-                            value = value_str if value_str else (default_val if default_val is not None else "")
-                    except ValueError:
-                        value = default_val if default_val is not None else ""
-                        print(f"⚠️  Invalid value for {param_name}, using default: {value}")
-                
-                user_parameters[param_name] = value
-        
-        # Return function info with user parameters
-        result_info = function_info.copy()
-        result_info['user_parameters'] = user_parameters
-        result_info['file_path'] = file_path
-        
-        return selected_function, result_info
 
 
 
