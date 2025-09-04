@@ -19,7 +19,7 @@ def run_cli():
     
     try:
         # Import and run the CLI main function
-        from modelgardener_cli_bk import main as cli_main
+        from modelgardener_cli import main as cli_main
         cli_main()
     except ImportError as e:
         print(f"❌ Error importing CLI modules: {e}")

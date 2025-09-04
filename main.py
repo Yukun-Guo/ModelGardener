@@ -6,7 +6,7 @@ if __name__ == "__main__":
     try:
         # Add current directory to path for CLI imports
         sys.path.insert(0, str(Path(__file__).parent))
-        from modelgardener_cli_bk import main as cli_main
+        from modelgardener_cli import main as cli_main
         
         # Run CLI main function
         cli_main()
