@@ -450,7 +450,7 @@ class ModelConfigCLI:
                     # Look for typical metrics function patterns
                     if hf.is_likely_metrics_function(func_name, args, content):
                         # Extract parameters
-                        parameters = self._extract_function_parameters(node, content)
+                        parameters = hf.extract_function_parameters(node, content)
                         
                         # Get signature string
                         signature = f"({', '.join(args)})"
@@ -2300,177 +2300,401 @@ class ModelConfigCLI:
         print("\n📏 Step 1: Image Resizing")
         print("🎯 Most models expect fixed-size inputs (e.g., 224x224 for many pre-trained models)")
         
-        enable_resizing = inquirer.confirm(
-            "Enable image resizing? (Recommended)",
-            default=True
+        # Select resizing strategy
+        resizing_strategies = [
+            'None (Disable resizing)',
+            'Scaling (Resize to target size)', 
+            'Pad-Cropping (Crop/pad to target size)'
+        ]
+        
+        resizing_strategy = inquirer.list_input(
+            "Select resizing strategy",
+            choices=resizing_strategies,
+            default='Scaling (Resize to target size)'
         )
         
-        if enable_resizing:
+        if resizing_strategy.startswith('None'):
+            preprocessing_config["Resizing"]["enabled"] = False
+            print("✅ Resizing disabled - original image sizes will be preserved")
+        else:
             preprocessing_config["Resizing"]["enabled"] = True
             
-            # Select preset or custom size
-            size_options = [
-                '224x224 (Standard - ResNet, VGG)',
-                '299x299 (Inception networks)',
-                '512x512 (High resolution)',
-                '128x128 (Lightweight models)',
-                'Custom size'
-            ]
-            
-            size_choice = inquirer.list_input(
-                "Select target image size",
-                choices=size_options,
-                default='224x224 (Standard - ResNet, VGG)'
-            )
-            
-            if size_choice.startswith('224x224'):
-                width, height = 224, 224
-            elif size_choice.startswith('299x299'):
-                width, height = 299, 299
-            elif size_choice.startswith('512x512'):
-                width, height = 512, 512
-            elif size_choice.startswith('128x128'):
-                width, height = 128, 128
-            else:  # Custom size
-                width = inquirer.text("Enter target width", default="224")
-                height = inquirer.text("Enter target height", default="224")
+            # Configure method-specific options
+            if resizing_strategy.startswith('Scaling'):
+                print("\n🔍 Scaling Method Configuration")
+                scaling_modes = [
+                    'nearest (Fast, blocky results)',
+                    'bilinear (Good balance of speed and quality)', 
+                    'bicubic (High quality, slower)',
+                    'area (Good for downscaling)',
+                    'lanczos (Highest quality, slowest)'
+                ]
+                
+                scaling_mode = inquirer.list_input(
+                    "Select scaling interpolation method",
+                    choices=scaling_modes,
+                    default='bilinear (Good balance of speed and quality)'
+                )
+                
+                # Extract the method name
+                method_name = scaling_mode.split(' ')[0]
+                preprocessing_config["Resizing"]["interpolation"] = method_name
+                preprocessing_config["Resizing"]["method"] = "scaling"
+                
+                # Ask about preserving aspect ratio
+                preserve_aspect = inquirer.confirm(
+                    "Preserve aspect ratio? (May result in different final size)",
+                    default=True
+                )
+                preprocessing_config["Resizing"]["preserve_aspect_ratio"] = preserve_aspect
+                
+            elif resizing_strategy.startswith('Pad-Cropping'):
+                print("\n✂️  Pad-Cropping Method Configuration")
+                crop_modes = [
+                    'center (Crop/pad from center)',
+                    'random (Random crop/pad position - good for augmentation)'
+                ]
+                
+                crop_mode = inquirer.list_input(
+                    "Select crop/pad positioning",
+                    choices=crop_modes,
+                    default='center (Crop/pad from center)'
+                )
+                
+                # Extract the method name
+                method_name = crop_mode.split(' ')[0]
+                preprocessing_config["Resizing"]["crop_method"] = method_name
+                preprocessing_config["Resizing"]["method"] = "pad_crop"
+                preprocessing_config["Resizing"]["interpolation"] = "nearest"  # Default for cropping
+                
+                # Ask about padding value
+                pad_value = inquirer.text(
+                    "Enter padding value (0-255 for RGB, 0.0-1.0 for normalized)",
+                    default="0"
+                )
                 try:
-                    width, height = int(width), int(height)
+                    preprocessing_config["Resizing"]["pad_value"] = float(pad_value)
                 except ValueError:
-                    print("⚠️  Invalid dimensions, using 224x224")
-                    width, height = 224, 224
+                    preprocessing_config["Resizing"]["pad_value"] = 0.0
+                    print("⚠️  Invalid padding value, using 0")
             
-            preprocessing_config["Resizing"]["target_size"] = {
-                "width": width,
-                "height": height,
-                "depth": 1
-            }
+            # Configure target dimensions
+            print("\n📐 Target Dimensions Configuration")
             
-            # Interpolation method
-            interpolation_methods = ['bilinear', 'nearest', 'bicubic', 'area']
-            interpolation = inquirer.list_input(
-                "Select interpolation method",
-                choices=interpolation_methods,
-                default='bilinear'
+            # Ask about data format first
+            data_format = inquirer.list_input(
+                "Select data format",
+                choices=['2D (images)', '3D (volumes/sequences)'],
+                default='2D (images)'
             )
-            preprocessing_config["Resizing"]["interpolation"] = interpolation
             
-            print(f"✅ Resizing configured: {width}x{height} using {interpolation} interpolation")
+            if data_format == '3D (volumes/sequences)':
+                preprocessing_config["Resizing"]["data_format"] = "3D"
+                
+                # Get 3D dimensions
+                width = inquirer.text("Enter target width", default="224")
+                height = inquirer.text("Enter target height", default="224") 
+                depth = inquirer.text("Enter target depth (temporal/z dimension)", default="16")
+                
+                try:
+                    preprocessing_config["Resizing"]["target_size"] = {
+                        "width": int(width),
+                        "height": int(height),
+                        "depth": int(depth)
+                    }
+                    print(f"✅ 3D resizing configured: {width}x{height}x{depth}")
+                except ValueError:
+                    preprocessing_config["Resizing"]["target_size"] = {
+                        "width": 224,
+                        "height": 224,
+                        "depth": 16
+                    }
+                    print("⚠️  Invalid dimensions, using 224x224x16")
+            else:
+                preprocessing_config["Resizing"]["data_format"] = "2D"
+                
+                # Preset or custom size for 2D
+                size_options = [
+                    '224x224 (Standard - ResNet, VGG)',
+                    '299x299 (Inception networks)',
+                    '512x512 (High resolution)',
+                    '128x128 (Lightweight models)',
+                    '32x32 (CIFAR-like datasets)',
+                    'Custom size'
+                ]
+                
+                size_choice = inquirer.list_input(
+                    "Select target image size",
+                    choices=size_options,
+                    default='224x224 (Standard - ResNet, VGG)'
+                )
+                
+                if size_choice.startswith('224x224'):
+                    width, height = 224, 224
+                elif size_choice.startswith('299x299'):
+                    width, height = 299, 299
+                elif size_choice.startswith('512x512'):
+                    width, height = 512, 512
+                elif size_choice.startswith('128x128'):
+                    width, height = 128, 128
+                elif size_choice.startswith('32x32'):
+                    width, height = 32, 32
+                else:  # Custom size
+                    width = inquirer.text("Enter target width", default="224")
+                    height = inquirer.text("Enter target height", default="224")
+                    try:
+                        width, height = int(width), int(height)
+                    except ValueError:
+                        print("⚠️  Invalid dimensions, using 224x224")
+                        width, height = 224, 224
+                
+                preprocessing_config["Resizing"]["target_size"] = {
+                    "width": width,
+                    "height": height,
+                    "depth": 1
+                }
+                print(f"✅ 2D resizing configured: {width}x{height}")
         
         # 2. Configure Normalization
         print("\n📊 Step 2: Data Normalization")
         print("🎯 Normalization scales pixel values to a standard range for better training")
         
-        enable_normalization = inquirer.confirm(
-            "Enable data normalization? (Recommended)", 
-            default=True
+        # Select normalization method including None option
+        normalization_methods = [
+            'None (Disable normalization - use raw pixel values)',
+            'min-max (Scale to [min, max] range)',
+            'zero-center (Subtract mean, divide by std)',
+            'unit-norm (Normalize to unit vector)',
+            'robust (Use median and IQR for outlier resistance)',
+            'standard (Same as zero-center)',
+            'layer-norm (Normalize across feature dimensions)'
+        ]
+        
+        norm_method = inquirer.list_input(
+            "Select normalization method",
+            choices=normalization_methods,
+            default='zero-center (Subtract mean, divide by std)'
         )
         
-        if enable_normalization:
+        if norm_method.startswith('None'):
+            preprocessing_config["Normalization"]["enabled"] = False
+            print("✅ Normalization disabled - raw pixel values will be used")
+        else:
             preprocessing_config["Normalization"]["enabled"] = True
             
-            # Select normalization preset or custom
-            normalization_presets = [
-                'ImageNet (0.485, 0.456, 0.406) / (0.229, 0.224, 0.225) - For pre-trained models',
-                'Simple [0, 1] - Scale pixel values from [0, 255] to [0, 1]',
-                'Standard [-1, 1] - Scale pixel values from [0, 255] to [-1, 1]',
-                'Custom normalization'
-            ]
+            # Extract method name and configure parameters
+            method_name = norm_method.split(' ')[0]
+            preprocessing_config["Normalization"]["method"] = method_name
             
-            preset_choice = inquirer.list_input(
-                "Select normalization method",
-                choices=normalization_presets,
-                default='ImageNet (0.485, 0.456, 0.406) / (0.229, 0.224, 0.225) - For pre-trained models'
-            )
-            
-            if preset_choice.startswith('ImageNet'):
-                preprocessing_config["Normalization"]["method"] = "zero-center"
-                preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
-                preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
-                print("✅ Using ImageNet normalization (recommended for transfer learning)")
+            if method_name == 'min-max':
+                print("\n⚙️  Min-Max Normalization Parameters")
+                print("📝 Formula: (x - min_value) / (max_value - min_value)")
                 
-            elif preset_choice.startswith('Simple [0, 1]'):
-                preprocessing_config["Normalization"]["method"] = "min-max"
-                preprocessing_config["Normalization"]["min_value"] = 0.0
-                preprocessing_config["Normalization"]["max_value"] = 1.0
-                print("✅ Using simple [0, 1] normalization")
-                
-            elif preset_choice.startswith('Standard [-1, 1]'):
-                preprocessing_config["Normalization"]["method"] = "min-max"
-                preprocessing_config["Normalization"]["min_value"] = -1.0
-                preprocessing_config["Normalization"]["max_value"] = 1.0
-                print("✅ Using [-1, 1] normalization")
-                
-            else:  # Custom normalization
-                # Select normalization method
-                normalization_methods = [
-                    'zero-center (x - mean) / std',
-                    'min-max (x - min) / (max - min)', 
-                    'unit-norm x / |x|',
-                    'robust (x - median) / IQR'
+                # Common presets or custom
+                minmax_presets = [
+                    '[0, 1] (Standard for neural networks)',
+                    '[-1, 1] (Common for GANs and some models)',
+                    'Custom range'
                 ]
                 
-                norm_method = inquirer.list_input(
-                    "Select custom normalization method",
-                    choices=normalization_methods,
-                    default='zero-center (x - mean) / std'
+                preset_choice = inquirer.list_input(
+                    "Select min-max range",
+                    choices=minmax_presets,
+                    default='[0, 1] (Standard for neural networks)'
                 )
                 
-                if norm_method.startswith('zero-center'):
-                    preprocessing_config["Normalization"]["method"] = "zero-center"
-                    
-                    # Custom mean and std
-                    print("📝 Enter custom normalization parameters:")
-                    mean_r = inquirer.text("Enter mean for R channel", default="0.485")
-                    mean_g = inquirer.text("Enter mean for G channel", default="0.456") 
-                    mean_b = inquirer.text("Enter mean for B channel", default="0.406")
-                    
-                    std_r = inquirer.text("Enter std for R channel", default="0.229")
-                    std_g = inquirer.text("Enter std for G channel", default="0.224")
-                    std_b = inquirer.text("Enter std for B channel", default="0.225")
-                    
-                    try:
-                        preprocessing_config["Normalization"]["mean"] = {
-                            "r": float(mean_r),
-                            "g": float(mean_g),
-                            "b": float(mean_b)
-                        }
-                        preprocessing_config["Normalization"]["std"] = {
-                            "r": float(std_r),
-                            "g": float(std_g),
-                            "b": float(std_b)
-                        }
-                        print("✅ Custom zero-center normalization configured")
-                    except ValueError:
-                        print("⚠️  Invalid values, using ImageNet defaults")
-                        
-                elif norm_method.startswith('min-max'):
-                    preprocessing_config["Normalization"]["method"] = "min-max"
+                if preset_choice.startswith('[0, 1]'):
+                    min_val, max_val = 0.0, 1.0
+                elif preset_choice.startswith('[-1, 1]'):
+                    min_val, max_val = -1.0, 1.0
+                else:  # Custom range
                     min_val = inquirer.text("Enter minimum value", default="0.0")
                     max_val = inquirer.text("Enter maximum value", default="1.0")
-                    
                     try:
-                        preprocessing_config["Normalization"]["min_value"] = float(min_val)
-                        preprocessing_config["Normalization"]["max_value"] = float(max_val)
-                        print(f"✅ Min-max normalization configured: [{min_val}, {max_val}]")
+                        min_val, max_val = float(min_val), float(max_val)
                     except ValueError:
-                        preprocessing_config["Normalization"]["min_value"] = 0.0
-                        preprocessing_config["Normalization"]["max_value"] = 1.0
+                        min_val, max_val = 0.0, 1.0
                         print("⚠️  Invalid values, using [0.0, 1.0]")
-                        
-                else:
-                    # For unit-norm and robust, use simpler config
-                    method_map = {
-                        'unit-norm': 'unit-norm',
-                        'robust': 'robust'
-                    }
-                    preprocessing_config["Normalization"]["method"] = method_map.get(
-                        norm_method.split()[0], 'zero-center'
+                
+                preprocessing_config["Normalization"]["min_value"] = min_val
+                preprocessing_config["Normalization"]["max_value"] = max_val
+                print(f"✅ Min-max normalization: [{min_val}, {max_val}]")
+                
+            elif method_name in ['zero-center', 'standard']:
+                print("\n⚙️  Zero-Center Normalization Parameters")
+                print("📝 Formula: (x - mean) / std")
+                
+                # Preset statistics or custom
+                stats_presets = [
+                    'ImageNet (R: 0.485±0.229, G: 0.456±0.224, B: 0.406±0.225)',
+                    'CIFAR-10 (R: 0.491±0.247, G: 0.482±0.243, B: 0.447±0.262)',
+                    'Custom statistics',
+                    'Compute from data (placeholder - not implemented yet)'
+                ]
+                
+                stats_choice = inquirer.list_input(
+                    "Select normalization statistics",
+                    choices=stats_presets,
+                    default='ImageNet (R: 0.485±0.229, G: 0.456±0.224, B: 0.406±0.225)'
+                )
+                
+                if stats_choice.startswith('ImageNet'):
+                    preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
+                    preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
+                    print("✅ Using ImageNet statistics (best for transfer learning)")
+                    
+                elif stats_choice.startswith('CIFAR-10'):
+                    preprocessing_config["Normalization"]["mean"] = {"r": 0.491, "g": 0.482, "b": 0.447}
+                    preprocessing_config["Normalization"]["std"] = {"r": 0.247, "g": 0.243, "b": 0.262}
+                    print("✅ Using CIFAR-10 statistics")
+                    
+                elif stats_choice.startswith('Custom'):
+                    print("📝 Enter custom normalization statistics:")
+                    
+                    # Check if grayscale or RGB
+                    color_mode = inquirer.list_input(
+                        "Select color mode",
+                        choices=['RGB (3 channels)', 'Grayscale (1 channel)', 'Other (specify channels)'],
+                        default='RGB (3 channels)'
                     )
-                    print(f"✅ {norm_method.split()[0]} normalization configured")
-        else:
-            preprocessing_config["Normalization"]["enabled"] = False
-            print("⚠️  Normalization disabled - raw pixel values will be used")
+                    
+                    if color_mode.startswith('RGB'):
+                        mean_r = inquirer.text("Enter mean for R channel", default="0.485")
+                        mean_g = inquirer.text("Enter mean for G channel", default="0.456")
+                        mean_b = inquirer.text("Enter mean for B channel", default="0.406")
+                        
+                        std_r = inquirer.text("Enter std for R channel", default="0.229")
+                        std_g = inquirer.text("Enter std for G channel", default="0.224")
+                        std_b = inquirer.text("Enter std for B channel", default="0.225")
+                        
+                        try:
+                            preprocessing_config["Normalization"]["mean"] = {
+                                "r": float(mean_r),
+                                "g": float(mean_g),
+                                "b": float(mean_b)
+                            }
+                            preprocessing_config["Normalization"]["std"] = {
+                                "r": float(std_r),
+                                "g": float(std_g),
+                                "b": float(std_b)
+                            }
+                            print("✅ Custom RGB statistics configured")
+                        except ValueError:
+                            print("⚠️  Invalid values, using ImageNet defaults")
+                            preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
+                            preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
+                            
+                    elif color_mode.startswith('Grayscale'):
+                        mean_val = inquirer.text("Enter mean value", default="0.5")
+                        std_val = inquirer.text("Enter std value", default="0.5")
+                        
+                        try:
+                            preprocessing_config["Normalization"]["mean"] = float(mean_val)
+                            preprocessing_config["Normalization"]["std"] = float(std_val)
+                            print("✅ Custom grayscale statistics configured")
+                        except ValueError:
+                            preprocessing_config["Normalization"]["mean"] = 0.5
+                            preprocessing_config["Normalization"]["std"] = 0.5
+                            print("⚠️  Invalid values, using defaults (0.5, 0.5)")
+                    
+                    else:  # Other channels
+                        num_channels = inquirer.text("Enter number of channels", default="3")
+                        try:
+                            num_channels = int(num_channels)
+                            means = []
+                            stds = []
+                            
+                            for i in range(num_channels):
+                                mean = inquirer.text(f"Enter mean for channel {i+1}", default="0.5")
+                                std = inquirer.text(f"Enter std for channel {i+1}", default="0.5")
+                                means.append(float(mean))
+                                stds.append(float(std))
+                            
+                            preprocessing_config["Normalization"]["mean"] = means
+                            preprocessing_config["Normalization"]["std"] = stds
+                            print(f"✅ Custom {num_channels}-channel statistics configured")
+                        except ValueError:
+                            print("⚠️  Invalid values, using ImageNet defaults")
+                            preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
+                            preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
+                
+                else:  # Compute from data
+                    print("⚠️  Computing statistics from data not yet implemented, using ImageNet defaults")
+                    preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
+                    preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
+                
+                # Additional parameters for zero-center normalization
+                axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
+                epsilon = inquirer.text("Enter epsilon value (for numerical stability)", default="1e-07")
+                
+                try:
+                    preprocessing_config["Normalization"]["axis"] = int(axis)
+                    preprocessing_config["Normalization"]["epsilon"] = float(epsilon)
+                except ValueError:
+                    preprocessing_config["Normalization"]["axis"] = -1
+                    preprocessing_config["Normalization"]["epsilon"] = 1e-07
+                    print("⚠️  Invalid axis/epsilon values, using defaults")
+                    
+            elif method_name == 'unit-norm':
+                print("\n⚙️  Unit-Norm Normalization Parameters")
+                print("📝 Formula: x / ||x||")
+                
+                norm_type = inquirer.list_input(
+                    "Select norm type",
+                    choices=['L2 (Euclidean norm)', 'L1 (Manhattan norm)', 'L-inf (Maximum norm)'],
+                    default='L2 (Euclidean norm)'
+                )
+                
+                ord_map = {'L2': 2, 'L1': 1, 'L-inf': float('inf')}
+                ord_value = ord_map[norm_type.split(' ')[0]]
+                preprocessing_config["Normalization"]["ord"] = ord_value
+                
+                axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
+                try:
+                    preprocessing_config["Normalization"]["axis"] = int(axis)
+                except ValueError:
+                    preprocessing_config["Normalization"]["axis"] = -1
+                
+                print(f"✅ Unit-norm ({norm_type.split(' ')[0]}) normalization configured")
+                
+            elif method_name == 'robust':
+                print("\n⚙️  Robust Normalization Parameters")
+                print("📝 Formula: (x - median) / IQR")
+                
+                # IQR calculation method
+                iqr_method = inquirer.list_input(
+                    "Select IQR calculation method",
+                    choices=['Standard (Q3 - Q1)', 'Modified (1.5 * IQR)'],
+                    default='Standard (Q3 - Q1)'
+                )
+                
+                preprocessing_config["Normalization"]["iqr_method"] = "standard" if iqr_method.startswith('Standard') else "modified"
+                
+                axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
+                try:
+                    preprocessing_config["Normalization"]["axis"] = int(axis)
+                except ValueError:
+                    preprocessing_config["Normalization"]["axis"] = -1
+                
+                print("✅ Robust normalization configured")
+                
+            elif method_name == 'layer-norm':
+                print("\n⚙️  Layer Normalization Parameters")
+                print("📝 Normalizes across feature dimensions")
+                
+                epsilon = inquirer.text("Enter epsilon value (for numerical stability)", default="1e-05")
+                center = inquirer.confirm("Center data (subtract mean)?", default=True)
+                scale = inquirer.confirm("Scale data (divide by std)?", default=True)
+                
+                try:
+                    preprocessing_config["Normalization"]["epsilon"] = float(epsilon)
+                except ValueError:
+                    preprocessing_config["Normalization"]["epsilon"] = 1e-05
+                
+                preprocessing_config["Normalization"]["center"] = center
+                preprocessing_config["Normalization"]["scale"] = scale
+                
+                print("✅ Layer normalization configured")
         
         # 3. Custom Preprocessing (Optional)
         print("\n🛠️  Step 3: Custom Preprocessing (Optional)")

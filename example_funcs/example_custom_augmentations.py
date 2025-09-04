@@ -19,7 +19,7 @@ import numpy as np
 import cv2
 import tensorflow as tf
 
-def tf_color_shift(hue_shift=20, saturation_scale=1.2, value_scale=1.1, probability=0.6):
+def color_shift(hue_shift=20, saturation_scale=1.2, value_scale=1.1, probability=0.6):
     """
     Apply color shifting in HSV space.
     
@@ -66,7 +66,7 @@ def tf_color_shift(hue_shift=20, saturation_scale=1.2, value_scale=1.1, probabil
     return wrapper
 
 
-def tf_random_blur(max_kernel_size=5, probability=0.5):
+def random_blur(max_kernel_size=5, probability=0.5):
     """
     Apply random Gaussian blur to the image.
     
@@ -98,7 +98,7 @@ def tf_random_blur(max_kernel_size=5, probability=0.5):
     return wrapper
 
 
-def tf_noise_injection(noise_type='gaussian', intensity=0.1, probability=0.4):
+def noise_injection(noise_type='gaussian', intensity=0.1, probability=0.4):
     """
     Add random noise to the image for data augmentation.
     
@@ -131,7 +131,7 @@ def tf_noise_injection(noise_type='gaussian', intensity=0.1, probability=0.4):
     return wrapper
 
 
-def tf_random_brightness(max_delta=0.2):
+def random_brightness(max_delta=0.2):
     """
     Apply random brightness adjustment to the image.
     
@@ -149,7 +149,7 @@ def tf_random_brightness(max_delta=0.2):
     return wrapper
 
 
-def tf_random_contrast(lower=0.8, upper=1.2):
+def random_contrast(lower=0.8, upper=1.2):
     """
     Apply random contrast adjustment to the image.
     
@@ -169,7 +169,7 @@ def tf_random_contrast(lower=0.8, upper=1.2):
     return wrapper
 
 
-def tf_random_saturation(lower=0.7, upper=1.3):
+def random_saturation(lower=0.7, upper=1.3):
     """
     Apply random saturation adjustment to the image.
     
@@ -189,7 +189,7 @@ def tf_random_saturation(lower=0.7, upper=1.3):
     return wrapper
 
 
-def tf_random_hue(max_delta=0.1):
+def random_hue(max_delta=0.1):
     """
     Apply random hue adjustment to the image.
     
@@ -207,7 +207,7 @@ def tf_random_hue(max_delta=0.1):
     return wrapper
 
 
-def tf_random_rotation(max_angle=15.0):
+def random_rotation(max_angle=15.0):
     """
     Apply random rotation to the image.
     

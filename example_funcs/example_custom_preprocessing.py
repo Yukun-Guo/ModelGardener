@@ -21,7 +21,7 @@ import numpy as np
 import cv2
 import tensorflow as tf
 
-def tf_adaptive_histogram_equalization(clip_limit=2.0, tile_grid_size=8):
+def adaptive_histogram_equalization(clip_limit=2.0, tile_grid_size=8):
     """
     Apply adaptive histogram equalization (CLAHE) to improve image contrast.
     
@@ -66,7 +66,7 @@ def tf_adaptive_histogram_equalization(clip_limit=2.0, tile_grid_size=8):
     return wrapper
 
 
-def tf_edge_enhancement(strength=1.5, blur_radius=3):
+def edge_enhancement(strength=1.5, blur_radius=3):
     """
     Enhance edges in images using unsharp masking technique.
     
@@ -132,7 +132,7 @@ def tf_edge_enhancement(strength=1.5, blur_radius=3):
     return wrapper
 
 
-def tf_gamma_correction(gamma=1.2, gain=1.0):
+def gamma_correction(gamma=1.2, gain=1.0):
     """
     Apply gamma correction to adjust image brightness and contrast.
     
@@ -181,7 +181,7 @@ def tf_gamma_correction(gamma=1.2, gain=1.0):
     return wrapper
 
 
-def tf_normalize_custom(mean_values=[0.485, 0.456, 0.406], std_values=[0.229, 0.224, 0.225]):
+def normalize_custom(mean_values=[0.485, 0.456, 0.406], std_values=[0.229, 0.224, 0.225]):
     """
     Apply custom normalization with specified mean and standard deviation values.
     
@@ -223,7 +223,7 @@ def tf_normalize_custom(mean_values=[0.485, 0.456, 0.406], std_values=[0.229, 0.
     return wrapper
 
 
-def tf_resize_with_pad(target_height=224, target_width=224, pad_value=0):
+def resize_with_pad(target_height=224, target_width=224, pad_value=0):
     """
     Resize image while maintaining aspect ratio and pad to target size.
     
