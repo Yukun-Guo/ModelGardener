@@ -1258,6 +1258,64 @@ class ModelConfigCLI:
         config['configuration']['data']['train_dir'] = train_dir
         config['configuration']['data']['val_dir'] = val_dir
         
+        # Preprocessing Configuration - Ask immediately after data directories are configured
+        print(f"\n✅ Data directories configured:")
+        print(f"   📂 Training: {train_dir}")
+        print(f"   📂 Validation: {val_dir}")
+        
+        print("\n🔧 Data Preprocessing Configuration")
+        configure_preprocessing = inquirer.confirm(
+            "Would you like to configure data preprocessing for your data? (Recommended)",
+            default=True
+        )
+        
+        if configure_preprocessing:
+            preprocessing_config = self.configure_preprocessing(config)
+            config['configuration']['data']['preprocessing'] = preprocessing_config
+        else:
+            # Use default minimal preprocessing
+            config['configuration']['data']['preprocessing'] = {
+                "Resizing": {
+                    "enabled": True,
+                    "target_size": {"width": 224, "height": 224, "depth": 1},
+                    "interpolation": "bilinear",
+                    "preserve_aspect_ratio": True,
+                    "data_format": "2D"
+                },
+                "Normalization": {
+                    "enabled": True,
+                    "method": "zero-center",
+                    "min_value": 0.0,
+                    "max_value": 1.0
+                }
+            }
+            print("✅ Using default preprocessing settings (resize to 224x224, normalize to [0,1])")
+        
+        # Augmentation Configuration
+        print("\n🎲 Data Augmentation Configuration")
+        configure_augmentation = inquirer.confirm(
+            "Would you like to configure data augmentation?",
+            default=False
+        )
+        
+        if configure_augmentation:
+            augmentation_config = self.configure_augmentation(config)
+            config['configuration']['data']['augmentation'] = augmentation_config
+        else:
+            # Use minimal augmentation
+            config['configuration']['data']['augmentation'] = {
+                "Horizontal Flip": {
+                    "enabled": False,
+                    "probability": 0.5
+                },
+                "Rotation": {
+                    "enabled": False,
+                    "angle_range": 15.0,
+                    "probability": 0.5
+                }
+            }
+            print("✅ Using default augmentation settings (no augmentation)")
+        
         # Data Loader Selection
         print("\n📊 Data Loader Configuration")
         data_loader = inquirer.list_input(
@@ -1309,16 +1367,6 @@ class ModelConfigCLI:
             config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
         except ValueError:
             config['configuration']['data']['data_loader']['parameters']['batch_size'] = 32
-        
-            # Preprocessing Configuration
-            preprocessing_config = self.configure_preprocessing(config)
-            config['configuration']['data']['preprocessing'] = preprocessing_config
-            
-            # Augmentation Configuration
-            augmentation_config = self.configure_augmentation(config)
-            config['configuration']['data']['augmentation'] = augmentation_config        # Augmentation Configuration
-        augmentation_config = self.configure_augmentation(config)
-        config['configuration']['data']['augmentation'] = augmentation_config
         
         # Model Configuration
         print("\n🤖 Model Configuration")
@@ -2225,6 +2273,8 @@ class ModelConfigCLI:
         """
         print("\n🔧 Preprocessing Configuration")
         print("=" * 40)
+        print("📋 Preprocessing transforms your raw data into a format suitable for training.")
+        print("💡 Common steps: Resizing → Normalization → Data Format Conversion")
         
         preprocessing_config = {
             "Resizing": {
@@ -2247,109 +2297,132 @@ class ModelConfigCLI:
         }
         
         # 1. Configure Resizing
-        print("\n📏 Step 1: Resizing Configuration")
-        resizing_strategies = ['None', 'scaling', 'crop-padding']
-        resizing_strategy = inquirer.list_input(
-            "Select resizing strategy",
-            choices=resizing_strategies,
-            default='scaling'
+        print("\n📏 Step 1: Image Resizing")
+        print("🎯 Most models expect fixed-size inputs (e.g., 224x224 for many pre-trained models)")
+        
+        enable_resizing = inquirer.confirm(
+            "Enable image resizing? (Recommended)",
+            default=True
         )
         
-        if resizing_strategy != 'None':
+        if enable_resizing:
             preprocessing_config["Resizing"]["enabled"] = True
             
-            # Select method for the chosen strategy
-            if resizing_strategy == 'scaling':
-                scaling_methods = ['nearest', 'bilinear', 'bicubic', 'area', 'lanczos']
-                method = inquirer.list_input(
-                    "Select scaling method",
-                    choices=scaling_methods,
-                    default='bilinear'
-                )
-                preprocessing_config["Resizing"]["interpolation"] = method
-                
-                # Ask about preserving aspect ratio
-                preserve_aspect = inquirer.confirm(
-                    "Preserve aspect ratio?",
-                    default=True
-                )
-                preprocessing_config["Resizing"]["preserve_aspect_ratio"] = preserve_aspect
-                
-            elif resizing_strategy == 'crop-padding':
-                crop_methods = ['central_cropping', 'random_cropping']
-                method = inquirer.list_input(
-                    "Select crop-padding method",
-                    choices=crop_methods,
-                    default='central_cropping'
-                )
-                preprocessing_config["Resizing"]["crop_method"] = method
-                preprocessing_config["Resizing"]["interpolation"] = "nearest"  # Default for cropping
+            # Select preset or custom size
+            size_options = [
+                '224x224 (Standard - ResNet, VGG)',
+                '299x299 (Inception networks)',
+                '512x512 (High resolution)',
+                '128x128 (Lightweight models)',
+                'Custom size'
+            ]
             
-            # Set target size
-            print("\n📐 Configure target dimensions:")
-            
-            # Ask about data format first
-            data_format = inquirer.list_input(
-                "Select data format",
-                choices=['2D (images)', '3D (volumes/sequences)'],
-                default='2D (images)'
+            size_choice = inquirer.list_input(
+                "Select target image size",
+                choices=size_options,
+                default='224x224 (Standard - ResNet, VGG)'
             )
             
-            width = inquirer.text("Enter target width", default="224")
-            height = inquirer.text("Enter target height", default="224")
+            if size_choice.startswith('224x224'):
+                width, height = 224, 224
+            elif size_choice.startswith('299x299'):
+                width, height = 299, 299
+            elif size_choice.startswith('512x512'):
+                width, height = 512, 512
+            elif size_choice.startswith('128x128'):
+                width, height = 128, 128
+            else:  # Custom size
+                width = inquirer.text("Enter target width", default="224")
+                height = inquirer.text("Enter target height", default="224")
+                try:
+                    width, height = int(width), int(height)
+                except ValueError:
+                    print("⚠️  Invalid dimensions, using 224x224")
+                    width, height = 224, 224
             
-            if data_format == '3D (volumes/sequences)':
-                depth = inquirer.text("Enter depth (for 3D data)", default="16")
-                preprocessing_config["Resizing"]["data_format"] = "3D"
-            else:
-                depth = "1"  # For 2D data, depth is 1
-                preprocessing_config["Resizing"]["data_format"] = "2D"
+            preprocessing_config["Resizing"]["target_size"] = {
+                "width": width,
+                "height": height,
+                "depth": 1
+            }
             
-            try:
-                preprocessing_config["Resizing"]["target_size"] = {
-                    "width": int(width),
-                    "height": int(height),
-                    "depth": int(depth)
-                }
-            except ValueError:
-                print("⚠️  Invalid dimensions, using defaults")
+            # Interpolation method
+            interpolation_methods = ['bilinear', 'nearest', 'bicubic', 'area']
+            interpolation = inquirer.list_input(
+                "Select interpolation method",
+                choices=interpolation_methods,
+                default='bilinear'
+            )
+            preprocessing_config["Resizing"]["interpolation"] = interpolation
+            
+            print(f"✅ Resizing configured: {width}x{height} using {interpolation} interpolation")
         
         # 2. Configure Normalization
-        print("\n📊 Step 2: Normalization Configuration")
-        enable_normalization = inquirer.confirm("Enable normalization?", default=True)
+        print("\n📊 Step 2: Data Normalization")
+        print("🎯 Normalization scales pixel values to a standard range for better training")
+        
+        enable_normalization = inquirer.confirm(
+            "Enable data normalization? (Recommended)", 
+            default=True
+        )
         
         if enable_normalization:
             preprocessing_config["Normalization"]["enabled"] = True
             
-            # Select normalization method
-            normalization_methods = [
-                'zero-center',  # (x - mean) / std
-                'min-max',      # (x - min) / (max - min)
-                'unit-norm',    # x / |x|
-                'standard',     # (x - mean) / std (same as zero-center)
-                'robust'        # (x - median) / IQR
+            # Select normalization preset or custom
+            normalization_presets = [
+                'ImageNet (0.485, 0.456, 0.406) / (0.229, 0.224, 0.225) - For pre-trained models',
+                'Simple [0, 1] - Scale pixel values from [0, 255] to [0, 1]',
+                'Standard [-1, 1] - Scale pixel values from [0, 255] to [-1, 1]',
+                'Custom normalization'
             ]
             
-            norm_method = inquirer.list_input(
+            preset_choice = inquirer.list_input(
                 "Select normalization method",
-                choices=normalization_methods,
-                default='zero-center'
+                choices=normalization_presets,
+                default='ImageNet (0.485, 0.456, 0.406) / (0.229, 0.224, 0.225) - For pre-trained models'
             )
-            preprocessing_config["Normalization"]["method"] = norm_method
             
-            # Configure parameters based on selected method
-            if norm_method in ['zero-center', 'standard']:
-                print("\n⚙️  Configure normalization parameters:")
+            if preset_choice.startswith('ImageNet'):
+                preprocessing_config["Normalization"]["method"] = "zero-center"
+                preprocessing_config["Normalization"]["mean"] = {"r": 0.485, "g": 0.456, "b": 0.406}
+                preprocessing_config["Normalization"]["std"] = {"r": 0.229, "g": 0.224, "b": 0.225}
+                print("✅ Using ImageNet normalization (recommended for transfer learning)")
                 
-                use_imagenet = inquirer.confirm(
-                    "Use ImageNet statistics? (recommended for pre-trained models)",
-                    default=True
+            elif preset_choice.startswith('Simple [0, 1]'):
+                preprocessing_config["Normalization"]["method"] = "min-max"
+                preprocessing_config["Normalization"]["min_value"] = 0.0
+                preprocessing_config["Normalization"]["max_value"] = 1.0
+                print("✅ Using simple [0, 1] normalization")
+                
+            elif preset_choice.startswith('Standard [-1, 1]'):
+                preprocessing_config["Normalization"]["method"] = "min-max"
+                preprocessing_config["Normalization"]["min_value"] = -1.0
+                preprocessing_config["Normalization"]["max_value"] = 1.0
+                print("✅ Using [-1, 1] normalization")
+                
+            else:  # Custom normalization
+                # Select normalization method
+                normalization_methods = [
+                    'zero-center (x - mean) / std',
+                    'min-max (x - min) / (max - min)', 
+                    'unit-norm x / |x|',
+                    'robust (x - median) / IQR'
+                ]
+                
+                norm_method = inquirer.list_input(
+                    "Select custom normalization method",
+                    choices=normalization_methods,
+                    default='zero-center (x - mean) / std'
                 )
                 
-                if not use_imagenet:
+                if norm_method.startswith('zero-center'):
+                    preprocessing_config["Normalization"]["method"] = "zero-center"
+                    
                     # Custom mean and std
+                    print("📝 Enter custom normalization parameters:")
                     mean_r = inquirer.text("Enter mean for R channel", default="0.485")
-                    mean_g = inquirer.text("Enter mean for G channel", default="0.456")
+                    mean_g = inquirer.text("Enter mean for G channel", default="0.456") 
                     mean_b = inquirer.text("Enter mean for B channel", default="0.406")
                     
                     std_r = inquirer.text("Enter std for R channel", default="0.229")
@@ -2367,76 +2440,150 @@ class ModelConfigCLI:
                             "g": float(std_g),
                             "b": float(std_b)
                         }
+                        print("✅ Custom zero-center normalization configured")
                     except ValueError:
                         print("⚠️  Invalid values, using ImageNet defaults")
-            
-            elif norm_method == 'min-max':
-                min_val = inquirer.text("Enter minimum value", default="0.0")
-                max_val = inquirer.text("Enter maximum value", default="1.0")
-                
-                try:
-                    preprocessing_config["Normalization"]["min_value"] = float(min_val)
-                    preprocessing_config["Normalization"]["max_value"] = float(max_val)
-                except ValueError:
-                    print("⚠️  Invalid values, using defaults")
-            
-            # Common parameters
-            axis = inquirer.text("Enter normalization axis (-1 for last axis)", default="-1")
-            epsilon = inquirer.text("Enter epsilon value", default="1e-07")
-            
-            try:
-                preprocessing_config["Normalization"]["axis"] = int(axis)
-                preprocessing_config["Normalization"]["epsilon"] = float(epsilon)
-            except ValueError:
-                print("⚠️  Invalid values, using defaults")
+                        
+                elif norm_method.startswith('min-max'):
+                    preprocessing_config["Normalization"]["method"] = "min-max"
+                    min_val = inquirer.text("Enter minimum value", default="0.0")
+                    max_val = inquirer.text("Enter maximum value", default="1.0")
+                    
+                    try:
+                        preprocessing_config["Normalization"]["min_value"] = float(min_val)
+                        preprocessing_config["Normalization"]["max_value"] = float(max_val)
+                        print(f"✅ Min-max normalization configured: [{min_val}, {max_val}]")
+                    except ValueError:
+                        preprocessing_config["Normalization"]["min_value"] = 0.0
+                        preprocessing_config["Normalization"]["max_value"] = 1.0
+                        print("⚠️  Invalid values, using [0.0, 1.0]")
+                        
+                else:
+                    # For unit-norm and robust, use simpler config
+                    method_map = {
+                        'unit-norm': 'unit-norm',
+                        'robust': 'robust'
+                    }
+                    preprocessing_config["Normalization"]["method"] = method_map.get(
+                        norm_method.split()[0], 'zero-center'
+                    )
+                    print(f"✅ {norm_method.split()[0]} normalization configured")
         else:
             preprocessing_config["Normalization"]["enabled"] = False
+            print("⚠️  Normalization disabled - raw pixel values will be used")
         
-        # 3. Custom Preprocessing
-        print("\n🛠️  Step 3: Custom Preprocessing")
-        add_custom = inquirer.confirm("Add custom preprocessing functions?", default=False)
+        # 3. Custom Preprocessing (Optional)
+        print("\n🛠️  Step 3: Custom Preprocessing (Optional)")
+        use_custom_preprocessing = inquirer.confirm(
+            "Add custom preprocessing functions?",
+            default=False
+        )
         
-        custom_preprocessing = []
-        
-        if add_custom:
+        if use_custom_preprocessing:
             custom_preprocessing_path = inquirer.text(
-                "Enter path to Python file containing custom preprocessing functions",
-                default="./example_funcs/example_custom_preprocessing.py"
+                "Enter path to Python file containing custom preprocessing functions"
             )
             
             if custom_preprocessing_path and os.path.exists(custom_preprocessing_path):
-                # Analyze and select custom preprocessing functions
-                success, preprocessing_info = self.analyze_custom_preprocessing_file(custom_preprocessing_path)
+                # Try to analyze and select custom preprocessing
+                selected_function, function_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
                 
-                if success and preprocessing_info:
-                    print(f"\n✅ Found {len(preprocessing_info)} preprocessing function(s)")
-                    
-                    # Allow multiple selections
-                    add_more = True
-                    while add_more:
-                        func_name, func_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
-                        
-                        if func_name and func_info:
-                            custom_func_config = {
-                                "function_name": func_name,
-                                "enabled": True,
-                                "file_path": custom_preprocessing_path,
-                                "parameters": func_info.get('user_parameters', {})
-                            }
-                            custom_preprocessing.append(custom_func_config)
-                            print(f"✅ Added custom preprocessing: {func_name}")
-                        
-                        add_more = inquirer.confirm("Add another custom preprocessing function?", default=False)
+                if selected_function and function_info:
+                    preprocessing_config["Custom Preprocessing"] = {
+                        "enabled": True,
+                        "function_name": selected_function,
+                        "file_path": custom_preprocessing_path,
+                        "parameters": function_info.get('user_parameters', {})
+                    }
+                    print(f"✅ Custom preprocessing configured: {selected_function}")
                 else:
-                    print("❌ No valid preprocessing functions found in the file")
+                    print("⚠️  No valid custom preprocessing function selected")
             else:
-                print("❌ Invalid file path or file does not exist")
+                print("⚠️  Invalid file path for custom preprocessing")
         
-        # Add custom preprocessing to config if any were selected
-        if custom_preprocessing:
-            preprocessing_config["Custom"] = custom_preprocessing
-        
+        print(f"\n✅ Preprocessing configuration complete!")
         return preprocessing_config
+
+    def configure_augmentation(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Interactive configuration of augmentation settings.
+        
+        Args:
+            config: Current configuration dictionary
+            
+        Returns:
+            Updated augmentation configuration
+        """
+        print("\n🎲 Augmentation Configuration")
+        print("=" * 40)
+        print("📋 Data augmentation creates variations of your training data to improve model generalization.")
+        
+        augmentation_config = {
+            "Horizontal Flip": {
+                "enabled": False,
+                "probability": 0.5
+            },
+            "Rotation": {
+                "enabled": False,
+                "angle_range": 15.0,
+                "probability": 0.5
+            },
+            "Brightness": {
+                "enabled": False,
+                "factor": 0.2,
+                "probability": 0.5
+            },
+            "Contrast": {
+                "enabled": False,
+                "factor": 0.2,
+                "probability": 0.5
+            }
+        }
+        
+        # Ask which augmentations to enable
+        augmentation_types = [
+            'Horizontal Flip',
+            'Rotation', 
+            'Brightness',
+            'Contrast'
+        ]
+        
+        enabled_augmentations = inquirer.checkbox(
+            "Select augmentations to enable (use spacebar to select, enter to confirm)",
+            choices=augmentation_types
+        )
+        
+        # Configure each selected augmentation
+        for aug_type in enabled_augmentations:
+            augmentation_config[aug_type]["enabled"] = True
+            
+            if aug_type == "Rotation":
+                angle = inquirer.text(f"Enter rotation angle range (degrees)", default="15.0")
+                try:
+                    augmentation_config[aug_type]["angle_range"] = float(angle)
+                except ValueError:
+                    pass
+            
+            elif aug_type in ["Brightness", "Contrast"]:
+                factor = inquirer.text(f"Enter {aug_type.lower()} factor", default="0.2")
+                try:
+                    augmentation_config[aug_type]["factor"] = float(factor)
+                except ValueError:
+                    pass
+            
+            # Set probability for all augmentations
+            prob = inquirer.text(f"Enter probability for {aug_type}", default="0.5")
+            try:
+                augmentation_config[aug_type]["probability"] = float(prob)
+            except ValueError:
+                pass
+        
+        if enabled_augmentations:
+            print(f"✅ Enabled augmentations: {', '.join(enabled_augmentations)}")
+        else:
+            print("✅ No augmentations enabled")
+        
+        return augmentation_config
 
     def analyze_custom_augmentation_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
         """
