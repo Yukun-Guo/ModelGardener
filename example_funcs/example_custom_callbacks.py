@@ -63,3 +63,15 @@ class MemoryUsageMonitor(keras.callbacks.Callback):
                 
             except Exception as e:
                 print(f"Memory monitoring error: {e}")
+
+
+class CustomLearningRateScheduler(keras.callbacks.Callback):
+    
+    """
+    custom learning rate scheduler that adjusts the learning rate based on epoch number.
+    """
+    def __init__(self):
+        super().__init__()
+        
+    def on_batch_begin(self, batch, logs=None):
+        return super().on_batch_begin(batch, logs)

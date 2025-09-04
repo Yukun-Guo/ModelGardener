@@ -316,6 +316,78 @@ def is_augmentation_function( obj, name: str) -> bool:
     
     return False
 
+def is_callback_function(obj, name: str) -> bool:
+    """
+    Check if an object is a valid callback function or class.
+    
+    Args:
+        obj: The object to check
+        name: Name of the object
+        
+    Returns:
+        bool: True if it's a valid callback function/class
+    """
+    # Skip private functions
+    if name.startswith('_'):
+        return False
+    
+    # Skip common non-callback functions
+    skip_names = {'main', 'setup', 'init', 'test', 'demo', 'load', 'save', 'print'}
+    if name.lower() in skip_names:
+        return False
+    
+    try:
+        if inspect.isfunction(obj) or inspect.isclass(obj):
+            # Check function/class name patterns for callbacks
+            name_lower = name.lower()
+            callback_patterns = [
+                'callback', 'early', 'stopping', 'checkpoint', 'tensorboard', 'csv',
+                'logger', 'monitor', 'scheduler', 'plateau', 'reduce', 'lr', 'rate',
+                'decay', 'custom', 'history', 'progress', 'bar', 'metric', 'epoch',
+                'batch', 'terminate', 'nan', 'backup', 'remote'
+            ]
+            
+            has_callback_name = any(pattern in name_lower for pattern in callback_patterns)
+            
+            # Check docstring for callback-related keywords
+            has_callback_keywords = False
+            if hasattr(obj, '__doc__') and obj.__doc__:
+                docstring_lower = obj.__doc__.lower()
+                callback_keywords = [
+                    'callback', 'epoch', 'batch', 'training', 'monitor', 'metric',
+                    'checkpoint', 'early stopping', 'learning rate', 'tensorboard',
+                    'csv logger', 'progress', 'history', 'validation'
+                ]
+                has_callback_keywords = any(keyword in docstring_lower for keyword in callback_keywords)
+            
+            # For classes, check if it inherits from Keras callback
+            if inspect.isclass(obj):
+                try:
+                    import tensorflow as tf
+                    if issubclass(obj, tf.keras.callbacks.Callback):
+                        return True
+                except (ImportError, TypeError):
+                    pass
+            
+            # For functions, check if it returns a callback-like object
+            if inspect.isfunction(obj):
+                try:
+                    sig = inspect.signature(obj)
+                    return_annotation = sig.return_annotation
+                    if return_annotation != inspect.Signature.empty:
+                        return_type_str = str(return_annotation)
+                        if 'callback' in return_type_str.lower():
+                            return True
+                except Exception:
+                    pass
+            
+            return has_callback_name or has_callback_keywords
+                
+    except Exception:
+        pass
+    
+    return False
+
 def extract_model_parameters(obj) -> Dict[str, Any]:
     """Extract parameters from model function/class."""
     parameters = {}

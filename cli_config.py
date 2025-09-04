@@ -898,6 +898,262 @@ class ModelConfigCLI:
         
         return result
 
+    def configure_callbacks(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Configure callbacks with support for multiple preset and custom callbacks."""
+        print("\n📞 Callbacks Configuration")
+        print("=" * 40)
+        print("📋 Callbacks help monitor and control training progress")
+        print("💡 Multiple callbacks can be enabled simultaneously")
+        
+        callbacks_config = config['configuration']['model'].get('callbacks', {})
+        
+        # Configure preset callbacks
+        print("\n🔧 Preset Callbacks Configuration")
+        print("=" * 35)
+        
+        # Early Stopping
+        print("\n⏹️  Early Stopping")
+        print("💡 Stops training when performance stops improving")
+        enable_early_stopping = inquirer.confirm("Enable Early Stopping?", default=True)
+        callbacks_config['Early Stopping']['enabled'] = enable_early_stopping
+        
+        if enable_early_stopping:
+            monitor = inquirer.text("Monitor metric", default="val_loss")
+            patience = inquirer.text("Patience (epochs to wait)", default="10")
+            min_delta = inquirer.text("Minimum delta for improvement", default="0.001")
+            mode = inquirer.list_input("Mode", choices=['min', 'max', 'auto'], default='min')
+            restore_weights = inquirer.confirm("Restore best weights?", default=True)
+            
+            callbacks_config['Early Stopping'].update({
+                'monitor': monitor,
+                'patience': int(patience) if patience.isdigit() else 10,
+                'min_delta': float(min_delta) if min_delta.replace('.', '').isdigit() else 0.001,
+                'mode': mode,
+                'restore_best_weights': restore_weights
+            })
+        
+        # Learning Rate Scheduler
+        print("\n📉 Learning Rate Scheduler")
+        print("💡 Adjusts learning rate during training")
+        enable_lr_scheduler = inquirer.confirm("Enable Learning Rate Scheduler?", default=True)
+        callbacks_config['Learning Rate Scheduler']['enabled'] = enable_lr_scheduler
+        
+        if enable_lr_scheduler:
+            scheduler_types = ['ReduceLROnPlateau', 'ExponentialDecay', 'CosineDecay', 'StepDecay']
+            scheduler_type = inquirer.list_input("Select scheduler type", choices=scheduler_types, default='ReduceLROnPlateau')
+            monitor = inquirer.text("Monitor metric", default="val_loss")
+            factor = inquirer.text("Learning rate reduction factor", default="0.5")
+            patience = inquirer.text("Patience (epochs)", default="5")
+            min_lr = inquirer.text("Minimum learning rate", default="1e-7")
+            
+            callbacks_config['Learning Rate Scheduler'].update({
+                'scheduler_type': scheduler_type,
+                'monitor': monitor,
+                'factor': float(factor) if factor.replace('.', '').isdigit() else 0.5,
+                'patience': int(patience) if patience.isdigit() else 5,
+                'min_lr': float(min_lr) if 'e' in min_lr or min_lr.replace('.', '').isdigit() else 1e-7
+            })
+        
+        # Model Checkpoint
+        print("\n💾 Model Checkpoint")
+        print("💡 Saves model during training")
+        enable_checkpoint = inquirer.confirm("Enable Model Checkpoint?", default=True)
+        callbacks_config['Model Checkpoint']['enabled'] = enable_checkpoint
+        
+        if enable_checkpoint:
+            monitor = inquirer.text("Monitor metric", default="val_loss")
+            save_best_only = inquirer.confirm("Save only best model?", default=True)
+            save_weights_only = inquirer.confirm("Save weights only (not full model)?", default=False)
+            mode = inquirer.list_input("Mode", choices=['min', 'max', 'auto'], default='min')
+            save_freq = inquirer.list_input("Save frequency", choices=['epoch', 'batch'], default='epoch')
+            filepath = inquirer.text("Model filename", default="best_model.h5")
+            
+            callbacks_config['Model Checkpoint'].update({
+                'monitor': monitor,
+                'save_best_only': save_best_only,
+                'save_weights_only': save_weights_only,
+                'mode': mode,
+                'save_freq': save_freq,
+                'filepath': filepath
+            })
+        
+        # TensorBoard
+        print("\n📊 TensorBoard")
+        print("💡 Provides training visualization and monitoring")
+        enable_tensorboard = inquirer.confirm("Enable TensorBoard?", default=True)
+        callbacks_config['TensorBoard']['enabled'] = enable_tensorboard
+        
+        if enable_tensorboard:
+            log_dir = inquirer.text("TensorBoard log directory", default="./logs/tensorboard")
+            histogram_freq = inquirer.text("Histogram frequency (epochs)", default="1")
+            write_graph = inquirer.confirm("Write computation graph?", default=True)
+            write_images = inquirer.confirm("Write model images?", default=False)
+            update_freq = inquirer.list_input("Update frequency", choices=['epoch', 'batch'], default='epoch')
+            profile_batch = inquirer.text("Profile batch (0 to disable)", default="0")
+            
+            callbacks_config['TensorBoard'].update({
+                'log_dir': log_dir,
+                'histogram_freq': int(histogram_freq) if histogram_freq.isdigit() else 1,
+                'write_graph': write_graph,
+                'write_images': write_images,
+                'update_freq': update_freq,
+                'profile_batch': int(profile_batch) if profile_batch.isdigit() else 0
+            })
+        
+        # CSV Logger
+        print("\n📝 CSV Logger")
+        print("💡 Logs training metrics to CSV file")
+        enable_csv_logger = inquirer.confirm("Enable CSV Logger?", default=True)
+        callbacks_config['CSV Logger']['enabled'] = enable_csv_logger
+        
+        if enable_csv_logger:
+            filename = inquirer.text("CSV filename", default="./logs/training.csv")
+            separator = inquirer.text("CSV separator", default=",")
+            append = inquirer.confirm("Append to existing file?", default=False)
+            
+            callbacks_config['CSV Logger'].update({
+                'filename': filename,
+                'separator': separator,
+                'append': append
+            })
+        
+        # Custom Callbacks
+        print("\n🛠️  Custom Callbacks")
+        print("💡 Load custom callback functions from Python files")
+        enable_custom_callbacks = inquirer.confirm("Add custom callbacks?", default=False)
+        
+        if enable_custom_callbacks:
+            custom_callbacks = []
+            
+            while True:
+                callback_file = inquirer.text("Enter path to Python file containing custom callbacks")
+                
+                if not callback_file:
+                    break
+                
+                if not os.path.exists(callback_file):
+                    print(f"❌ File not found: {callback_file}")
+                    continue
+                
+                # Analyze the custom callback file
+                found_callbacks = self.analyze_custom_callback_file(callback_file)
+                
+                if not found_callbacks:
+                    print("❌ No valid callback functions found in the file")
+                    continue
+                
+                print(f"\n🔍 Found {len(found_callbacks)} callback(s):")
+                for name, info in found_callbacks.items():
+                    print(f"   • {name}: {info.get('description', 'Custom callback function')}")
+                
+                # Allow user to select multiple callbacks from this file
+                callback_choices = [(f"{name} - {info.get('description', 'Custom callback')}", name) 
+                                  for name, info in found_callbacks.items()]
+                
+                selected_callbacks = inquirer.checkbox(
+                    "Select callbacks to use",
+                    choices=callback_choices
+                )
+                
+                for callback_name in selected_callbacks:
+                    callback_info = found_callbacks[callback_name]
+                    
+                    # Configure parameters for each selected callback
+                    print(f"\n⚙️  Configuring parameters for {callback_name}:")
+                    callback_params = {}
+                    
+                    if 'parameters' in callback_info:
+                        for param_name, param_info in callback_info['parameters'].items():
+                            default_value = param_info.get('default', '')
+                            param_value = inquirer.text(f"Enter {param_name}", default=str(default_value))
+                            
+                            # Try to convert to appropriate type
+                            if param_info.get('type') == 'int':
+                                try:
+                                    callback_params[param_name] = int(param_value)
+                                except ValueError:
+                                    callback_params[param_name] = param_info.get('default', 0)
+                            elif param_info.get('type') == 'float':
+                                try:
+                                    callback_params[param_name] = float(param_value)
+                                except ValueError:
+                                    callback_params[param_name] = param_info.get('default', 0.0)
+                            elif param_info.get('type') == 'bool':
+                                callback_params[param_name] = param_value.lower() in ['true', '1', 'yes', 'y']
+                            else:
+                                callback_params[param_name] = param_value
+                    
+                    custom_callback_config = {
+                        'function_name': callback_name,
+                        'file_path': callback_file,
+                        'type': callback_info.get('type', 'function'),
+                        'parameters': callback_params
+                    }
+                    
+                    custom_callbacks.append(custom_callback_config)
+                    print(f"✅ Added custom callback: {callback_name}")
+                
+                add_more = inquirer.confirm("Add callbacks from another file?", default=False)
+                if not add_more:
+                    break
+            
+            callbacks_config['Custom Callbacks'] = {
+                'enabled': len(custom_callbacks) > 0,
+                'callbacks': custom_callbacks
+            }
+        
+        print("\n✅ Callbacks configuration complete!")
+        
+        return callbacks_config
+
+    def analyze_custom_callback_file(self, file_path: str) -> Dict[str, Any]:
+        """Analyze a Python file to extract custom callback functions."""
+        try:
+            if not os.path.exists(file_path):
+                return {}
+            
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_callbacks", file_path)
+            if spec is None or spec.loader is None:
+                return {}
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # Find callback functions/classes
+            found_callbacks = {}
+            for name in dir(module):
+                if name.startswith('_'):
+                    continue
+                    
+                obj = getattr(module, name)
+                if hf.is_callback_function(obj, name):
+                    # Get function info
+                    sig = inspect.signature(obj)
+                    doc = inspect.getdoc(obj) or f"Custom callback function: {name}"
+                    
+                    # Extract parameters
+                    parameters = {}
+                    for param_name, param in sig.parameters.items():
+                        param_info = {
+                            'name': param_name,
+                            'type': str(param.annotation) if param.annotation != inspect.Parameter.empty else 'str',
+                            'default': param.default if param.default != inspect.Parameter.empty else None
+                        }
+                        parameters[param_name] = param_info
+                    
+                    found_callbacks[name] = {
+                        'type': 'function' if inspect.isfunction(obj) else 'class',
+                        'description': doc.split('\n')[0] if doc else f"Custom callback: {name}",
+                        'parameters': parameters
+                    }
+            
+            return found_callbacks
+            
+        except Exception as e:
+            print(f"Error analyzing callback file {file_path}: {str(e)}")
+            return {}
+
     def _configure_multiple_metrics(self, num_outputs: int, output_names: List[str] = None) -> Dict[str, Any]:
         """Configure different metrics for multiple outputs."""
         metrics_configs = {}
@@ -1058,7 +1314,7 @@ class ModelConfigCLI:
                     },
                     "callbacks": {
                         "Early Stopping": {
-                            "enabled": False,
+                            "enabled": True,
                             "monitor": "val_loss",
                             "patience": 10,
                             "min_delta": 0.001,
@@ -1066,7 +1322,7 @@ class ModelConfigCLI:
                             "restore_best_weights": True
                         },
                         "Learning Rate Scheduler": {
-                            "enabled": False,
+                            "enabled": True,
                             "scheduler_type": "ReduceLROnPlateau",
                             "monitor": "val_loss",
                             "factor": 0.5,
@@ -1079,17 +1335,32 @@ class ModelConfigCLI:
                             "save_best_only": True,
                             "save_weights_only": False,
                             "mode": "min",
-                            "save_freq": "epoch"
+                            "save_freq": "epoch",
+                            "filepath": "best_model.h5"
+                        },
+                        "TensorBoard": {
+                            "enabled": True,
+                            "log_dir": "./logs/tensorboard",
+                            "histogram_freq": 1,
+                            "write_graph": True,
+                            "write_images": False,
+                            "update_freq": "epoch",
+                            "profile_batch": 0
+                        },
+                        "CSV Logger": {
+                            "enabled": True,
+                            "filename": "./logs/training.csv",
+                            "separator": ",",
+                            "append": False
+                        },
+                        "Custom Callbacks": {
+                            "enabled": False,
+                            "callbacks": []
                         }
                     }
                 },
                 "training": {
                     "epochs": 100,
-                    "learning_rate_type": "exponential",
-                    "initial_learning_rate": 0.1,
-                    "momentum": 0.9,
-                    "weight_decay": 1e-4,
-                    "label_smoothing": 0.0,
                     "cross_validation": {
                         "enabled": False,
                         "k_folds": 5,
@@ -1513,6 +1784,10 @@ class ModelConfigCLI:
         metrics_config = self.configure_metrics(config, loss_functions_config)
         config['configuration']['model']['metrics'] = metrics_config
         
+        # Callbacks Configuration
+        callbacks_config = self.configure_callbacks(config)
+        config['configuration']['model']['callbacks'] = callbacks_config
+        
         # Training Configuration
         print("\n🏃 Training Configuration")
         epochs = inquirer.text("Enter number of epochs", default="100")
@@ -1521,10 +1796,79 @@ class ModelConfigCLI:
         except ValueError:
             config['configuration']['training']['epochs'] = 100
         
+        # Cross-Validation Configuration
+        print("\n🔄 Cross-Validation Configuration")
+        enable_cv = inquirer.confirm("Enable cross-validation?", default=False)
+        if enable_cv:
+            cv_folds = inquirer.text("Enter number of k-folds", default="5")
+            try:
+                config['configuration']['training']['cross_validation']['enabled'] = True
+                config['configuration']['training']['cross_validation']['k_folds'] = int(cv_folds)
+            except ValueError:
+                config['configuration']['training']['cross_validation']['k_folds'] = 5
+            
+            # Additional CV options
+            val_split = inquirer.text("Enter validation split ratio", default="0.2")
+            try:
+                config['configuration']['training']['cross_validation']['validation_split'] = float(val_split)
+            except ValueError:
+                config['configuration']['training']['cross_validation']['validation_split'] = 0.2
+            
+            stratified = inquirer.confirm("Use stratified cross-validation?", default=True)
+            config['configuration']['training']['cross_validation']['stratified'] = stratified
+            
+            shuffle_cv = inquirer.confirm("Shuffle data for cross-validation?", default=True)
+            config['configuration']['training']['cross_validation']['shuffle'] = shuffle_cv
+            
+            random_seed = inquirer.text("Enter random seed for reproducibility", default="42")
+            try:
+                config['configuration']['training']['cross_validation']['random_seed'] = int(random_seed)
+            except ValueError:
+                config['configuration']['training']['cross_validation']['random_seed'] = 42
+            
+            save_fold_models = inquirer.confirm("Save individual fold models?", default=False)
+            config['configuration']['training']['cross_validation']['save_fold_models'] = save_fold_models
+            
+            if save_fold_models:
+                fold_models_dir = inquirer.text("Enter directory for fold models", default="./logs/fold_models")
+                config['configuration']['training']['cross_validation']['fold_models_dir'] = fold_models_dir
+            
+            aggregate_metrics = inquirer.confirm("Aggregate metrics across folds?", default=True)
+            config['configuration']['training']['cross_validation']['aggregate_metrics'] = aggregate_metrics
+            
+            if aggregate_metrics:
+                selection_metric = inquirer.text("Enter metric for fold selection", default="val_accuracy")
+                config['configuration']['training']['cross_validation']['fold_selection_metric'] = selection_metric
+        else:
+            config['configuration']['training']['cross_validation']['enabled'] = False
+        
         # Runtime Configuration
         print("\n⚙️  Runtime Configuration")
         model_dir = inquirer.text("Enter model output directory", default="./logs")
         config['configuration']['runtime']['model_dir'] = model_dir
+        
+        # Mixed Precision Configuration
+        print("\n🔢 Mixed Precision Configuration")
+        mixed_precision_choices = [
+            ('None (Full precision)', None),
+            ('mixed_float16 (Automatic mixed precision)', 'mixed_float16'),
+            ('mixed_bfloat16 (Brain floating point 16)', 'mixed_bfloat16')
+        ]
+        
+        mixed_precision_question = [
+            inquirer.List('mixed_precision',
+                         message="Select mixed precision policy",
+                         choices=mixed_precision_choices,
+                         default=None)
+        ]
+        mixed_precision_answer = inquirer.prompt(mixed_precision_question)
+        config['configuration']['runtime']['mixed_precision'] = mixed_precision_answer['mixed_precision']
+        
+        if mixed_precision_answer['mixed_precision']:
+            print(f"✅ Mixed precision enabled: {mixed_precision_answer['mixed_precision']}")
+            print("💡 This can improve training speed and reduce memory usage on compatible hardware")
+        else:
+            print("✅ Using full precision (default)")
         
         # GPU Configuration
         use_gpu = inquirer.confirm("Use GPU training?", default=True)
@@ -2025,6 +2369,28 @@ class ModelConfigCLI:
             current_loss_config = config.get('configuration', {}).get('model', {}).get('loss_functions', {})
             metrics_config = self.configure_metrics(config, current_loss_config)
             config['configuration']['model']['metrics'] = metrics_config
+        
+        # Callbacks Configuration
+        current_callbacks_config = config.get('configuration', {}).get('model', {}).get('callbacks', {})
+        current_early_stopping = current_callbacks_config.get('Early Stopping', {}).get('enabled', False)
+        current_lr_scheduler = current_callbacks_config.get('Learning Rate Scheduler', {}).get('enabled', False)
+        current_checkpoint = current_callbacks_config.get('Model Checkpoint', {}).get('enabled', True)
+        current_tensorboard = current_callbacks_config.get('TensorBoard', {}).get('enabled', False)
+        current_csv_logger = current_callbacks_config.get('CSV Logger', {}).get('enabled', False)
+        current_custom_callbacks = current_callbacks_config.get('Custom Callbacks', {}).get('enabled', False)
+        
+        print(f"\n📞 Current Callbacks Configuration:")
+        print(f"    Early Stopping: {'Enabled' if current_early_stopping else 'Disabled'}")
+        print(f"    LR Scheduler: {'Enabled' if current_lr_scheduler else 'Disabled'}")
+        print(f"    Model Checkpoint: {'Enabled' if current_checkpoint else 'Disabled'}")
+        print(f"    TensorBoard: {'Enabled' if current_tensorboard else 'Disabled'}")
+        print(f"    CSV Logger: {'Enabled' if current_csv_logger else 'Disabled'}")
+        print(f"    Custom Callbacks: {'Enabled' if current_custom_callbacks else 'Disabled'}")
+        
+        change_callbacks = inquirer.confirm("Change callbacks configuration?", default=False)
+        if change_callbacks:
+            callbacks_config = self.configure_callbacks(config)
+            config['configuration']['model']['callbacks'] = callbacks_config
         
         # Training Configuration
         current_epochs = config.get('configuration', {}).get('training', {}).get('epochs', 10)
