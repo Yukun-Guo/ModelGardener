@@ -150,13 +150,36 @@ class ScriptGenerator:
                     with open(example_file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                     
+                    # Group extractions by output file to avoid duplicates
+                    file_extractions = {}
                     for function_name, output_file in extractions:
-                        # Extract the specific function and create individual file
-                        extracted_content = self._extract_single_function(content, function_name, example_file)
-                        if extracted_content:
-                            output_path = os.path.join(custom_modules_dir, output_file)
+                        if output_file not in file_extractions:
+                            file_extractions[output_file] = []
+                        file_extractions[output_file].append(function_name)
+                    
+                    # Process each output file once
+                    for output_file, function_names in file_extractions.items():
+                        output_path = os.path.join(custom_modules_dir, output_file)
+                        
+                        # Extract imports once for the file
+                        imports_content = self._extract_imports_from_content(content)
+                        
+                        # Extract all functions for this file
+                        function_contents = []
+                        for function_name in function_names:
+                            extracted_content = self._extract_single_function(content, function_name, example_file)
+                            if extracted_content:
+                                function_contents.append(extracted_content)
+                        
+                        if function_contents:
+                            # Combine imports and functions
+                            combined_content = ""
+                            if imports_content:
+                                combined_content += imports_content + "\n\n"
+                            combined_content += "\n\n".join(function_contents)
+                            
                             with open(output_path, 'w', encoding='utf-8') as f:
-                                f.write(extracted_content)
+                                f.write(combined_content)
                             print(f"✅ Generated: {output_path}")
                         
                 except Exception as e:
@@ -169,7 +192,7 @@ class ScriptGenerator:
 
     def _extract_single_function(self, file_content: str, function_name: str, source_file: str) -> str:
         """
-        Extract a single function from the file content.
+        Extract a single function from the file content without imports.
         """
         lines = file_content.split('\n')
         
@@ -205,12 +228,20 @@ class ScriptGenerator:
         # Extract just the function content
         function_lines = lines[function_start:function_end]
         
+        return '\n'.join(function_lines)
+    
+    def _extract_imports_from_content(self, file_content: str) -> str:
+        """
+        Extract import statements from file content.
+        """
+        lines = file_content.split('\n')
+        
         # Get only the essential imports (not docstrings or comments)
         import_lines = []
         in_module_docstring = False
         docstring_quote = None
         
-        for line in lines[:function_start]:
+        for line in lines:
             stripped_line = line.strip()
             
             # Handle module-level docstrings
@@ -236,20 +267,16 @@ class ScriptGenerator:
                 (not stripped_line and import_lines and 
                  import_lines[-1].strip().startswith(('import ', 'from ')))):
                 import_lines.append(line)
+            
+            # Stop at first function/class definition
+            if stripped_line.startswith(('def ', 'class ')):
+                break
         
         # Clean up trailing blank lines from imports
         while import_lines and not import_lines[-1].strip():
             import_lines.pop()
         
-        # Combine imports and function with proper spacing
-        result_lines = []
-        if import_lines:
-            result_lines.extend(import_lines)
-            result_lines.append('')  # Blank line after imports
-        
-        result_lines.extend(function_lines)
-        
-        return '\n'.join(result_lines)
+        return '\n'.join(import_lines)
 
     def _create_basic_template(self, custom_modules_dir: str, example_file: str):
         """Create basic template file when example is not available."""

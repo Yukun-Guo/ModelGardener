@@ -950,63 +950,63 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
                 'file_path': './custom_modules/custom_models.py', 
                 'function_name': 'create_simple_cnn',
                 'type': 'function',
-                'parameters': extract_function_parameters('create_simple_cnn', './custom_modules/custom_models.py', project_dir)
+                'parameters': extract_function_parameters('create_simple_cnn', './custom_modules/custom_models.py', project_dir, show_warnings=False)
             }],
             'data_loaders': [{
                 'name': 'Custom_load_cifar10_npz_data',
                 'file_path': './custom_modules/custom_data_loaders.py',
                 'function_name': 'Custom_load_cifar10_npz_data', 
                 'type': 'function',
-                'parameters': extract_function_parameters('Custom_load_cifar10_npz_data', './custom_modules/custom_data_loaders.py', project_dir)
+                'parameters': extract_function_parameters('Custom_load_cifar10_npz_data', './custom_modules/custom_data_loaders.py', project_dir, show_warnings=False)
             }],
             'loss_functions': [{
                 'name': 'dice_loss',
                 'file_path': './custom_modules/custom_loss_functions.py',
                 'function_name': 'dice_loss',
                 'type': 'function',
-                'parameters': extract_function_parameters('dice_loss', './custom_modules/custom_loss_functions.py', project_dir)
+                'parameters': extract_function_parameters('dice_loss', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
             }],
             'optimizers': [{
                 'name': 'adaptive_adam',
                 'file_path': './custom_modules/custom_optimizers.py',
                 'function_name': 'adaptive_adam',
                 'type': 'function',
-                'parameters': extract_function_parameters('adaptive_adam', './custom_modules/custom_optimizers.py', project_dir)
+                'parameters': extract_function_parameters('adaptive_adam', './custom_modules/custom_optimizers.py', project_dir, show_warnings=False)
             }],
             'metrics': [{
                 'name': 'balanced_accuracy',
                 'file_path': './custom_modules/custom_metrics.py',
                 'function_name': 'balanced_accuracy',
                 'type': 'function',
-                'parameters': extract_function_parameters('balanced_accuracy', './custom_modules/custom_metrics.py', project_dir)
+                'parameters': extract_function_parameters('balanced_accuracy', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
             }],
             'callbacks': [{
                 'name': 'MemoryUsageMonitor',
                 'file_path': './custom_modules/custom_callbacks.py',
                 'function_name': 'MemoryUsageMonitor',
                 'type': 'class',
-                'parameters': extract_function_parameters('MemoryUsageMonitor', './custom_modules/custom_callbacks.py', project_dir)
+                'parameters': extract_function_parameters('MemoryUsageMonitor', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
             }],
             'augmentations': [{
                 'name': 'color_shift',
                 'file_path': './custom_modules/custom_augmentations.py',
                 'function_name': 'color_shift',
                 'type': 'function',
-                'parameters': extract_function_parameters('color_shift', './custom_modules/custom_augmentations.py', project_dir)
+                'parameters': extract_function_parameters('color_shift', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
             }],
             'preprocessing': [{
                 'name': 'adaptive_histogram_equalization',
                 'file_path': './custom_modules/custom_preprocessing.py',
                 'function_name': 'adaptive_histogram_equalization',
                 'type': 'function',
-                'parameters': extract_function_parameters('adaptive_histogram_equalization', './custom_modules/custom_preprocessing.py', project_dir)
+                'parameters': extract_function_parameters('adaptive_histogram_equalization', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
             }],
             'training_loops': [{
                 'name': 'progressive_training_loop',
                 'file_path': './custom_modules/custom_training_loops.py',
                 'function_name': 'progressive_training_loop',
                 'type': 'function',
-                'parameters': extract_function_parameters('progressive_training_loop', './custom_modules/custom_training_loops.py', project_dir)
+                'parameters': extract_function_parameters('progressive_training_loop', './custom_modules/custom_training_loops.py', project_dir, show_warnings=False)
             }]
         }
         
@@ -1014,7 +1014,7 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
         
     return improved_config
 
-def extract_function_parameters(function_name: str, file_path: str, project_dir: str = '.') -> Dict[str, Any]:
+def extract_function_parameters(function_name: str, file_path: str, project_dir: str = '.', show_warnings: bool = True) -> Dict[str, Any]:
     """
     Extract function parameters from a custom function file.
     
@@ -1022,6 +1022,7 @@ def extract_function_parameters(function_name: str, file_path: str, project_dir:
         function_name: Name of the function to extract parameters from
         file_path: Path to the file containing the function
         project_dir: Project directory for resolving relative paths
+        show_warnings: Whether to show warnings when files are not found
         
     Returns:
         Dictionary of function parameters with default values
@@ -1037,7 +1038,8 @@ def extract_function_parameters(function_name: str, file_path: str, project_dir:
         
         # Check if file exists
         if not os.path.exists(file_path):
-            print(f"⚠️ Function parameter extraction: File {file_path} not found")
+            if show_warnings:
+                print(f"⚠️ Function parameter extraction: File {file_path} not found")
             return {}
         
         # Load the module dynamically
@@ -1050,7 +1052,8 @@ def extract_function_parameters(function_name: str, file_path: str, project_dir:
         
         # Get the function
         if not hasattr(module, function_name):
-            print(f"⚠️ Function {function_name} not found in {file_path}")
+            if show_warnings:
+                print(f"⚠️ Function {function_name} not found in {file_path}")
             return {}
         
         func = getattr(module, function_name)

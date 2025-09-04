@@ -966,7 +966,7 @@ class ModelConfigCLI:
             save_weights_only = inquirer.confirm("Save weights only (not full model)?", default=False)
             mode = inquirer.list_input("Mode", choices=['min', 'max', 'auto'], default='min')
             save_freq = inquirer.list_input("Save frequency", choices=['epoch', 'batch'], default='epoch')
-            filepath = inquirer.text("Model filename", default="best_model.h5")
+            filepath = inquirer.text("Model filename", default="best_model.keras")
             
             callbacks_config['Model Checkpoint'].update({
                 'monitor': monitor,
@@ -1008,12 +1008,10 @@ class ModelConfigCLI:
         
         if enable_csv_logger:
             filename = inquirer.text("CSV filename", default="./logs/training.csv")
-            separator = inquirer.text("CSV separator", default=",")
             append = inquirer.confirm("Append to existing file?", default=False)
             
             callbacks_config['CSV Logger'].update({
                 'filename': filename,
-                'separator': separator,
                 'append': append
             })
         
@@ -1350,7 +1348,6 @@ class ModelConfigCLI:
                         "CSV Logger": {
                             "enabled": True,
                             "filename": "./logs/training.csv",
-                            "separator": ",",
                             "append": False
                         },
                         "Custom Callbacks": {
@@ -1364,7 +1361,6 @@ class ModelConfigCLI:
                     "cross_validation": {
                         "enabled": False,
                         "k_folds": 5,
-                        "validation_split": 0.2,
                         "stratified": True,
                         "shuffle": True,
                         "random_seed": 42,
@@ -1529,6 +1525,60 @@ class ModelConfigCLI:
         config['configuration']['data']['train_dir'] = train_dir
         config['configuration']['data']['val_dir'] = val_dir
         
+        
+        # Data Loader Selection
+        print("\n📊 Data Loader Configuration")
+        data_loader = inquirer.list_input(
+            "Select data loader",
+            choices=self.available_data_loaders,
+            default='ImageDataGenerator'
+        )
+        config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
+        
+        # Handle custom data loader selection
+        if data_loader == 'Custom':
+            print("\n🔧 Custom Data Loader Configuration")
+            custom_data_loader_path = inquirer.text(
+                "Enter path to Python file containing custom data loader"
+            )
+            
+            if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
+                print("❌ Invalid file path. Using default data loader.")
+                data_loader_name = 'ImageDataGenerator'
+                data_loader_params = {}
+            else:
+                # Analyze custom data loader file
+                success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
+                
+                if not success or not loader_info:
+                    print("❌ No valid data loader functions found in the file. Using default data loader.")
+                    data_loader_name = 'ImageDataGenerator'
+                    data_loader_params = {}
+                else:
+                    print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
+                    
+                    # Let user select from available data loaders
+                    data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
+                    
+                    # Add custom data loader path to config
+                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+            
+            config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
+            
+            # Update data loader parameters if available
+            if data_loader_params and 'user_parameters' in data_loader_params:
+                if 'parameters' not in config['configuration']['data']['data_loader']:
+                    config['configuration']['data']['data_loader']['parameters'] = {}
+                config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
+        
+        # Batch size
+        batch_size = inquirer.text("Enter batch size", default="32")
+        try:
+            config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
+        except ValueError:
+            config['configuration']['data']['data_loader']['parameters']['batch_size'] = 32
+            
+            
         # Preprocessing Configuration - Ask immediately after data directories are configured
         print(f"\n✅ Data directories configured:")
         print(f"   📂 Training: {train_dir}")
@@ -1587,57 +1637,6 @@ class ModelConfigCLI:
             }
             print("✅ Using default augmentation settings (no augmentation)")
         
-        # Data Loader Selection
-        print("\n📊 Data Loader Configuration")
-        data_loader = inquirer.list_input(
-            "Select data loader",
-            choices=self.available_data_loaders,
-            default='ImageDataGenerator'
-        )
-        config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
-        
-        # Handle custom data loader selection
-        if data_loader == 'Custom':
-            print("\n🔧 Custom Data Loader Configuration")
-            custom_data_loader_path = inquirer.text(
-                "Enter path to Python file containing custom data loader"
-            )
-            
-            if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
-                print("❌ Invalid file path. Using default data loader.")
-                data_loader_name = 'ImageDataGenerator'
-                data_loader_params = {}
-            else:
-                # Analyze custom data loader file
-                success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
-                
-                if not success or not loader_info:
-                    print("❌ No valid data loader functions found in the file. Using default data loader.")
-                    data_loader_name = 'ImageDataGenerator'
-                    data_loader_params = {}
-                else:
-                    print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
-                    
-                    # Let user select from available data loaders
-                    data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
-                    
-                    # Add custom data loader path to config
-                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
-            
-            config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
-            
-            # Update data loader parameters if available
-            if data_loader_params and 'user_parameters' in data_loader_params:
-                if 'parameters' not in config['configuration']['data']['data_loader']:
-                    config['configuration']['data']['data_loader']['parameters'] = {}
-                config['configuration']['data']['data_loader']['parameters'].update(data_loader_params['user_parameters'])
-        
-        # Batch size
-        batch_size = inquirer.text("Enter batch size", default="32")
-        try:
-            config['configuration']['data']['data_loader']['parameters']['batch_size'] = int(batch_size)
-        except ValueError:
-            config['configuration']['data']['data_loader']['parameters']['batch_size'] = 32
         
         # Model Configuration
         print("\n🤖 Model Configuration")
@@ -1806,13 +1805,6 @@ class ModelConfigCLI:
                 config['configuration']['training']['cross_validation']['k_folds'] = int(cv_folds)
             except ValueError:
                 config['configuration']['training']['cross_validation']['k_folds'] = 5
-            
-            # Additional CV options
-            val_split = inquirer.text("Enter validation split ratio", default="0.2")
-            try:
-                config['configuration']['training']['cross_validation']['validation_split'] = float(val_split)
-            except ValueError:
-                config['configuration']['training']['cross_validation']['validation_split'] = 0.2
             
             stratified = inquirer.confirm("Use stratified cross-validation?", default=True)
             config['configuration']['training']['cross_validation']['stratified'] = stratified
@@ -2079,21 +2071,13 @@ class ModelConfigCLI:
         # Copy example data to project directory
         hf.copy_example_data(project_dir)
         
-        # Generate custom modules templates first
-        from script_generator import ScriptGenerator
-        generator = ScriptGenerator()
-        custom_modules_success = generator.generate_custom_modules_templates(project_dir)
-        
-        if not custom_modules_success:
-            print("⚠️ Warning: Failed to generate some custom modules templates")
-        
-        # Now create the improved template with custom functions and parameters
+        # Create the improved template with custom functions and parameters
+        # Note: Custom modules and scripts will be generated when save_config is called
         template_config = hf.create_improved_template_config(config, project_dir)
         
         if self.save_config(template_config, template_path, format_type):
             print(f"✅ Template created at: {template_path}")
-            print("📦 Custom modules created in: ./custom_modules/")
-            print("📁 Sample data copied to: ./data/")
+            print(" Sample data copied to: ./data/")
             print("🚀 Ready to train! The template includes working custom functions and sample data")
             print("💡 Run the generated train.py script to start training")
 
