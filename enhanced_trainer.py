@@ -902,9 +902,51 @@ class EnhancedTrainer(QObject):
         self.config = config
         self.custom_functions = custom_functions or {}
         self.training_controller = None
+        
+        # Import the refactored trainer for CLI usage
+        try:
+            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
+            self.refactored_trainer = RefactoredEnhancedTrainer(config, custom_functions)
+        except ImportError as e:
+            BRIDGE.log.emit(f"Warning: Could not import refactored trainer: {str(e)}")
+            self.refactored_trainer = None
+    
+    def train(self) -> bool:
+        """
+        Main training method for CLI usage.
+        
+        Returns:
+            bool: True if training completed successfully, False otherwise
+        """
+        if self.refactored_trainer:
+            # Use the new refactored trainer for better performance and features
+            return self.refactored_trainer.train()
+        else:
+            # Fallback to the old training controller method
+            BRIDGE.log.emit("Using legacy training controller...")
+            return self._train_with_controller()
+    
+    def _train_with_controller(self) -> bool:
+        """Fallback training method using the old TrainingController."""
+        try:
+            if self.training_controller and self.training_controller.isRunning():
+                BRIDGE.log.emit("Training is already running")
+                return False
+            
+            # Create and start training controller
+            self.training_controller = TrainingController(self.config, self.custom_functions)
+            
+            # Run training synchronously for CLI
+            self.training_controller.run()
+            
+            return True
+            
+        except Exception as e:
+            BRIDGE.log.emit(f"Legacy training failed: {str(e)}")
+            return False
     
     def start_training(self):
-        """Start the training process."""
+        """Start the training process (for GUI usage)."""
         if self.training_controller and self.training_controller.isRunning():
             BRIDGE.log.emit("Training is already running")
             return
@@ -927,3 +969,11 @@ class EnhancedTrainer(QObject):
     def is_training(self):
         """Check if training is currently running."""
         return self.training_controller and self.training_controller.isRunning()
+    
+    def evaluate(self, dataset=None):
+        """Evaluate the model (delegates to refactored trainer if available)."""
+        if self.refactored_trainer:
+            return self.refactored_trainer.evaluate(dataset)
+        else:
+            BRIDGE.log.emit("Evaluation not available with legacy trainer")
+            return None

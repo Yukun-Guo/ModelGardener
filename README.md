@@ -1,8 +1,8 @@
-# test_ - ModelGardener Project
+# ModelGardener - ModelGardener Project
 
 ## Project Structure
 ```
-test_/
+ModelGardener/
 ├── data/
 │   ├── train/          # Training data
 │   └── val/            # Validation data
