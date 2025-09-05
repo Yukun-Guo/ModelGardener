@@ -19,6 +19,7 @@ import sys
 import copy
 import inspect
 import importlib.util
+import shutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import inquirer
@@ -74,6 +75,56 @@ class ModelConfigCLI:
             'ImageDataGenerator', 'DirectoryDataLoader', 'TFRecordDataLoader', 'CSVDataLoader',
             'NPZDataLoader', 'Custom'
         ]
+
+
+    def copy_custom_function_to_modules(self, source_path: str, function_type: str, destination_dir: str = None) -> str:
+        """
+        Copy a custom function file to the custom_modules directory and return the relative path.
+        
+        Args:
+            source_path: Path to the source custom function file
+            function_type: Type of function (e.g., 'preprocessing', 'augmentation', etc.)
+            destination_dir: Target directory path (defaults to current working directory)
+            
+        Returns:
+            Relative path to the copied file in ./custom_modules/ format
+        """
+        if not os.path.exists(source_path):
+            print(f"⚠️  Source file does not exist: {source_path}")
+            return source_path
+            
+        # Use current working directory if destination_dir is not provided
+        if destination_dir is None:
+            destination_dir = os.getcwd()
+            
+        # Create custom_modules directory if it doesn't exist
+        custom_modules_dir = os.path.join(destination_dir, "custom_modules")
+        os.makedirs(custom_modules_dir, exist_ok=True)
+        
+        # Generate destination filename
+        source_filename = os.path.basename(source_path)
+        
+        # If the source file is not already named properly, rename it to match the function type
+        if not source_filename.startswith(f"custom_{function_type}"):
+            # Extract the original name without extension
+            name_without_ext = os.path.splitext(source_filename)[0]
+            dest_filename = f"custom_{function_type}.py"
+        else:
+            dest_filename = source_filename
+            
+        dest_path = os.path.join(custom_modules_dir, dest_filename)
+        
+        try:
+            # Copy the file
+            shutil.copy2(source_path, dest_path)
+            print(f"✅ Copied custom function: {source_path} -> {dest_path}")
+            
+            # Return relative path for config
+            return f"./custom_modules/{dest_filename}"
+            
+        except Exception as e:
+            print(f"⚠️  Failed to copy custom function file: {e}")
+            return source_path  # Return original path if copy fails
 
 
     def analyze_custom_model_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
@@ -3063,10 +3114,13 @@ class ModelConfigCLI:
                 selected_function, function_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
                 
                 if selected_function and function_info:
+                    # Copy the custom function to custom_modules and get the relative path
+                    relative_path = self.copy_custom_function_to_modules(custom_preprocessing_path, "preprocessing")
+                    
                     preprocessing_config["Custom Preprocessing"] = {
                         "enabled": True,
                         "function_name": selected_function,
-                        "file_path": custom_preprocessing_path,
+                        "file_path": relative_path,
                         "parameters": function_info.get('user_parameters', {})
                     }
                     print(f"✅ Custom preprocessing configured: {selected_function}")
