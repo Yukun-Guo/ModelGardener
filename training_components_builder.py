@@ -11,7 +11,6 @@ import keras
 import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
 from sklearn.model_selection import KFold, StratifiedKFold
-from bridge_callback import BRIDGE, CLIBridgeCallback
 
 
 class TrainingComponentsBuilder:
@@ -35,40 +34,22 @@ class TrainingComponentsBuilder:
             List[keras.callbacks.Callback]: List of configured callbacks
         """
         try:
-            BRIDGE.log("=== Setting up Training Callbacks ===")
+            print("=== Setting up Training Callbacks ===")
             
             callbacks = []
             
-            # Add CLI bridge callback for progress tracking
-            cli_callback = self._setup_cli_callback(total_steps)
-            callbacks.append(cli_callback)
-            
-            # Setup standard callbacks
+            # Setup standard callbacks (no CLI bridge callback needed)
             callbacks.extend(self._setup_standard_callbacks())
             
             # Setup custom callbacks
             callbacks.extend(self._setup_custom_callbacks())
             
-            BRIDGE.log(f"Setup {len(callbacks)} callbacks for training")
+            print(f"Setup {len(callbacks)} callbacks for training")
             return callbacks
             
         except Exception as e:
-            BRIDGE.log(f"Error setting up callbacks: {str(e)}")
+            print(f"Error setting up callbacks: {str(e)}")
             raise
-    
-    def _setup_cli_callback(self, total_steps: Optional[int] = None) -> CLIBridgeCallback:
-        """Setup CLI bridge callback for progress tracking."""
-        
-        epochs = self.training_config.get('epochs', 100)
-        
-        if total_steps:
-            cli_callback = CLIBridgeCallback(total_train_steps=total_steps, log_every_n=5)
-        else:
-            # Estimate total steps
-            estimated_steps = epochs * 100  # Rough estimate
-            cli_callback = CLIBridgeCallback(total_train_steps=estimated_steps, log_every_n=5)
-        
-        return cli_callback
     
     def _setup_standard_callbacks(self) -> List[keras.callbacks.Callback]:
         """Setup standard Keras callbacks."""
@@ -89,7 +70,7 @@ class TrainingComponentsBuilder:
                 verbose=1
             )
             callbacks.append(early_stopping)
-            BRIDGE.log(f"Added Early Stopping callback (monitor: {early_stopping_config.get('monitor', 'val_loss')})")
+            print(f"Added Early Stopping callback (monitor: {early_stopping_config.get('monitor', 'val_loss')})")
         
         # Model Checkpoint
         checkpoint_config = self.callbacks_config.get('Model Checkpoint', {})
@@ -114,7 +95,7 @@ class TrainingComponentsBuilder:
                 verbose=1
             )
             callbacks.append(checkpoint_callback)
-            BRIDGE.log(f"Added Model Checkpoint callback (filepath: {filepath})")
+            print(f"Added Model Checkpoint callback (filepath: {filepath})")
         
         # TensorBoard
         tensorboard_config = self.callbacks_config.get('TensorBoard', {})
@@ -135,7 +116,7 @@ class TrainingComponentsBuilder:
                 update_freq=tensorboard_config.get('update_freq', 'epoch')
             )
             callbacks.append(tensorboard_callback)
-            BRIDGE.log(f"Added TensorBoard callback (log_dir: {log_dir})")
+            print(f"Added TensorBoard callback (log_dir: {log_dir})")
         
         # CSV Logger
         csv_config = self.callbacks_config.get('CSV Logger', {})
@@ -156,7 +137,7 @@ class TrainingComponentsBuilder:
                 append=csv_config.get('append', False)
             )
             callbacks.append(csv_callback)
-            BRIDGE.log(f"Added CSV Logger callback (filename: {filename})")
+            print(f"Added CSV Logger callback (filename: {filename})")
         
         # Learning Rate Scheduler
         lr_config = self.callbacks_config.get('Learning Rate Scheduler', {})
@@ -173,7 +154,7 @@ class TrainingComponentsBuilder:
                     verbose=1
                 )
                 callbacks.append(lr_callback)
-                BRIDGE.log("Added ReduceLROnPlateau callback")
+                print("Added ReduceLROnPlateau callback")
             elif scheduler_type == 'ExponentialDecay':
                 initial_lr = self.training_config.get('initial_learning_rate', 0.001)
                 decay_rate = lr_config.get('decay_rate', 0.9)
@@ -186,7 +167,7 @@ class TrainingComponentsBuilder:
                 )
                 
                 # Note: This would need to be applied to the optimizer, not as a callback
-                BRIDGE.log("Exponential decay schedule configured")
+                print("Exponential decay schedule configured")
         
         return callbacks
     
@@ -208,17 +189,17 @@ class TrainingComponentsBuilder:
                         # Instantiate the class
                         custom_callback = callback_func()
                     else:
-                        BRIDGE.log(f"Unknown callback type for {callback_name}: {callback_type}")
+                        print(f"Unknown callback type for {callback_name}: {callback_type}")
                         continue
                     
                     if isinstance(custom_callback, keras.callbacks.Callback):
                         callbacks.append(custom_callback)
-                        BRIDGE.log(f"Added custom callback: {callback_name}")
+                        print(f"Added custom callback: {callback_name}")
                     else:
-                        BRIDGE.log(f"Custom callback {callback_name} is not a valid Keras callback")
+                        print(f"Custom callback {callback_name} is not a valid Keras callback")
                         
                 except Exception as e:
-                    BRIDGE.log(f"Error adding custom callback {callback_name}: {str(e)}")
+                    print(f"Error adding custom callback {callback_name}: {str(e)}")
         
         return callbacks
     
@@ -236,7 +217,7 @@ class TrainingComponentsBuilder:
             List of (train_fold, val_fold) tuples
         """
         try:
-            BRIDGE.log(f"Creating {k_folds}-fold cross-validation splits (stratified: {stratified})")
+            print(f"Creating {k_folds}-fold cross-validation splits (stratified: {stratified})")
             
             # Convert dataset to numpy arrays for splitting
             images, labels = self._dataset_to_arrays(dataset)
@@ -274,12 +255,12 @@ class TrainingComponentsBuilder:
                 val_fold = val_fold.batch(batch_size).prefetch(tf.data.AUTOTUNE)
                 
                 folds.append((train_fold, val_fold))
-                BRIDGE.log(f"Fold {fold_idx + 1}: {len(train_indices)} train, {len(val_indices)} val samples")
+                print(f"Fold {fold_idx + 1}: {len(train_indices)} train, {len(val_indices)} val samples")
             
             return folds
             
         except Exception as e:
-            BRIDGE.log(f"Error creating CV folds: {str(e)}")
+            print(f"Error creating CV folds: {str(e)}")
             raise
     
     def _dataset_to_arrays(self, dataset: tf.data.Dataset) -> Tuple[np.ndarray, np.ndarray]:
@@ -309,7 +290,7 @@ class TrainingComponentsBuilder:
         if not fold_results:
             return
         
-        BRIDGE.log("=== Cross-Validation Results ===")
+        print("=== Cross-Validation Results ===")
         
         # Assuming fold_results contains [loss, accuracy, ...] for each fold
         num_metrics = len(fold_results[0])
@@ -323,11 +304,11 @@ class TrainingComponentsBuilder:
             mean_val = np.mean(values)
             std_val = np.std(values)
             
-            BRIDGE.log(f"{metric_name}: {mean_val:.4f} ± {std_val:.4f}")
+            print(f"{metric_name}: {mean_val:.4f} ± {std_val:.4f}")
             
             # Log individual fold results
             for fold_idx, value in enumerate(values):
-                BRIDGE.log(f"  Fold {fold_idx + 1}: {value:.4f}")
+                print(f"  Fold {fold_idx + 1}: {value:.4f}")
     
     def should_use_cross_validation(self) -> bool:
         """Check if cross-validation should be used."""

@@ -20,7 +20,6 @@ import os
 import tensorflow as tf
 import keras
 from typing import Dict, Any, Tuple, Optional
-from bridge_callback import BRIDGE
 
 # Import our new modular components
 from runtime_configurator import RuntimeConfigurator
@@ -53,16 +52,16 @@ class RefactoredEnhancedTrainer:
         self.custom_functions = custom_functions or {}
         
         # Auto-load custom functions if not provided
-        BRIDGE.log(f"Initial custom_functions: {self.custom_functions}")
+        print(f"Initial custom_functions: {self.custom_functions}")
         if not self.custom_functions or not any(self.custom_functions.values()):
-            BRIDGE.log("Auto-loading custom functions...")
+            print("Auto-loading custom functions...")
             self.custom_functions = self._auto_load_custom_functions()
-            BRIDGE.log(f"Loaded custom functions: {list(self.custom_functions.keys())}")
+            print(f"Loaded custom functions: {list(self.custom_functions.keys())}")
         else:
-            BRIDGE.log(f"Using provided custom functions: {list(self.custom_functions.keys())}")
+            print(f"Using provided custom functions: {list(self.custom_functions.keys())}")
             # Let's also check if they have the right content
             for key, value in self.custom_functions.items():
-                BRIDGE.log(f"  {key}: {list(value.keys()) if isinstance(value, dict) else type(value)}")
+                print(f"  {key}: {list(value.keys()) if isinstance(value, dict) else type(value)}")
             
             # Fix the structure if needed
             self.custom_functions = self._fix_custom_functions_structure(self.custom_functions)
@@ -88,8 +87,8 @@ class RefactoredEnhancedTrainer:
             bool: True if training completed successfully, False otherwise
         """
         try:
-            BRIDGE.log("🚀 Starting Enhanced ModelGardener Training Pipeline")
-            BRIDGE.log("=" * 60)
+            print("🚀 Starting Enhanced ModelGardener Training Pipeline")
+            print("=" * 60)
             
             # Phase 1: Runtime Setup
             success = self._setup_runtime()
@@ -111,14 +110,14 @@ class RefactoredEnhancedTrainer:
             if not success:
                 return False
             
-            BRIDGE.log("=" * 60)
-            BRIDGE.log("✅ Training completed successfully!")
+            print("=" * 60)
+            print("✅ Training completed successfully!")
             return True
             
         except Exception as e:
-            BRIDGE.log(f"❌ Training failed with error: {str(e)}")
+            print(f"❌ Training failed with error: {str(e)}")
             import traceback
-            BRIDGE.log(f"Traceback: {traceback.format_exc()}")
+            print(f"Traceback: {traceback.format_exc()}")
             return False
         
         finally:
@@ -148,7 +147,7 @@ class RefactoredEnhancedTrainer:
                             'file_path': data_loader_file,
                             'original_name': name
                         }
-                        BRIDGE.log(f"Auto-loaded data loader: {name}")
+                        print(f"Auto-loaded data loader: {name}")
                     elif inspect.isclass(obj) and 'DataLoader' in name:
                         custom_functions['data_loaders'][f"Custom_{name}"] = {
                             'loader': obj,
@@ -156,10 +155,10 @@ class RefactoredEnhancedTrainer:
                             'file_path': data_loader_file,
                             'original_name': name
                         }
-                        BRIDGE.log(f"Auto-loaded data loader class: {name}")
+                        print(f"Auto-loaded data loader class: {name}")
                         
         except Exception as e:
-            BRIDGE.log(f"Warning: Could not auto-load custom functions: {str(e)}")
+            print(f"Warning: Could not auto-load custom functions: {str(e)}")
             
         return custom_functions
     
@@ -199,9 +198,9 @@ class RefactoredEnhancedTrainer:
                                             'file_path': file_path,
                                             'original_name': function_name
                                         }
-                                        BRIDGE.log(f"Fixed {category} structure: {func_name}")
+                                        print(f"Fixed {category} structure: {func_name}")
                             except Exception as e:
-                                BRIDGE.log(f"Warning: Could not load {category} function {function_name}: {str(e)}")
+                                print(f"Warning: Could not load {category} function {function_name}: {str(e)}")
                                 
                 # Handle dict format (old format)
                 elif isinstance(functions_data, dict):
@@ -225,15 +224,15 @@ class RefactoredEnhancedTrainer:
                                             'file_path': file_path,
                                             'original_name': function_name
                                         }
-                                        BRIDGE.log(f"Fixed {category} structure: {func_name}")
+                                        print(f"Fixed {category} structure: {func_name}")
                                 except Exception as e:
-                                    BRIDGE.log(f"Warning: Could not load {category} function {function_name}: {str(e)}")
+                                    print(f"Warning: Could not load {category} function {function_name}: {str(e)}")
                         else:
                             # Already has correct structure
                             fixed_functions[category][func_name] = func_info
                     
         except Exception as e:
-            BRIDGE.log(f"Warning: Could not fix custom functions structure: {str(e)}")
+            print(f"Warning: Could not fix custom functions structure: {str(e)}")
             return custom_functions
             
         return fixed_functions
@@ -242,38 +241,38 @@ class RefactoredEnhancedTrainer:
         """Phase 1: Setup runtime configuration."""
         
         try:
-            BRIDGE.log("📋 Phase 1: Runtime Configuration")
+            print("📋 Phase 1: Runtime Configuration")
             
             # Setup complete runtime (GPU, distribution, optimizations)
             self.strategy, self.num_gpus = self.runtime_configurator.setup_complete_runtime()
             
-            BRIDGE.log(f"✅ Runtime setup completed")
-            BRIDGE.log(f"   • Strategy: {self.strategy.__class__.__name__}")
-            BRIDGE.log(f"   • GPUs: {self.num_gpus}")
+            print(f"✅ Runtime setup completed")
+            print(f"   • Strategy: {self.strategy.__class__.__name__}")
+            print(f"   • GPUs: {self.num_gpus}")
             
             return True
             
         except Exception as e:
-            BRIDGE.log(f"❌ Runtime setup failed: {str(e)}")
+            print(f"❌ Runtime setup failed: {str(e)}")
             return False
     
     def _create_data_pipeline(self) -> bool:
         """Phase 2: Create optimized data pipeline."""
         
         try:
-            BRIDGE.log("📊 Phase 2: Data Pipeline Creation")
+            print("📊 Phase 2: Data Pipeline Creation")
             
             # Load training dataset
             self.train_dataset = self.dataset_loader.load_dataset('train')
-            BRIDGE.log("✅ Training dataset loaded")
+            print("✅ Training dataset loaded")
             
             # Load validation dataset if available
             if self._has_validation_data():
                 self.val_dataset = self.dataset_loader.load_dataset('val')
-                BRIDGE.log("✅ Validation dataset loaded")
+                print("✅ Validation dataset loaded")
             else:
                 self.val_dataset = None
-                BRIDGE.log("ℹ️  No validation dataset specified")
+                print("ℹ️  No validation dataset specified")
             
             # Log dataset information
             self._log_dataset_info()
@@ -281,21 +280,21 @@ class RefactoredEnhancedTrainer:
             return True
             
         except Exception as e:
-            BRIDGE.log(f"❌ Data pipeline creation failed: {str(e)}")
+            print(f"❌ Data pipeline creation failed: {str(e)}")
             return False
     
     def _build_and_compile_model(self) -> bool:
         """Phase 3: Build and compile model."""
         
         try:
-            BRIDGE.log("🏗️ Phase 3: Model Building")
+            print("🏗️ Phase 3: Model Building")
             
             with self.strategy.scope():
                 # Infer data specifications with fallback to config
                 try:
                     input_shape, num_classes = self.dataset_loader.infer_data_specs()
                 except Exception as e:
-                    BRIDGE.log(f"Warning: Could not infer data specs, using config: {str(e)}")
+                    print(f"Warning: Could not infer data specs, using config: {str(e)}")
                     # Fallback to model configuration
                     model_params = self.config.get('model', {}).get('model_parameters', {})
                     input_shape_config = model_params.get('input_shape', {})
@@ -309,24 +308,24 @@ class RefactoredEnhancedTrainer:
                         input_shape = (32, 32, 3)  # Default for CIFAR-10
                         
                     num_classes = model_params.get('num_classes', 10)
-                    BRIDGE.log(f"Using config input shape: {input_shape}, classes: {num_classes}")
+                    print(f"Using config input shape: {input_shape}, classes: {num_classes}")
                 
                 # Build complete model (architecture + compilation)
                 self.model = self.model_builder.build_complete_model(input_shape, num_classes)
                 
-                BRIDGE.log("✅ Model built and compiled successfully")
+                print("✅ Model built and compiled successfully")
                 
                 return True
                 
         except Exception as e:
-            BRIDGE.log(f"❌ Model building failed: {str(e)}")
+            print(f"❌ Model building failed: {str(e)}")
             return False
     
     def _execute_training(self) -> bool:
         """Phase 4: Execute training based on configuration."""
         
         try:
-            BRIDGE.log("🏃 Phase 4: Training Execution")
+            print("🏃 Phase 4: Training Execution")
             
             # Setup training components
             training_config = self.config.get('training', {})
@@ -347,14 +346,14 @@ class RefactoredEnhancedTrainer:
                 return self._train_standard(callbacks)
                 
         except Exception as e:
-            BRIDGE.log(f"❌ Training execution failed: {str(e)}")
+            print(f"❌ Training execution failed: {str(e)}")
             return False
     
     def _train_standard(self, callbacks) -> bool:
         """Execute standard training with model.fit()."""
         
         try:
-            BRIDGE.log("🎯 Executing Standard Training")
+            print("🎯 Executing Standard Training")
             
             training_config = self.config.get('training', {})
             epochs = training_config.get('epochs', 100)
@@ -378,14 +377,14 @@ class RefactoredEnhancedTrainer:
                 return True
                 
         except Exception as e:
-            BRIDGE.log(f"❌ Standard training failed: {str(e)}")
+            print(f"❌ Standard training failed: {str(e)}")
             return False
     
     def _train_with_cross_validation(self, callbacks) -> bool:
         """Execute training with k-fold cross-validation."""
         
         try:
-            BRIDGE.log("🔄 Executing Cross-Validation Training")
+            print("🔄 Executing Cross-Validation Training")
             
             cv_config = self.components_builder.get_cv_config()
             k_folds = cv_config['k_folds']
@@ -401,7 +400,7 @@ class RefactoredEnhancedTrainer:
             epochs = training_config.get('epochs', 100)
             
             for fold_idx, (train_fold, val_fold) in enumerate(folds):
-                BRIDGE.log(f"📂 Training Fold {fold_idx + 1}/{k_folds}")
+                print(f"📂 Training Fold {fold_idx + 1}/{k_folds}")
                 
                 with self.strategy.scope():
                     # Reset model for each fold (rebuild from scratch)
@@ -421,7 +420,7 @@ class RefactoredEnhancedTrainer:
                     val_metrics = fold_model.evaluate(val_fold, verbose=0)
                     fold_results.append(val_metrics)
                     
-                    BRIDGE.log(f"✅ Fold {fold_idx + 1} completed")
+                    print(f"✅ Fold {fold_idx + 1} completed")
                     
                     # Save fold model if requested
                     if save_fold_models:
@@ -430,13 +429,13 @@ class RefactoredEnhancedTrainer:
                             f'fold_{fold_idx + 1}_model.keras'
                         )
                         fold_model.save(fold_model_path)
-                        BRIDGE.log(f"💾 Saved fold model: {fold_model_path}")
+                        print(f"💾 Saved fold model: {fold_model_path}")
             
             # Log cross-validation results
             self.components_builder.log_cv_results(fold_results)
             
             # Train final model on full dataset if requested
-            BRIDGE.log("🔄 Training final model on full dataset")
+            print("🔄 Training final model on full dataset")
             with self.strategy.scope():
                 final_history = self.model.fit(
                     full_dataset,
@@ -451,18 +450,18 @@ class RefactoredEnhancedTrainer:
             return True
             
         except Exception as e:
-            BRIDGE.log(f"❌ Cross-validation training failed: {str(e)}")
+            print(f"❌ Cross-validation training failed: {str(e)}")
             return False
     
     def _train_with_custom_loop(self, callbacks) -> bool:
         """Execute training with custom training loop."""
         
         try:
-            BRIDGE.log("🔧 Executing Custom Training Loop")
+            print("🔧 Executing Custom Training Loop")
             
             custom_loop_info = self.components_builder.get_custom_training_loop_info()
             if not custom_loop_info:
-                BRIDGE.log("❌ Custom training loop not found, falling back to standard training")
+                print("❌ Custom training loop not found, falling back to standard training")
                 return self._train_standard(callbacks)
             
             custom_loop_func = custom_loop_info['function']
@@ -496,13 +495,13 @@ class RefactoredEnhancedTrainer:
                     raise ValueError(f"Unknown custom loop type: {custom_loop_info['type']}")
             
             self._save_final_model()
-            BRIDGE.log("✅ Custom training loop completed")
+            print("✅ Custom training loop completed")
             
             return True
             
         except Exception as e:
-            BRIDGE.log(f"❌ Custom training loop failed: {str(e)}")
-            BRIDGE.log("🔄 Falling back to standard training")
+            print(f"❌ Custom training loop failed: {str(e)}")
+            print("🔄 Falling back to standard training")
             return self._train_standard(callbacks)
     
     def _has_validation_data(self) -> bool:
@@ -531,19 +530,19 @@ class RefactoredEnhancedTrainer:
             if self.train_dataset:
                 train_cardinality = tf.data.experimental.cardinality(self.train_dataset).numpy()
                 if train_cardinality > 0:
-                    BRIDGE.log(f"   • Training batches: {train_cardinality}")
+                    print(f"   • Training batches: {train_cardinality}")
                 else:
-                    BRIDGE.log(f"   • Training dataset: Unknown size")
+                    print(f"   • Training dataset: Unknown size")
             
             if self.val_dataset:
                 val_cardinality = tf.data.experimental.cardinality(self.val_dataset).numpy()
                 if val_cardinality > 0:
-                    BRIDGE.log(f"   • Validation batches: {val_cardinality}")
+                    print(f"   • Validation batches: {val_cardinality}")
                 else:
-                    BRIDGE.log(f"   • Validation dataset: Unknown size")
+                    print(f"   • Validation dataset: Unknown size")
                     
         except Exception as e:
-            BRIDGE.log(f"   • Dataset info: {str(e)}")
+            print(f"   • Dataset info: {str(e)}")
     
     def _save_final_model(self):
         """Save the final trained model."""
@@ -554,45 +553,45 @@ class RefactoredEnhancedTrainer:
             
             final_model_path = os.path.join(model_dir, 'final_model.keras')
             self.model.save(final_model_path)
-            BRIDGE.log(f"💾 Final model saved: {final_model_path}")
+            print(f"💾 Final model saved: {final_model_path}")
             
             # Also save in SavedModel format for deployment
             savedmodel_path = os.path.join(model_dir, 'savedmodel')
             self.model.save(savedmodel_path, save_format='tf')
-            BRIDGE.log(f"💾 SavedModel saved: {savedmodel_path}")
+            print(f"💾 SavedModel saved: {savedmodel_path}")
             
         except Exception as e:
-            BRIDGE.log(f"⚠️  Error saving model: {str(e)}")
+            print(f"⚠️  Error saving model: {str(e)}")
     
     def _log_training_summary(self, history):
         """Log training summary and metrics."""
         
         try:
             if hasattr(history, 'history') and history.history:
-                BRIDGE.log("📊 Training Summary:")
+                print("📊 Training Summary:")
                 
                 final_epoch = len(history.history.get('loss', []))
-                BRIDGE.log(f"   • Total epochs: {final_epoch}")
+                print(f"   • Total epochs: {final_epoch}")
                 
                 # Log final metrics
                 for metric_name, values in history.history.items():
                     if values:
                         final_value = values[-1]
-                        BRIDGE.log(f"   • Final {metric_name}: {final_value:.4f}")
+                        print(f"   • Final {metric_name}: {final_value:.4f}")
                 
                 # Find best validation metrics if available
                 if 'val_loss' in history.history:
                     best_val_loss = min(history.history['val_loss'])
                     best_epoch = history.history['val_loss'].index(best_val_loss) + 1
-                    BRIDGE.log(f"   • Best val_loss: {best_val_loss:.4f} (epoch {best_epoch})")
+                    print(f"   • Best val_loss: {best_val_loss:.4f} (epoch {best_epoch})")
                 
                 if 'val_accuracy' in history.history:
                     best_val_acc = max(history.history['val_accuracy'])
                     best_epoch = history.history['val_accuracy'].index(best_val_acc) + 1
-                    BRIDGE.log(f"   • Best val_accuracy: {best_val_acc:.4f} (epoch {best_epoch})")
+                    print(f"   • Best val_accuracy: {best_val_acc:.4f} (epoch {best_epoch})")
                     
         except Exception as e:
-            BRIDGE.log(f"⚠️  Error logging training summary: {str(e)}")
+            print(f"⚠️  Error logging training summary: {str(e)}")
     
     def _cleanup_resources(self):
         """Cleanup resources after training."""
@@ -606,10 +605,10 @@ class RefactoredEnhancedTrainer:
             import gc
             gc.collect()
             
-            BRIDGE.log("🧹 Resources cleaned up")
+            print("🧹 Resources cleaned up")
             
         except Exception as e:
-            BRIDGE.log(f"⚠️  Error during cleanup: {str(e)}")
+            print(f"⚠️  Error during cleanup: {str(e)}")
     
     # Additional utility methods for compatibility and evaluation
     
@@ -625,28 +624,28 @@ class RefactoredEnhancedTrainer:
         """
         
         if self.model is None:
-            BRIDGE.log("❌ No model available for evaluation")
+            print("❌ No model available for evaluation")
             return None
         
         eval_dataset = dataset or self.val_dataset
         if eval_dataset is None:
-            BRIDGE.log("❌ No dataset available for evaluation")
+            print("❌ No dataset available for evaluation")
             return None
         
         try:
-            BRIDGE.log("📊 Starting model evaluation...")
+            print("📊 Starting model evaluation...")
             
             # Run evaluation
             results = self.model.evaluate(eval_dataset, verbose=1, return_dict=True)
             
-            BRIDGE.log("✅ Evaluation completed")
+            print("✅ Evaluation completed")
             for metric, value in results.items():
-                BRIDGE.log(f"   • {metric}: {value:.4f}")
+                print(f"   • {metric}: {value:.4f}")
             
             return results
             
         except Exception as e:
-            BRIDGE.log(f"❌ Evaluation failed: {str(e)}")
+            print(f"❌ Evaluation failed: {str(e)}")
             return None
     
     def predict(self, dataset: tf.data.Dataset, save_predictions: bool = False) -> Optional[tf.Tensor]:
@@ -662,11 +661,11 @@ class RefactoredEnhancedTrainer:
         """
         
         if self.model is None:
-            BRIDGE.log("❌ No model available for prediction")
+            print("❌ No model available for prediction")
             return None
         
         try:
-            BRIDGE.log("🔮 Generating predictions...")
+            print("🔮 Generating predictions...")
             
             predictions = self.model.predict(dataset, verbose=1)
             
@@ -675,11 +674,11 @@ class RefactoredEnhancedTrainer:
                 pred_path = os.path.join(model_dir, 'predictions.npy')
                 import numpy as np
                 np.save(pred_path, predictions)
-                BRIDGE.log(f"💾 Predictions saved: {pred_path}")
+                print(f"💾 Predictions saved: {pred_path}")
             
-            BRIDGE.log("✅ Prediction completed")
+            print("✅ Prediction completed")
             return predictions
             
         except Exception as e:
-            BRIDGE.log(f"❌ Prediction failed: {str(e)}")
+            print(f"❌ Prediction failed: {str(e)}")
             return None
