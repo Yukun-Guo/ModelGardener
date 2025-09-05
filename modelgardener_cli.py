@@ -121,10 +121,15 @@ class ModelGardenerCLI:
             print("✅ Configuration loaded and validated")
             self.config_cli.display_config_summary(config)
             
+            # Extract custom functions and handle None string case
+            custom_functions = config.get('metadata', {}).get('custom_functions', {})
+            if custom_functions == "None" or custom_functions == "none":
+                custom_functions = {}
+            
             # Initialize trainer
             trainer = EnhancedTrainer(
                 config=main_config,
-                custom_functions=config.get('metadata', {}).get('custom_functions', {})
+                custom_functions=custom_functions
             )
             
             # Run training
@@ -178,9 +183,8 @@ class ModelGardenerCLI:
             
             print("✅ Configuration loaded for evaluation")
             
-            # Use RefactoredEnhancedTrainer for consistent behavior
-            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
-            trainer = RefactoredEnhancedTrainer(
+            # Use EnhancedTrainer for consistent behavior
+            trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
@@ -247,9 +251,8 @@ class ModelGardenerCLI:
             
             print("✅ Configuration loaded for prediction")
             
-            # Use RefactoredEnhancedTrainer for consistent behavior
-            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
-            trainer = RefactoredEnhancedTrainer(
+            # Use EnhancedTrainer for consistent behavior
+            trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
@@ -311,9 +314,8 @@ class ModelGardenerCLI:
             
             print("✅ Configuration loaded for deployment")
             
-            # Use RefactoredEnhancedTrainer for consistent behavior
-            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
-            trainer = RefactoredEnhancedTrainer(
+            # Use EnhancedTrainer for consistent behavior
+            trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )

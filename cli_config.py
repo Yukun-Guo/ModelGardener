@@ -723,7 +723,11 @@ class ModelConfigCLI:
                 print("❌ Invalid file path. Using default loss function.")
                 loss_name = 'Categorical Crossentropy'
                 loss_params = {}
+                relative_loss_path = None
             else:
+                # Copy the custom loss to custom_modules and get the relative path
+                relative_loss_path = self.copy_custom_function_to_modules(custom_loss_path, "loss_functions")
+                
                 # Analyze custom loss function file
                 success, loss_info = self.analyze_custom_loss_file(custom_loss_path)
                 
@@ -739,7 +743,7 @@ class ModelConfigCLI:
             
             return {
                 'selected_loss': loss_name or 'Categorical Crossentropy',
-                'custom_loss_path': custom_loss_path if loss_name else None,
+                'custom_loss_path': relative_loss_path if loss_name else None,
                 'parameters': loss_params.get('user_parameters', {}) if loss_params else {}
             }
         else:
@@ -870,6 +874,7 @@ class ModelConfigCLI:
         # Track newly loaded custom metrics for return to caller
         newly_loaded_custom_metrics = []
         custom_metrics_path = None
+        relative_metrics_path = None
         metrics_info = {}
         
         # Handle custom metrics loading
@@ -883,6 +888,9 @@ class ModelConfigCLI:
             if not custom_metrics_path or not os.path.exists(custom_metrics_path):
                 print("❌ Invalid file path. Using selected built-in metrics only.")
             else:
+                # Copy the custom metrics to custom_modules and get the relative path
+                relative_metrics_path = self.copy_custom_function_to_modules(custom_metrics_path, "metrics")
+                
                 # Analyze custom metrics function file
                 success, metrics_info = self.analyze_custom_metrics_file(custom_metrics_path)
                 
@@ -905,7 +913,7 @@ class ModelConfigCLI:
                             newly_loaded_custom_metrics.append(actual_name)
                             if actual_name in metrics_info:
                                 loaded_custom_configs[actual_name] = {
-                                    'custom_metrics_path': custom_metrics_path,
+                                    'custom_metrics_path': relative_metrics_path,
                                     'parameters': {}  # Initialize with empty parameters
                                 }
         
@@ -929,7 +937,7 @@ class ModelConfigCLI:
                     # Fallback: try to find it in the current metrics_info if available
                     if metrics_info and actual_metric_name in metrics_info:
                         custom_metrics_configs[actual_metric_name] = {
-                            'custom_metrics_path': custom_metrics_path,
+                            'custom_metrics_path': relative_metrics_path,
                             'parameters': {}
                         }
                 
@@ -1598,6 +1606,9 @@ class ModelConfigCLI:
                 data_loader_name = 'ImageDataGenerator'
                 data_loader_params = {}
             else:
+                # Copy the custom data loader to custom_modules and get the relative path
+                relative_data_loader_path = self.copy_custom_function_to_modules(custom_data_loader_path, "data_loaders")
+                
                 # Analyze custom data loader file
                 success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
                 
@@ -1612,7 +1623,7 @@ class ModelConfigCLI:
                     data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
                     
                     # Add custom data loader path to config
-                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+                    config['configuration']['data']['data_loader']['custom_data_loader_path'] = relative_data_loader_path
             
             config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
             
@@ -1714,11 +1725,15 @@ class ModelConfigCLI:
                 print("Using default custom model configuration...")
                 model_name = 'CustomModel'
                 model_parameters = {}
+                relative_model_path = custom_model_path  # Keep original if file doesn't exist
                 custom_model_info = {
-                    'file_path': custom_model_path,
+                    'file_path': relative_model_path,
                     'type': 'function'
                 }
             else:
+                # Copy the custom model to custom_modules and get the relative path
+                relative_model_path = self.copy_custom_function_to_modules(custom_model_path, "models")
+                
                 # Analyze and let user select custom model
                 selected_name, model_info = self.interactive_custom_model_selection(custom_model_path)
                 
@@ -1726,7 +1741,7 @@ class ModelConfigCLI:
                     model_name = selected_name
                     model_parameters = model_info.get('parameters', {})
                     custom_model_info = {
-                        'file_path': custom_model_path,
+                        'file_path': relative_model_path,
                         'type': model_info.get('type', 'function'),
                         'function_name': selected_name,
                         'description': model_info.get('description', '')
@@ -1738,13 +1753,13 @@ class ModelConfigCLI:
                     model_name = 'CustomModel'
                     model_parameters = {}
                     custom_model_info = {
-                        'file_path': custom_model_path,
+                        'file_path': relative_model_path,
                         'type': 'function'
                     }
             
             # Store custom model information in config
             config['configuration']['model']['model_name'] = model_name
-            config['configuration']['model']['model_parameters']['custom_model_file_path'] = custom_model_path
+            config['configuration']['model']['model_parameters']['custom_model_file_path'] = relative_model_path
             config['configuration']['model']['model_parameters']['custom_info'] = custom_model_info
             
             # Add custom model parameters if any were found
@@ -2197,7 +2212,11 @@ class ModelConfigCLI:
                         print("❌ Invalid file path. Using default data loader.")
                         data_loader_name = 'ImageDataGenerator'
                         data_loader_params = {}
+                        relative_data_loader_path = None
                     else:
+                        # Copy the custom data loader to custom_modules and get the relative path
+                        relative_data_loader_path = self.copy_custom_function_to_modules(custom_data_loader_path, "data_loaders")
+                        
                         # Analyze custom data loader file
                         success, loader_info = self.analyze_custom_data_loader_file(custom_data_loader_path)
                         
@@ -2212,7 +2231,7 @@ class ModelConfigCLI:
                             data_loader_name, data_loader_params = self.interactive_custom_data_loader_selection(custom_data_loader_path)
                             
                             # Add custom data loader path to config
-                            config['configuration']['data']['data_loader']['custom_data_loader_path'] = custom_data_loader_path
+                            config['configuration']['data']['data_loader']['custom_data_loader_path'] = relative_data_loader_path
                     
                     config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader_name or 'ImageDataGenerator'
                     
@@ -2277,7 +2296,11 @@ class ModelConfigCLI:
                     print("❌ Invalid file path. Using default custom model.")
                     model_name = 'CustomModel'
                     model_params = {}
+                    relative_model_path = None
                 else:
+                    # Copy the custom model to custom_modules and get the relative path
+                    relative_model_path = self.copy_custom_function_to_modules(custom_model_path, "models")
+                    
                     # Analyze custom model file
                     success, model_info = self.analyze_custom_model_file(custom_model_path)
                     
@@ -2292,7 +2315,7 @@ class ModelConfigCLI:
                         model_name, model_params = self.interactive_custom_model_selection(custom_model_path)
                         
                         # Add custom model path to config
-                        config['configuration']['model']['custom_model_path'] = custom_model_path
+                        config['configuration']['model']['custom_model_path'] = relative_model_path
                 
                 config['configuration']['model']['model_name'] = model_name
                 
@@ -3544,7 +3567,7 @@ class ModelConfigCLI:
                             custom_func_config = {
                                 "enabled": True,
                                 "function_name": func_name,
-                                "file_path": custom_augmentation_path,
+                                "file_path": self.copy_custom_function_to_modules(custom_augmentation_path, "augmentations"),
                                 "probability": prob_value,
                                 "parameters": func_info.get('user_parameters', {})
                             }

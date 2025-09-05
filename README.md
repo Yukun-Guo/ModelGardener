@@ -1,83 +1,136 @@
-# ModelGardener - ModelGardener Project
+# ModelGardener Generated Scripts
 
-## Project Structure
-```
-ModelGardener/
-├── data/
-│   ├── train/          # Training data
-│   └── val/            # Validation data
-├── logs/               # Training logs and models
-├── custom_modules/     # Custom functions (models, losses, etc.)
-├── config.yaml         # Model configuration
-├── train.py           # Training script (auto-generated)
-├── evaluation.py      # Evaluation script (auto-generated)
-├── prediction.py      # Prediction script (auto-generated)
-├── deploy.py          # Deployment script (auto-generated)
-├── requirements.txt   # Python dependencies (auto-generated)
-└── README.md          # This file
-```
+Generated on: 2025-09-05 12:50:17
 
-## Quick Start
+## Overview
 
-### 1. Prepare Your Data
-Place your training images in `data/train/` and validation images in `data/val/`
+This directory contains automatically generated Python scripts for training, evaluating, predicting, and deploying your create_simple_cnn model.
 
-### 2. Configure Your Model
-Edit the `config.yaml` file to customize your model settings, or use the interactive configuration:
+## Files
+
+- `train.py` - Training script
+- `evaluation.py` - Model evaluation script
+- `prediction.py` - Prediction script for new images
+- `deploy.py` - REST API deployment script
+- `requirements.txt` - Required Python packages
+- `README.md` - This file
+
+## Setup
+
+1. Install required packages:
 ```bash
-# Interactive configuration (overwrites config.yaml)
-python /path/to/ModelGardener/modelgardener_cli.py config --interactive --output config.yaml
-
-# Or directly edit config.yaml
+pip install -r requirements.txt
 ```
 
-### 3. Train Your Model
+2. Ensure your data is organized as specified in the configuration:
+```
+./data/
+├── class1/
+│   ├── image1.jpg
+│   ├── image2.jpg
+│   └── ...
+├── class2/
+│   ├── image1.jpg
+│   └── ...
+└── ...
+
+./data/
+├── class1/
+├── class2/
+└── ...
+
+./data/test/  (for evaluation)
+├── class1/
+├── class2/
+└── ...
+```
+
+## Usage
+
+### Training
+
+Train your model:
 ```bash
-# Use the generated training script
 python train.py
-
-# Or use the CLI
-python /path/to/ModelGardener/modelgardener_cli.py train --config config.yaml
 ```
 
-### 4. Evaluate Your Model
+The script will:
+- Load the configuration from `model_config.yaml`
+- Create data generators with augmentation
+- Build and compile the model
+- Train for 100 epochs
+- Save the best model to the specified directory
+
+### Evaluation
+
+Evaluate your trained model:
 ```bash
-# Use the generated evaluation script  
 python evaluation.py
-
-# Or use the CLI
-python /path/to/ModelGardener/modelgardener_cli.py evaluate --config config.yaml --model-path logs/final_model.keras
 ```
 
-## Generated Files
+The script will:
+- Load the best trained model
+- Evaluate on test data
+- Generate classification report
+- Create and save confusion matrix
+- Save evaluation results
 
-This project includes auto-generated files to help you get started:
+### Prediction
 
-- **config.yaml** - Complete model configuration with examples and documentation
-- **train.py** - Ready-to-use training script
-- **evaluation.py** - Model evaluation script
-- **prediction.py** - Inference script for new data
-- **deploy.py** - Deployment utilities
+Make predictions on new images:
 
-## Configuration Options
+Single image:
+```bash
+python prediction.py --input path/to/image.jpg
+```
 
-The `config.yaml` file includes comprehensive settings for:
-- Model architecture selection (ResNet, EfficientNet, Custom, etc.)  
-- Training parameters (epochs, learning rate, batch size, etc.)
-- Data preprocessing and augmentation options
-- Runtime settings (GPU usage, model directory, etc.)
-- Custom function integration
+Batch prediction:
+```bash
+python prediction.py --input path/to/images/directory/
+```
+
+Advanced options:
+```bash
+python prediction.py --input image.jpg --output results.json --top-k 3
+```
+
+### Deployment
+
+Deploy your model as a REST API:
+```bash
+python deploy.py
+```
+
+Options:
+```bash
+python deploy.py --host 0.0.0.0 --port 8080 --debug
+```
+
+The API will be available at `http://localhost:5000` with the following endpoints:
+- `GET /health` - Health check
+- `POST /predict` - Prediction endpoint
+- `GET /classes` - Available classes
+
+## Customization
+
+All scripts are generated based on your YAML configuration and can be customized as needed. The scripts include:
+
+- Automatic configuration loading
+- Error handling and logging
+- Support for custom functions (if defined)
+- Flexible input/output handling
 
 ## Custom Functions
 
-You can customize any aspect of the training pipeline by creating your own Python files:
-1. Create Python files with your custom functions (models, loss functions, etc.)
-2. Update the `config.yaml` to reference your custom function files
-3. The training scripts will automatically load and use your custom functions
+If you have custom functions defined in your configuration, make sure they are available in the `src` directory relative to these scripts.
 
-## Need Help?
+## Notes
 
-- Run ModelGardener CLI with `--help` to see all available options
-- Use interactive mode for guided configuration: `modelgardener_cli.py config --interactive`
-- Check the custom_modules/README.md for detailed examples
-- See the ModelGardener documentation for advanced usage
+- Models are saved in the directory specified in your configuration
+- All scripts use the same preprocessing and normalization as specified in your configuration
+- Cross-validation training is supported when enabled in the configuration
+- The deployment script provides a simple REST API suitable for testing and development
+
+## Support
+
+These scripts are generated automatically by ModelGardener. For issues or customization needs, refer to the ModelGardener documentation.

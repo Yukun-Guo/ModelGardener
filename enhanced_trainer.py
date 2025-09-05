@@ -1,868 +1,472 @@
 """
-Enhanced Trainer for ModelGardener
+Refactored Enhanced Trainer - Main orchestrator for the training pipeline
 
-This module provides a comprehensive training system that supports:
-1. Dataset loading from files/folders with custom data loaders
-2. Model creation with custom models, loss functions, metrics, optimizers, callbacks
-3. Training loop with default model.fit() or custom training loops
-4. Progress tracking with detailed logging
+This module provides the main training orchestrator that coordinates all components:
+- Runtime configuration (GPU, distribution strategies, optimizations)
+- Data pipeline creation with generator patterns and optimizations
+- Model building and compilation
+- Training execution (standard, cross-validation, custom loops)
 """
 
 import os
-import sys
-import json
-import importlib
-import importlib.util
-import contextlib
-import io
-from typing import Dict, Any, Optional, Callable, List, Tuple
-from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
+from bridge_callback import BRIDGE
+from runtime_configurator import RuntimeConfigurator
+from scalable_dataset_loader import ScalableDatasetLoader
+from enhanced_model_builder import EnhancedModelBuilder
+from training_components_builder import TrainingComponentsBuilder
 
+import os
 import tensorflow as tf
 import keras
-import numpy as np
+from typing import Dict, Any, Tuple, Optional
 
-try:
-    from PySide6.QtCore import QObject, QThread, Signal
-    PYSIDE6_AVAILABLE = True
-except ImportError:
-    # Fallback for environments without PySide6
-    PYSIDE6_AVAILABLE = False
-    class QObject:
-        def __init__(self): pass
-    class QThread:
-        def __init__(self): pass
-        def start(self): pass
-        def isRunning(self): return False
-        def wait(self, timeout=0): pass
-        def terminate(self): pass
-    def Signal(*args): return lambda: None
-
-from bridge_callback import BRIDGE, CLIBridgeCallback
+# Import our new modular components
+from runtime_configurator import RuntimeConfigurator
+from scalable_dataset_loader import ScalableDatasetLoader
+from enhanced_model_builder import EnhancedModelBuilder
+from training_components_builder import TrainingComponentsBuilder
 
 
-class LogCapture:
-    """Context manager to capture stdout/stderr and redirect to BRIDGE logging."""
+class EnhancedTrainer:
+    """
+    Main trainer class that orchestrates the complete training pipeline.
     
-    def __init__(self, prefix=""):
-        self.prefix = prefix
-        self.stdout_buffer = io.StringIO()
-        self.stderr_buffer = io.StringIO()
-        
-    def __enter__(self):
-        self.original_stdout = sys.stdout
-        self.original_stderr = sys.stderr
-        sys.stdout = self.stdout_buffer
-        sys.stderr = self.stderr_buffer
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Get captured output
-        stdout_output = self.stdout_buffer.getvalue()
-        stderr_output = self.stderr_buffer.getvalue()
-        
-        # Restore original streams
-        sys.stdout = self.original_stdout
-        sys.stderr = self.original_stderr
-        
-        # Log captured output
-        if stdout_output:
-            for line in stdout_output.strip().split('\n'):
-                if line.strip():
-                    BRIDGE.log.emit(f"{self.prefix}{line}")
-        
-        if stderr_output:
-            for line in stderr_output.strip().split('\n'):
-                if line.strip():
-                    BRIDGE.log.emit(f"{self.prefix}[ERROR] {line}")
-
-
-class DatasetLoader:
-    """Handles dataset loading with custom data loaders and preprocessing."""
+    This class provides a unified interface for training that handles:
+    - Runtime configuration (GPU, distribution strategies)
+    - Data pipeline creation (with generators and optimizations)
+    - Model building and compilation
+    - Training component setup (callbacks, cross-validation)
+    - Training execution (standard, cross-validation, custom loops)
+    """
     
     def __init__(self, config: Dict[str, Any], custom_functions: Dict[str, Any] = None):
+        """
+        Initialize the refactored trainer.
+        
+        Args:
+            config: Complete configuration dictionary
+            custom_functions: Dictionary of custom functions (models, data loaders, etc.)
+        """
         self.config = config
         self.custom_functions = custom_functions or {}
         
-    def load_dataset(self, split: str = 'train') -> tf.data.Dataset:
-        """Load dataset for specified split (train/val)."""
-        try:
-            # Get data configuration
-            data_config = self.config.get('data', {})
-            
-            # Check for custom data loader
-            data_loader_config = data_config.get('data_loader', {})
-            selected_loader = data_loader_config.get('selected_data_loader', 'Default')
-            
-            if selected_loader.startswith('Custom_'):
-                return self._load_custom_dataset(split, data_loader_config)
-            else:
-                return self._load_builtin_dataset(split, data_config, selected_loader)
-                
-        except Exception as e:
-            BRIDGE.log.emit(f"Error loading dataset: {str(e)}")
-            raise
-    
-    def _load_custom_dataset(self, split: str, loader_config: Dict[str, Any]) -> tf.data.Dataset:
-        """Load dataset using custom data loader."""
-        selected_loader = loader_config.get('selected_data_loader', '')
-        custom_loader_info = self.custom_functions.get('data_loaders', {}).get(selected_loader)
-        
-        if not custom_loader_info:
-            raise ValueError(f"Custom data loader {selected_loader} not found")
-        
-        loader_func = custom_loader_info['loader']
-        loader_type = custom_loader_info['type']
-        
-        # Prepare arguments from configuration
-        args = self._prepare_loader_args(loader_config, split)
-        
-        try:
-            if loader_type == 'function':
-                dataset = loader_func(**args)
-            elif loader_type == 'class':
-                loader_instance = loader_func(**args)
-                if hasattr(loader_instance, 'get_dataset'):
-                    dataset = loader_instance.get_dataset()
-                elif hasattr(loader_instance, '__call__'):
-                    dataset = loader_instance()
-                else:
-                    raise ValueError(f"Custom loader class must have 'get_dataset' or '__call__' method")
-            else:
-                raise ValueError(f"Unknown loader type: {loader_type}")
-                
-            if not isinstance(dataset, tf.data.Dataset):
-                raise ValueError("Custom loader must return tf.data.Dataset")
-                
-            BRIDGE.log.emit(f"Loaded {split} dataset using custom loader: {selected_loader}")
-            return dataset
-            
-        except Exception as e:
-            BRIDGE.log.emit(f"Error in custom data loader: {str(e)}")
-            raise
-    
-    def _load_builtin_dataset(self, split: str, data_config: Dict[str, Any], loader_type: str) -> tf.data.Dataset:
-        """Load dataset using built-in loaders."""
-        # Get directory path
-        dir_key = f"{split}_data" if split in ['train', 'val'] else 'train_data'
-        data_dir = data_config.get(dir_key, '')
-        
-        if not data_dir or not os.path.exists(data_dir):
-            raise ValueError(f"Data directory not found: {data_dir}")
-        
-        # Get batch size and other parameters
-        batch_size = data_config.get('batch_size', 32)
-        image_size = data_config.get('image_size', [224, 224])
-        if isinstance(image_size, int):
-            image_size = [image_size, image_size]
-        
-        BRIDGE.log.emit(f"Loading {split} dataset from: {data_dir}")
-        
-        if loader_type == 'ImageDataLoader':
-            dataset = self._load_image_dataset(data_dir, batch_size, image_size, split)
-        elif loader_type == 'TFRecordDataLoader':
-            dataset = self._load_tfrecord_dataset(data_dir, batch_size)
+        # Auto-load custom functions if not provided
+        print(f"Initial custom_functions: {self.custom_functions}")
+        if not self.custom_functions or not any(self.custom_functions.values()):
+            print("Auto-loading custom functions...")
+            self.custom_functions = self._auto_load_custom_functions()
+            print(f"Loaded custom functions: {list(self.custom_functions.keys())}")
         else:
-            # Default image loading
-            dataset = self._load_image_dataset(data_dir, batch_size, image_size, split)
-        
-        return dataset
-    
-    def _load_image_dataset(self, data_dir: str, batch_size: int, image_size: List[int], split: str) -> tf.data.Dataset:
-        """Load image dataset from directory structure."""
-        try:
-            # Use keras.utils.image_dataset_from_directory
-            dataset = keras.utils.image_dataset_from_directory(
-                data_dir,
-                validation_split=0.0,  # We assume separate train/val dirs
-                subset=None,
-                seed=42,
-                image_size=tuple(image_size[:2]),
-                batch_size=batch_size,
-                label_mode='categorical'
-            )
+            print(f"Using provided custom functions: {list(self.custom_functions.keys())}")
+            # Let's also check if they have the right content
+            for key, value in self.custom_functions.items():
+                print(f"  {key}: {list(value.keys()) if isinstance(value, dict) else type(value)}")
             
-            # Apply preprocessing
-            dataset = dataset.map(lambda x, y: (tf.cast(x, tf.float32) / 255.0, y))
-            
-            # Apply augmentation for training
-            if split == 'train':
-                dataset = self._apply_augmentation(dataset)
-            
-            # Performance optimizations
-            dataset = dataset.prefetch(tf.data.AUTOTUNE)
-            if split == 'train':
-                dataset = dataset.shuffle(1000)
-                
-            return dataset
-            
-        except Exception as e:
-            BRIDGE.log.emit(f"Error loading image dataset: {str(e)}")
-            raise
-    
-    def _load_tfrecord_dataset(self, data_dir: str, batch_size: int) -> tf.data.Dataset:
-        """Load TFRecord dataset."""
-        try:
-            # Find TFRecord files
-            tfrecord_files = list(Path(data_dir).glob("*.tfrecord"))
-            if not tfrecord_files:
-                raise ValueError(f"No TFRecord files found in {data_dir}")
-            
-            # Create dataset
-            dataset = tf.data.TFRecordDataset([str(f) for f in tfrecord_files])
-            
-            # Parse TFRecord (this is a simplified example)
-            def parse_tfrecord(example):
-                features = {
-                    'image': tf.io.FixedLenFeature([], tf.string),
-                    'label': tf.io.FixedLenFeature([], tf.int64),
-                }
-                parsed = tf.io.parse_single_example(example, features)
-                image = tf.io.decode_jpeg(parsed['image'])
-                image = tf.cast(image, tf.float32) / 255.0
-                label = tf.cast(parsed['label'], tf.int32)
-                return image, label
-            
-            dataset = dataset.map(parse_tfrecord)
-            dataset = dataset.batch(batch_size)
-            dataset = dataset.prefetch(tf.data.AUTOTUNE)
-            
-            return dataset
-            
-        except Exception as e:
-            BRIDGE.log.emit(f"Error loading TFRecord dataset: {str(e)}")
-            raise
-    
-    def _apply_augmentation(self, dataset: tf.data.Dataset) -> tf.data.Dataset:
-        """Apply data augmentation to training dataset."""
-        aug_config = self.config.get('augmentation', {})
+            # Fix the structure if needed
+            self.custom_functions = self._fix_custom_functions_structure(self.custom_functions)
         
-        def augment(image, label):
-            # Horizontal flip
-            hflip = aug_config.get('Horizontal Flip', {})
-            if hflip.get('enabled', False):
-                prob = hflip.get('probability', 0.5)
-                image = tf.cond(tf.random.uniform([]) < prob,
-                               lambda: tf.image.flip_left_right(image),
-                               lambda: image)
-            
-            # Random rotation
-            rotation = aug_config.get('Random Rotation', {})
-            if rotation.get('enabled', False):
-                angle_range = rotation.get('angle_range', 15) * np.pi / 180
-                angle = tf.random.uniform([], -angle_range, angle_range)
-                # Use tf.image for rotation (simplified implementation)
-                # For full rotation support, you'd need tfa.image.rotate or custom implementation
-                image = tf.image.rot90(image, k=tf.cast(angle / (np.pi/2), tf.int32))  # Simplified
-            
-            # Brightness adjustment
-            brightness = aug_config.get('Brightness Adjustment', {})
-            if brightness.get('enabled', False):
-                delta = brightness.get('brightness_limit', 0.2)
-                image = tf.image.random_brightness(image, delta)
-            
-            # Ensure image values are in [0, 1]
-            image = tf.clip_by_value(image, 0.0, 1.0)
-            
-            return image, label
+        # Initialize modular components
+        self.runtime_configurator = RuntimeConfigurator(config)
+        self.dataset_loader = ScalableDatasetLoader(config, self.custom_functions)
+        self.model_builder = EnhancedModelBuilder(config, self.custom_functions)
+        self.components_builder = TrainingComponentsBuilder(config, self.custom_functions)
         
-        return dataset.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
-    
-    def _prepare_loader_args(self, loader_config: Dict[str, Any], split: str) -> Dict[str, Any]:
-        """Prepare arguments for custom data loader."""
-        args = {}
-        
-        # Add common parameters
-        data_config = self.config.get('data', {})
-        dir_key = f"{split}_data" if split in ['train', 'val'] else 'train_data'
-        data_dir = data_config.get(dir_key, '')
-        
-        args['data_dir'] = data_dir
-        args['split'] = split
-        
-        # Add loader-specific parameters from config
-        for key, value in loader_config.items():
-            if key not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
-                args[key] = value
-        
-        return args
-
-
-class ModelBuilder:
-    """Handles model creation with custom models support."""
-    
-    def __init__(self, config: Dict[str, Any], custom_functions: Dict[str, Any] = None):
-        self.config = config
-        self.custom_functions = custom_functions or {}
-    
-    def build_model(self, input_shape: Tuple[int, ...], num_classes: int) -> keras.Model:
-        """Build model according to configuration."""
-        try:
-            model_config = self.config.get('model', {})
-            
-            # Check for custom model
-            if 'custom_model_file_path' in model_config.get('model_parameters', {}):
-                model = self._build_custom_model(input_shape, num_classes)
-            else:
-                model = self._build_builtin_model(input_shape, num_classes, model_config)
-            
-            # Compile model
-            model = self._compile_model(model)
-            
-            BRIDGE.log.emit(f"Model built successfully: {model.name}")
-            BRIDGE.log.emit(f"Model parameters: {model.count_params():,}")
-            
-            return model
-            
-        except Exception as e:
-            BRIDGE.log.emit(f"Error building model: {str(e)}")
-            raise
-    
-    def _build_custom_model(self, input_shape: Tuple[int, ...], num_classes: int) -> keras.Model:
-        """Build custom model from user file."""
-        model_params = self.config.get('model', {}).get('model_parameters', {})
-        custom_model_path = model_params.get('custom_model_file_path', '')
-        
-        if not custom_model_path or not os.path.exists(custom_model_path):
-            raise ValueError(f"Custom model file not found: {custom_model_path}")
-        
-        # Get custom models from loaded functions
-        custom_models = self.custom_functions.get('models', {})
-        
-        if not custom_models:
-            raise ValueError("No custom models loaded")
-        
-        # Use the first available custom model (can be enhanced to allow selection)
-        model_name = list(custom_models.keys())[0]
-        model_info = custom_models[model_name]
-        
-        model_func = model_info['function']
-        
-        # Prepare model arguments
-        model_args = {
-            'input_shape': input_shape,
-            'num_classes': num_classes
-        }
-        
-        # Add other parameters from config
-        kwargs_str = model_params.get('kwargs', '{}')
-        try:
-            additional_kwargs = json.loads(kwargs_str) if kwargs_str else {}
-            model_args.update(additional_kwargs)
-        except json.JSONDecodeError:
-            BRIDGE.log.emit("Warning: Invalid kwargs JSON, ignoring")
-        
-        # Build model
-        if model_info['type'] == 'function':
-            model = model_func(**model_args)
-        elif model_info['type'] == 'class':
-            model = model_func(**model_args)
-        else:
-            raise ValueError(f"Unknown model type: {model_info['type']}")
-        
-        if not isinstance(model, keras.Model):
-            raise ValueError("Custom model must return keras.Model instance")
-        
-        BRIDGE.log.emit(f"Built custom model: {model_name}")
-        return model
-    
-    def _build_builtin_model(self, input_shape: Tuple[int, ...], num_classes: int, model_config: Dict[str, Any]) -> keras.Model:
-        """Build built-in model."""
-        model_name = model_config.get('model_name', 'ResNet-50')
-        
-        BRIDGE.log.emit(f"Building built-in model: {model_name}")
-        
-        if 'ResNet' in model_name:
-            return self._build_resnet(input_shape, num_classes, model_name)
-        elif 'EfficientNet' in model_name:
-            return self._build_efficientnet(input_shape, num_classes, model_name)
-        elif 'VGG' in model_name:
-            return self._build_vgg(input_shape, num_classes, model_name)
-        else:
-            # Default to ResNet-50
-            return self._build_resnet(input_shape, num_classes, 'ResNet-50')
-    
-    def _build_resnet(self, input_shape: Tuple[int, ...], num_classes: int, model_name: str) -> keras.Model:
-        """Build ResNet model."""
-        # Map model names to Keras applications
-        resnet_models = {
-            'ResNet-50': keras.applications.ResNet50,
-            'ResNet-101': keras.applications.ResNet101,
-            'ResNet-152': keras.applications.ResNet152,
-        }
-        
-        ResNetClass = resnet_models.get(model_name, keras.applications.ResNet50)
-        
-        base_model = ResNetClass(
-            weights=None,
-            include_top=False,
-            input_shape=input_shape
-        )
-        
-        # Add custom head
-        inputs = base_model.input
-        x = base_model.output
-        x = keras.layers.GlobalAveragePooling2D()(x)
-        x = keras.layers.Dropout(0.2)(x)
-        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
-        
-        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
-        return model
-    
-    def _build_efficientnet(self, input_shape: Tuple[int, ...], num_classes: int, model_name: str) -> keras.Model:
-        """Build EfficientNet model."""
-        efficientnet_models = {
-            'EfficientNet-B0': keras.applications.EfficientNetB0,
-            'EfficientNet-B1': keras.applications.EfficientNetB1,
-            'EfficientNet-B2': keras.applications.EfficientNetB2,
-        }
-        
-        EfficientNetClass = efficientnet_models.get(model_name, keras.applications.EfficientNetB0)
-        
-        base_model = EfficientNetClass(
-            weights=None,
-            include_top=False,
-            input_shape=input_shape
-        )
-        
-        inputs = base_model.input
-        x = base_model.output
-        x = keras.layers.GlobalAveragePooling2D()(x)
-        x = keras.layers.Dropout(0.2)(x)
-        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
-        
-        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
-        return model
-    
-    def _build_vgg(self, input_shape: Tuple[int, ...], num_classes: int, model_name: str) -> keras.Model:
-        """Build VGG model."""
-        vgg_models = {
-            'VGG-16': keras.applications.VGG16,
-            'VGG-19': keras.applications.VGG19,
-        }
-        
-        VGGClass = vgg_models.get(model_name, keras.applications.VGG16)
-        
-        base_model = VGGClass(
-            weights=None,
-            include_top=False,
-            input_shape=input_shape
-        )
-        
-        inputs = base_model.input
-        x = base_model.output
-        x = keras.layers.GlobalAveragePooling2D()(x)
-        x = keras.layers.Dropout(0.5)(x)
-        outputs = keras.layers.Dense(num_classes, activation='softmax')(x)
-        
-        model = keras.Model(inputs, outputs, name=model_name.lower().replace('-', '_'))
-        return model
-    
-    def _compile_model(self, model: keras.Model) -> keras.Model:
-        """Compile model with optimizer, loss, and metrics."""
-        # Get optimizer
-        optimizer = self._build_optimizer()
-        
-        # Get loss function
-        loss_fn = self._build_loss_function()
-        
-        # Get metrics
-        metrics = self._build_metrics()
-        
-        model.compile(
-            optimizer=optimizer,
-            loss=loss_fn,
-            metrics=metrics
-        )
-        
-        return model
-    
-    def _build_optimizer(self):
-        """Build optimizer from configuration."""
-        optimizer_config = self.config.get('optimizer', {})
-        
-        # Check for custom optimizer
-        custom_optimizers = self.custom_functions.get('optimizers', {})
-        selected_optimizer = optimizer_config.get('selected_optimizer', 'Adam')
-        
-        if selected_optimizer.startswith('Custom_'):
-            optimizer_info = custom_optimizers.get(selected_optimizer)
-            if optimizer_info:
-                return optimizer_info['function']()
-        
-        # Built-in optimizers
-        training_config = self.config.get('training', {})
-        learning_rate = training_config.get('initial_learning_rate', 0.001)
-        
-        if selected_optimizer == 'Adam':
-            return keras.optimizers.Adam(learning_rate=learning_rate)
-        elif selected_optimizer == 'SGD':
-            momentum = training_config.get('momentum', 0.9)
-            return keras.optimizers.SGD(learning_rate=learning_rate, momentum=momentum)
-        elif selected_optimizer == 'RMSprop':
-            return keras.optimizers.RMSprop(learning_rate=learning_rate)
-        else:
-            return keras.optimizers.Adam(learning_rate=learning_rate)
-    
-    def _build_loss_function(self):
-        """Build loss function from configuration."""
-        loss_config = self.config.get('loss_functions', {})
-        
-        # Check for custom loss
-        custom_losses = self.custom_functions.get('loss_functions', {})
-        selected_loss = loss_config.get('selected_loss_function', 'categorical_crossentropy')
-        
-        if selected_loss.startswith('Custom_'):
-            loss_info = custom_losses.get(selected_loss)
-            if loss_info:
-                return loss_info['function']
-        
-        # Built-in losses
-        if selected_loss == 'categorical_crossentropy':
-            return 'categorical_crossentropy'
-        elif selected_loss == 'sparse_categorical_crossentropy':
-            return 'sparse_categorical_crossentropy'
-        elif selected_loss == 'binary_crossentropy':
-            return 'binary_crossentropy'
-        else:
-            return 'categorical_crossentropy'
-    
-    def _build_metrics(self):
-        """Build metrics from configuration."""
-        metrics_config = self.config.get('metrics', {})
-        
-        # Check for custom metrics
-        custom_metrics = self.custom_functions.get('metrics', {})
-        
-        metrics_list = []
-        
-        # Add standard metrics
-        if metrics_config.get('accuracy', {}).get('enabled', True):
-            metrics_list.append('accuracy')
-        
-        if metrics_config.get('top_5_accuracy', {}).get('enabled', False):
-            metrics_list.append('top_k_categorical_accuracy')
-        
-        # Add custom metrics
-        for metric_name, metric_info in custom_metrics.items():
-            if metric_name.startswith('Custom_'):
-                metrics_list.append(metric_info['function'])
-        
-        return metrics_list if metrics_list else ['accuracy']
-
-
-class TrainingController(QThread):
-    """Controls the training process with progress tracking."""
-    
-    progress_updated = Signal(int)
-    log_updated = Signal(str)
-    training_finished = Signal()
-    
-    def __init__(self, config: Dict[str, Any], custom_functions: Dict[str, Any] = None):
-        super().__init__()
-        self.config = config
-        self.custom_functions = custom_functions or {}
-        self.should_stop = False
+        # Training state
+        self.strategy = None
+        self.num_gpus = 0
         self.model = None
         self.train_dataset = None
         self.val_dataset = None
     
-    def stop_training(self):
-        """Request training to stop."""
-        self.should_stop = True
-        BRIDGE.log.emit("Training stop requested...")
-    
-    def run(self):
-        """Main training execution."""
+    def train(self) -> bool:
+        """
+        Main training entry point - unified interface for all training scenarios.
+        
+        Returns:
+            bool: True if training completed successfully, False otherwise
+        """
         try:
-            BRIDGE.log.emit("=== Starting Enhanced Training Process ===")
+            print("🚀 Starting Enhanced ModelGardener Training Pipeline")
+            print("=" * 60)
             
-            # Step 1: Load datasets
-            BRIDGE.log.emit("Step 1: Loading datasets...")
-            self._load_datasets()
+            # Phase 1: Runtime Setup
+            success = self._setup_runtime()
+            if not success:
+                return False
             
-            # Step 2: Build model
-            BRIDGE.log.emit("Step 2: Building model...")
-            self._build_model()
+            # Phase 2: Data Pipeline Creation
+            success = self._create_data_pipeline()
+            if not success:
+                return False
             
-            # Step 3: Setup callbacks
-            BRIDGE.log.emit("Step 3: Setting up callbacks...")
-            callbacks = self._setup_callbacks()
+            # Phase 3: Model Building
+            success = self._build_and_compile_model()
+            if not success:
+                return False
             
-            # Step 4: Run training
-            BRIDGE.log.emit("Step 4: Starting training loop...")
-            self._run_training(callbacks)
+            # Phase 4: Training Execution
+            success = self._execute_training()
+            if not success:
+                return False
             
-            BRIDGE.log.emit("=== Training completed successfully ===")
+            print("=" * 60)
+            print("✅ Training completed successfully!")
+            return True
             
         except Exception as e:
-            BRIDGE.log.emit(f"Training failed with error: {str(e)}")
+            print(f"❌ Training failed with error: {str(e)}")
             import traceback
-            BRIDGE.log.emit(f"Traceback: {traceback.format_exc()}")
+            print(f"Traceback: {traceback.format_exc()}")
+            return False
+        
         finally:
-            BRIDGE.finished.emit()
+            self._cleanup_resources()
     
-    def _load_datasets(self):
-        """Load training and validation datasets."""
-        dataset_loader = DatasetLoader(self.config, self.custom_functions)
+    def _auto_load_custom_functions(self) -> Dict[str, Any]:
+        """Auto-load custom functions from example_funcs directory."""
+        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
         
-        # Load training dataset
-        self.train_dataset = dataset_loader.load_dataset('train')
-        BRIDGE.log.emit("Training dataset loaded successfully")
-        
-        # Load validation dataset if available
-        data_config = self.config.get('data', {})
-        if data_config.get('val_data'):
-            self.val_dataset = dataset_loader.load_dataset('val')
-            BRIDGE.log.emit("Validation dataset loaded successfully")
-        else:
-            BRIDGE.log.emit("No validation dataset specified")
-    
-    def _build_model(self):
-        """Build and compile model."""
-        # Determine input shape and number of classes from data
-        input_shape, num_classes = self._infer_data_specs()
-        
-        # Build model
-        model_builder = ModelBuilder(self.config, self.custom_functions)
-        self.model = model_builder.build_model(input_shape, num_classes)
-        
-        # Log model summary with proper capture
         try:
-            with LogCapture("[MODEL] "):
-                self.model.summary()
-        except Exception:
-            BRIDGE.log.emit("Could not print model summary")
+            import importlib.util
+            import inspect
+            
+            # Load data loaders from example_funcs directory
+            data_loader_file = "./example_funcs/example_custom_data_loaders.py"
+            if os.path.exists(data_loader_file):
+                spec = importlib.util.spec_from_file_location("example_data_loaders", data_loader_file)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                # Find data loader functions
+                for name, obj in inspect.getmembers(module):
+                    if inspect.isfunction(obj) and (name.startswith('load_') or name.startswith('Custom_')):
+                        custom_functions['data_loaders'][name] = {
+                            'loader': obj,
+                            'type': 'function',
+                            'file_path': data_loader_file,
+                            'original_name': name
+                        }
+                        print(f"Auto-loaded data loader: {name}")
+                    elif inspect.isclass(obj) and 'DataLoader' in name:
+                        custom_functions['data_loaders'][f"Custom_{name}"] = {
+                            'loader': obj,
+                            'type': 'class',
+                            'file_path': data_loader_file,
+                            'original_name': name
+                        }
+                        print(f"Auto-loaded data loader class: {name}")
+                        
+        except Exception as e:
+            print(f"Warning: Could not auto-load custom functions: {str(e)}")
+            
+        return custom_functions
     
-    def _infer_data_specs(self) -> Tuple[Tuple[int, ...], int]:
-        """Infer input shape and number of classes from datasets."""
-        # Get a sample from training dataset
-        for batch in self.train_dataset.take(1):
-            if isinstance(batch, tuple) and len(batch) == 2:
-                images, labels = batch
-                input_shape = images.shape[1:]  # Remove batch dimension
-                
-                # Infer number of classes
-                if len(labels.shape) > 1:
-                    # One-hot encoded
-                    num_classes = labels.shape[-1]
-                else:
-                    # Sparse labels
-                    num_classes = tf.reduce_max(labels).numpy() + 1
-                
-                BRIDGE.log.emit(f"Inferred input shape: {input_shape}")
-                BRIDGE.log.emit(f"Inferred number of classes: {num_classes}")
-                
-                return tuple(input_shape), int(num_classes)
+    def _fix_custom_functions_structure(self, custom_functions: Dict[str, Any]) -> Dict[str, Any]:
+        """Fix custom functions structure to have actual function objects."""
+        fixed_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
         
-        # Fallback defaults
-        data_config = self.config.get('data', {})
-        image_size = data_config.get('image_size', [224, 224])
-        if isinstance(image_size, int):
-            image_size = [image_size, image_size]
-        
-        input_shape = tuple(image_size + [3])  # Assume RGB
-        num_classes = data_config.get('num_classes', 1000)
-        
-        BRIDGE.log.emit(f"Using default input shape: {input_shape}")
-        BRIDGE.log.emit(f"Using default number of classes: {num_classes}")
-        
-        return input_shape, num_classes
-    
-    def _setup_callbacks(self):
-        """Setup training callbacks."""
-        callbacks = []
-        
-        # Add Qt bridge callback for progress tracking
-        training_config = self.config.get('training', {})
-        epochs = training_config.get('epochs', 100)
-        
-        # Calculate steps per epoch
-        steps_per_epoch = None
         try:
-            # Try to get dataset cardinality
-            steps_per_epoch = tf.data.experimental.cardinality(self.train_dataset).numpy()
-            if steps_per_epoch < 0:  # Unknown cardinality
-                steps_per_epoch = None
-        except Exception:
-            pass
-        
-        if steps_per_epoch:
-            total_steps = epochs * steps_per_epoch
-        else:
-            total_steps = epochs * 100  # Rough estimate
-        
-        cli_callback = CLIBridgeCallback(total_train_steps=total_steps, log_every_n=5)
-        # Pass steps_per_epoch information to callback if available
-        if steps_per_epoch:
-            cli_callback._steps_per_epoch = steps_per_epoch
-        callbacks.append(cli_callback)
-        
-        # Process callback configurations from GUI
-        callbacks_config = self.config.get('callbacks', {})
-        runtime_config = self.config.get('runtime', {})
-        model_dir = runtime_config.get('model_dir', './model_dir')
-        os.makedirs(model_dir, exist_ok=True)
-        
-        # Early Stopping callback
-        early_stopping_config = callbacks_config.get('Early Stopping', {})
-        if early_stopping_config.get('enabled', False):
-            early_stopping = keras.callbacks.EarlyStopping(
-                monitor=early_stopping_config.get('monitor', 'val_loss'),
-                patience=early_stopping_config.get('patience', 10),
-                min_delta=early_stopping_config.get('min_delta', 0.001),
-                mode=early_stopping_config.get('mode', 'min'),
-                restore_best_weights=early_stopping_config.get('restore_best_weights', True)
-            )
-            callbacks.append(early_stopping)
-            BRIDGE.log.emit(f"Added Early Stopping callback (monitor: {early_stopping_config.get('monitor', 'val_loss')})")
-        
-        # Model Checkpoint callback
-        checkpoint_config = callbacks_config.get('Model Checkpoint', {})
-        if checkpoint_config.get('enabled', True):
-            filepath = checkpoint_config.get('filepath', './logs/checkpoints/model-{epoch:02d}-{val_loss:.2f}.keras')
-            # Ensure the filepath is relative to model_dir if it's not an absolute path
-            if not os.path.isabs(filepath):
-                filepath = os.path.join(model_dir, os.path.basename(filepath))
+            import importlib.util
             
-            # Ensure checkpoint directory exists
-            checkpoint_dir = os.path.dirname(filepath)
-            os.makedirs(checkpoint_dir, exist_ok=True)
+            # Handle both list and dict formats for custom functions
+            for category, functions_data in custom_functions.items():
+                if category not in fixed_functions:
+                    continue
+                    
+                # Handle list format (from config.yaml metadata)
+                if isinstance(functions_data, list):
+                    for func_info in functions_data:
+                        func_name = func_info.get('name', '')
+                        file_path = func_info.get('file_path', '')
+                        function_name = func_info.get('function_name', '')
+                        func_type = func_info.get('type', 'function')
+                        
+                        if file_path and function_name and func_name:
+                            try:
+                                # Load the actual function
+                                if os.path.exists(file_path):
+                                    spec = importlib.util.spec_from_file_location("custom_module", file_path)
+                                    module = importlib.util.module_from_spec(spec)
+                                    spec.loader.exec_module(module)
+                                    
+                                    if hasattr(module, function_name):
+                                        func = getattr(module, function_name)
+                                        fixed_functions[category][func_name] = {
+                                            'loader' if category == 'data_loaders' else 'function': func,
+                                            'type': func_type,
+                                            'file_path': file_path,
+                                            'original_name': function_name
+                                        }
+                                        print(f"Fixed {category} structure: {func_name}")
+                            except Exception as e:
+                                print(f"Warning: Could not load {category} function {function_name}: {str(e)}")
+                                
+                # Handle dict format (old format)
+                elif isinstance(functions_data, dict):
+                    for func_name, func_info in functions_data.items():
+                        if 'loader' not in func_info and 'function' not in func_info and 'file_path' in func_info:
+                            # Need to load the actual function
+                            file_path = func_info['file_path']
+                            function_name = func_info.get('function_name', func_info.get('original_name', ''))
+                            
+                            if os.path.exists(file_path) and function_name:
+                                try:
+                                    spec = importlib.util.spec_from_file_location("custom_loader", file_path)
+                                    module = importlib.util.module_from_spec(spec)
+                                    spec.loader.exec_module(module)
+                                    
+                                    if hasattr(module, function_name):
+                                        func = getattr(module, function_name)
+                                        fixed_functions[category][func_name] = {
+                                            'loader' if category == 'data_loaders' else 'function': func,
+                                            'type': func_info.get('type', 'function'),
+                                            'file_path': file_path,
+                                            'original_name': function_name
+                                        }
+                                        print(f"Fixed {category} structure: {func_name}")
+                                except Exception as e:
+                                    print(f"Warning: Could not load {category} function {function_name}: {str(e)}")
+                        else:
+                            # Already has correct structure
+                            fixed_functions[category][func_name] = func_info
+                    
+        except Exception as e:
+            print(f"Warning: Could not fix custom functions structure: {str(e)}")
+            return custom_functions
             
-            checkpoint_callback = keras.callbacks.ModelCheckpoint(
-                filepath=filepath,
-                monitor=checkpoint_config.get('monitor', 'val_loss'),
-                save_best_only=checkpoint_config.get('save_best_only', False),
-                save_weights_only=checkpoint_config.get('save_weights_only', False),
-                mode=checkpoint_config.get('mode', 'min'),
-                save_freq='epoch' if checkpoint_config.get('period', 1) == 1 else checkpoint_config.get('period', 1)
-            )
-            callbacks.append(checkpoint_callback)
-            BRIDGE.log.emit(f"Added Model Checkpoint callback (filepath: {filepath})")
+        return fixed_functions
+    
+    def _setup_runtime(self) -> bool:
+        """Phase 1: Setup runtime configuration."""
         
-        # TensorBoard callback
-        tensorboard_config = callbacks_config.get('TensorBoard', {})
-        if tensorboard_config.get('enabled', True):
-            log_dir = tensorboard_config.get('log_dir', './logs/tensorboard')
-            # Only make absolute if it's a relative path without ./ prefix
-            # Respect the user's configured path from GUI
-            if not os.path.isabs(log_dir) and not log_dir.startswith('./'):
-                log_dir = os.path.join(model_dir, log_dir)
+        try:
+            print("📋 Phase 1: Runtime Configuration")
             
-            os.makedirs(log_dir, exist_ok=True)
+            # Setup complete runtime (GPU, distribution, optimizations)
+            self.strategy, self.num_gpus = self.runtime_configurator.setup_complete_runtime()
             
-            tensorboard_callback = keras.callbacks.TensorBoard(
-                log_dir=log_dir,
-                histogram_freq=tensorboard_config.get('histogram_freq', 1),
-                write_graph=tensorboard_config.get('write_graph', True),
-                write_images=tensorboard_config.get('write_images', False),
-                update_freq=tensorboard_config.get('update_freq', 'epoch')
-            )
-            callbacks.append(tensorboard_callback)
-            BRIDGE.log.emit(f"Added TensorBoard callback (log_dir: {log_dir})")
+            print(f"✅ Runtime setup completed")
+            print(f"   • Strategy: {self.strategy.__class__.__name__}")
+            print(f"   • GPUs: {self.num_gpus}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Runtime setup failed: {str(e)}")
+            return False
+    
+    def _create_data_pipeline(self) -> bool:
+        """Phase 2: Create optimized data pipeline."""
         
-        # CSV Logger callback
-        csv_config = callbacks_config.get('CSV Logger', {})
-        if csv_config.get('enabled', True):
-            filename = csv_config.get('filename', './logs/training_log.csv')
-            # Ensure the filename is relative to model_dir if it's not an absolute path
-            if not os.path.isabs(filename):
-                filename = os.path.join(model_dir, os.path.basename(filename))
+        try:
+            print("📊 Phase 2: Data Pipeline Creation")
             
-            # Ensure log directory exists
-            log_dir = os.path.dirname(filename)
-            os.makedirs(log_dir, exist_ok=True)
+            # Load training dataset
+            self.train_dataset = self.dataset_loader.load_dataset('train')
+            print("✅ Training dataset loaded")
             
-            csv_callback = keras.callbacks.CSVLogger(
-                filename=filename,
-                separator=csv_config.get('separator', ','),
-                append=csv_config.get('append', False)
-            )
-            callbacks.append(csv_callback)
-            BRIDGE.log.emit(f"Added CSV Logger callback (filename: {filename})")
+            # Load validation dataset if available
+            if self._has_validation_data():
+                self.val_dataset = self.dataset_loader.load_dataset('val')
+                print("✅ Validation dataset loaded")
+            else:
+                self.val_dataset = None
+                print("ℹ️  No validation dataset specified")
+            
+            # Log dataset information
+            self._log_dataset_info()
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Data pipeline creation failed: {str(e)}")
+            return False
+    
+    def _build_and_compile_model(self) -> bool:
+        """Phase 3: Build and compile model."""
         
-        # Learning Rate Scheduler callback
-        lr_config = callbacks_config.get('Learning Rate Scheduler', {})
-        if lr_config.get('enabled', False):
-            scheduler_type = lr_config.get('scheduler_type', 'ReduceLROnPlateau')
+        try:
+            print("🏗️ Phase 3: Model Building")
             
-            if scheduler_type == 'ReduceLROnPlateau':
-                lr_callback = keras.callbacks.ReduceLROnPlateau(
-                    monitor=lr_config.get('monitor', 'val_loss'),
-                    factor=lr_config.get('factor', 0.5),
-                    patience=lr_config.get('patience', 5),
-                    min_lr=lr_config.get('min_lr', 1e-7),
-                    mode='min'
-                )
-                callbacks.append(lr_callback)
-                BRIDGE.log.emit(f"Added ReduceLROnPlateau callback")
-            # Add other scheduler types as needed
-        
-        # Add custom callbacks if available
-        custom_callbacks = self.custom_functions.get('callbacks', {})
-        for callback_name, callback_info in custom_callbacks.items():
-            if callback_name.startswith('Custom_'):
+            with self.strategy.scope():
+                # Infer data specifications with fallback to config
                 try:
-                    custom_callback = callback_info['function']()
-                    callbacks.append(custom_callback)
-                    BRIDGE.log.emit(f"Added custom callback: {callback_name}")
+                    input_shape, num_classes = self.dataset_loader.infer_data_specs()
                 except Exception as e:
-                    BRIDGE.log.emit(f"Error adding custom callback {callback_name}: {str(e)}")
-        
-        BRIDGE.log.emit(f"Setup {len(callbacks)} callbacks for training")
-        return callbacks
+                    print(f"Warning: Could not infer data specs, using config: {str(e)}")
+                    # Fallback to model configuration
+                    model_params = self.config.get('model', {}).get('model_parameters', {})
+                    input_shape_config = model_params.get('input_shape', {})
+                    
+                    if isinstance(input_shape_config, dict):
+                        height = input_shape_config.get('height', 32)
+                        width = input_shape_config.get('width', 32) 
+                        channels = input_shape_config.get('channels', 3)
+                        input_shape = (height, width, channels)
+                    else:
+                        input_shape = (32, 32, 3)  # Default for CIFAR-10
+                        
+                    num_classes = model_params.get('num_classes', 10)
+                    print(f"Using config input shape: {input_shape}, classes: {num_classes}")
+                
+                # Build complete model (architecture + compilation)
+                self.model = self.model_builder.build_complete_model(input_shape, num_classes)
+                
+                print("✅ Model built and compiled successfully")
+                
+                return True
+                
+        except Exception as e:
+            print(f"❌ Model building failed: {str(e)}")
+            return False
     
-    def _run_training(self, callbacks):
-        """Run the actual training loop."""
-        training_config = self.config.get('training', {})
-        epochs = training_config.get('epochs', 100)
-        
-        # Check for custom training loop
-        training_loop_config = training_config.get('training_loop', {})
-        selected_strategy = training_loop_config.get('selected_strategy', 'Standard Training')
-        
-        if selected_strategy.startswith('Custom_'):
-            self._run_custom_training_loop(callbacks, epochs)
-        else:
-            self._run_standard_training_loop(callbacks, epochs)
-    
-    def _run_standard_training_loop(self, callbacks, epochs):
-        """Run standard model.fit() training loop."""
-        BRIDGE.log.emit(f"Starting standard training for {epochs} epochs")
-        
-        # Run training without log capture - let callbacks handle logging
-        self.model.fit(
-            self.train_dataset,
-            validation_data=self.val_dataset,
-            epochs=epochs,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
-        BRIDGE.log.emit("Standard training completed")
-        
-        # Save final model
-        runtime_config = self.config.get('runtime', {})
-        model_dir = runtime_config.get('model_dir', './model_dir')
-        final_model_path = os.path.join(model_dir, 'final_model.keras')
-        self.model.save(final_model_path)
-        BRIDGE.log.emit(f"Final model saved to: {final_model_path}")
-    
-    def _run_custom_training_loop(self, callbacks, epochs):
-        """Run custom training loop."""
-        selected_strategy = self.config.get('training', {}).get('training_loop', {}).get('selected_strategy', '')
-        custom_loops = self.custom_functions.get('training_loops', {})
-        
-        loop_info = custom_loops.get(selected_strategy)
-        if not loop_info:
-            BRIDGE.log.emit(f"Custom training loop {selected_strategy} not found, falling back to standard training")
-            self._run_standard_training_loop(callbacks, epochs)
-            return
-        
-        BRIDGE.log.emit(f"Starting custom training loop: {selected_strategy}")
+    def _execute_training(self) -> bool:
+        """Phase 4: Execute training based on configuration."""
         
         try:
-            custom_loop_func = loop_info['function']
+            print("🏃 Phase 4: Training Execution")
+            
+            # Setup training components
+            training_config = self.config.get('training', {})
+            epochs = training_config.get('epochs', 100)
+            
+            # Estimate total steps for progress tracking
+            total_steps = self.components_builder.estimate_total_steps(self.train_dataset, epochs)
+            
+            # Setup callbacks
+            callbacks = self.components_builder.setup_training_callbacks(total_steps)
+            
+            # Determine training strategy
+            if self.components_builder.should_use_cross_validation():
+                return self._train_with_cross_validation(callbacks)
+            elif self.components_builder.should_use_custom_training_loop():
+                return self._train_with_custom_loop(callbacks)
+            else:
+                return self._train_standard(callbacks)
+                
+        except Exception as e:
+            print(f"❌ Training execution failed: {str(e)}")
+            return False
+    
+    def _train_standard(self, callbacks) -> bool:
+        """Execute standard training with model.fit()."""
+        
+        try:
+            print("🎯 Executing Standard Training")
+            
+            training_config = self.config.get('training', {})
+            epochs = training_config.get('epochs', 100)
+            
+            with self.strategy.scope():
+                # Run training
+                history = self.model.fit(
+                    self.train_dataset,
+                    validation_data=self.val_dataset,
+                    epochs=epochs,
+                    callbacks=callbacks,
+                    verbose=1
+                )
+                
+                # Save final model
+                self._save_final_model()
+                
+                # Log training summary
+                self._log_training_summary(history)
+                
+                return True
+                
+        except Exception as e:
+            print(f"❌ Standard training failed: {str(e)}")
+            return False
+    
+    def _train_with_cross_validation(self, callbacks) -> bool:
+        """Execute training with k-fold cross-validation."""
+        
+        try:
+            print("🔄 Executing Cross-Validation Training")
+            
+            cv_config = self.components_builder.get_cv_config()
+            k_folds = cv_config['k_folds']
+            stratified = cv_config['stratified']
+            save_fold_models = cv_config['save_fold_models']
+            
+            # Create CV folds from full dataset
+            full_dataset = self.train_dataset
+            folds = self.components_builder.create_cv_folds(full_dataset, k_folds, stratified)
+            
+            fold_results = []
+            training_config = self.config.get('training', {})
+            epochs = training_config.get('epochs', 100)
+            
+            for fold_idx, (train_fold, val_fold) in enumerate(folds):
+                print(f"📂 Training Fold {fold_idx + 1}/{k_folds}")
+                
+                with self.strategy.scope():
+                    # Reset model for each fold (rebuild from scratch)
+                    input_shape, num_classes = self.dataset_loader.infer_data_specs()
+                    fold_model = self.model_builder.build_complete_model(input_shape, num_classes)
+                    
+                    # Train on this fold
+                    fold_history = fold_model.fit(
+                        train_fold,
+                        validation_data=val_fold,
+                        epochs=epochs,
+                        callbacks=callbacks,
+                        verbose=1
+                    )
+                    
+                    # Evaluate fold
+                    val_metrics = fold_model.evaluate(val_fold, verbose=0)
+                    fold_results.append(val_metrics)
+                    
+                    print(f"✅ Fold {fold_idx + 1} completed")
+                    
+                    # Save fold model if requested
+                    if save_fold_models:
+                        fold_model_path = os.path.join(
+                            self.config.get('runtime', {}).get('model_dir', './logs'),
+                            f'fold_{fold_idx + 1}_model.keras'
+                        )
+                        fold_model.save(fold_model_path)
+                        print(f"💾 Saved fold model: {fold_model_path}")
+            
+            # Log cross-validation results
+            self.components_builder.log_cv_results(fold_results)
+            
+            # Train final model on full dataset if requested
+            print("🔄 Training final model on full dataset")
+            with self.strategy.scope():
+                final_history = self.model.fit(
+                    full_dataset,
+                    epochs=epochs,
+                    callbacks=callbacks,
+                    verbose=1
+                )
+            
+            self._save_final_model()
+            self._log_training_summary(final_history)
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Cross-validation training failed: {str(e)}")
+            return False
+    
+    def _train_with_custom_loop(self, callbacks) -> bool:
+        """Execute training with custom training loop."""
+        
+        try:
+            print("🔧 Executing Custom Training Loop")
+            
+            custom_loop_info = self.components_builder.get_custom_training_loop_info()
+            if not custom_loop_info:
+                print("❌ Custom training loop not found, falling back to standard training")
+                return self._train_standard(callbacks)
+            
+            custom_loop_func = custom_loop_info['function']
+            training_config = self.config.get('training', {})
+            epochs = training_config.get('epochs', 100)
             
             # Prepare arguments for custom training loop
             loop_args = {
@@ -871,109 +475,252 @@ class TrainingController(QThread):
                 'val_dataset': self.val_dataset,
                 'epochs': epochs,
                 'callbacks': callbacks,
-                'config': self.config
+                'config': self.config,
+                'strategy': self.strategy
             }
             
-            # Run custom training loop
-            if loop_info['type'] == 'function':
-                custom_loop_func(**loop_args)
-            elif loop_info['type'] == 'class':
-                loop_instance = custom_loop_func(**loop_args)
-                if hasattr(loop_instance, 'run'):
-                    loop_instance.run()
-                elif hasattr(loop_instance, '__call__'):
-                    loop_instance()
+            # Execute custom training loop
+            with self.strategy.scope():
+                if custom_loop_info['type'] == 'function':
+                    result = custom_loop_func(**loop_args)
+                elif custom_loop_info['type'] == 'class':
+                    loop_instance = custom_loop_func(**loop_args)
+                    if hasattr(loop_instance, 'run'):
+                        result = loop_instance.run()
+                    elif hasattr(loop_instance, '__call__'):
+                        result = loop_instance()
+                    else:
+                        raise ValueError("Custom training loop class must have 'run' or '__call__' method")
                 else:
-                    raise ValueError("Custom training loop class must have 'run' or '__call__' method")
+                    raise ValueError(f"Unknown custom loop type: {custom_loop_info['type']}")
             
-            BRIDGE.log.emit("Custom training loop completed")
-            
-        except Exception as e:
-            BRIDGE.log.emit(f"Error in custom training loop: {str(e)}")
-            BRIDGE.log.emit("Falling back to standard training")
-            self._run_standard_training_loop(callbacks, epochs)
-
-
-class EnhancedTrainer(QObject):
-    """Main enhanced trainer class that coordinates the training process."""
-    
-    def __init__(self, config: Dict[str, Any], custom_functions: Dict[str, Any] = None):
-        super().__init__()
-        self.config = config
-        self.custom_functions = custom_functions or {}
-        self.training_controller = None
-        
-        # Import the refactored trainer for CLI usage
-        try:
-            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
-            self.refactored_trainer = RefactoredEnhancedTrainer(config, custom_functions)
-        except ImportError as e:
-            BRIDGE.log.emit(f"Warning: Could not import refactored trainer: {str(e)}")
-            self.refactored_trainer = None
-    
-    def train(self) -> bool:
-        """
-        Main training method for CLI usage.
-        
-        Returns:
-            bool: True if training completed successfully, False otherwise
-        """
-        if self.refactored_trainer:
-            # Use the new refactored trainer for better performance and features
-            return self.refactored_trainer.train()
-        else:
-            # Fallback to the old training controller method
-            BRIDGE.log.emit("Using legacy training controller...")
-            return self._train_with_controller()
-    
-    def _train_with_controller(self) -> bool:
-        """Fallback training method using the old TrainingController."""
-        try:
-            if self.training_controller and self.training_controller.isRunning():
-                BRIDGE.log.emit("Training is already running")
-                return False
-            
-            # Create and start training controller
-            self.training_controller = TrainingController(self.config, self.custom_functions)
-            
-            # Run training synchronously for CLI
-            self.training_controller.run()
+            self._save_final_model()
+            print("✅ Custom training loop completed")
             
             return True
             
         except Exception as e:
-            BRIDGE.log.emit(f"Legacy training failed: {str(e)}")
-            return False
+            print(f"❌ Custom training loop failed: {str(e)}")
+            print("🔄 Falling back to standard training")
+            return self._train_standard(callbacks)
     
-    def start_training(self):
-        """Start the training process (for GUI usage)."""
-        if self.training_controller and self.training_controller.isRunning():
-            BRIDGE.log.emit("Training is already running")
-            return
+    def _has_validation_data(self) -> bool:
+        """Check if validation data is configured."""
         
-        # Create and start training controller
-        self.training_controller = TrainingController(self.config, self.custom_functions)
-        self.training_controller.start()
+        data_config = self.config.get('data', {})
+        
+        # Check for validation directory
+        val_dir = data_config.get('val_dir') or data_config.get('val_data')
+        if val_dir and os.path.exists(val_dir):
+            return True
+        
+        # Check for validation split in custom loader
+        data_loader_config = data_config.get('data_loader', {})
+        if 'validation_split' in data_loader_config.get('parameters', {}):
+            validation_split = data_loader_config['parameters']['validation_split']
+            return validation_split > 0.0
+        
+        return False
     
-    def stop_training(self):
-        """Stop the training process."""
-        if self.training_controller and self.training_controller.isRunning():
-            self.training_controller.stop_training()
-            self.training_controller.wait(5000)  # Wait up to 5 seconds for graceful shutdown
-            if self.training_controller.isRunning():
-                self.training_controller.terminate()
-                BRIDGE.log.emit("Training forcefully terminated")
-        else:
-            BRIDGE.log.emit("No training process to stop")
+    def _log_dataset_info(self):
+        """Log information about loaded datasets."""
+        
+        try:
+            # Try to get dataset cardinality for logging
+            if self.train_dataset:
+                train_cardinality = tf.data.experimental.cardinality(self.train_dataset).numpy()
+                if train_cardinality > 0:
+                    print(f"   • Training batches: {train_cardinality}")
+                else:
+                    print(f"   • Training dataset: Unknown size")
+            
+            if self.val_dataset:
+                val_cardinality = tf.data.experimental.cardinality(self.val_dataset).numpy()
+                if val_cardinality > 0:
+                    print(f"   • Validation batches: {val_cardinality}")
+                else:
+                    print(f"   • Validation dataset: Unknown size")
+                    
+        except Exception as e:
+            print(f"   • Dataset info: {str(e)}")
     
-    def is_training(self):
-        """Check if training is currently running."""
-        return self.training_controller and self.training_controller.isRunning()
+    def _save_final_model(self):
+        """Save the final trained model."""
+        
+        try:
+            model_dir = self.config.get('runtime', {}).get('model_dir', './logs')
+            os.makedirs(model_dir, exist_ok=True)
+            
+            final_model_path = os.path.join(model_dir, 'final_model.keras')
+            self.model.save(final_model_path)
+            print(f"💾 Final model saved: {final_model_path}")
+            
+            # # Also save in SavedModel format for deployment
+            # savedmodel_path = os.path.join(model_dir, 'savedmodel')
+            # self.model.export(savedmodel_path,verbose=0)
+            # print(f"💾 SavedModel saved: {savedmodel_path}")
+            
+        except Exception as e:
+            print(f"⚠️  Error saving model: {str(e)}")
     
-    def evaluate(self, dataset=None):
-        """Evaluate the model (delegates to refactored trainer if available)."""
-        if self.refactored_trainer:
-            return self.refactored_trainer.evaluate(dataset)
-        else:
-            BRIDGE.log.emit("Evaluation not available with legacy trainer")
+    def _log_training_summary(self, history):
+        """Log training summary and metrics."""
+        
+        try:
+            if hasattr(history, 'history') and history.history:
+                print("📊 Training Summary:")
+                
+                final_epoch = len(history.history.get('loss', []))
+                print(f"   • Total epochs: {final_epoch}")
+                
+                # Log final metrics
+                for metric_name, values in history.history.items():
+                    if values:
+                        final_value = values[-1]
+                        print(f"   • Final {metric_name}: {final_value:.4f}")
+                
+                # Find best validation metrics if available
+                if 'val_loss' in history.history:
+                    best_val_loss = min(history.history['val_loss'])
+                    best_epoch = history.history['val_loss'].index(best_val_loss) + 1
+                    print(f"   • Best val_loss: {best_val_loss:.4f} (epoch {best_epoch})")
+                
+                if 'val_accuracy' in history.history:
+                    best_val_acc = max(history.history['val_accuracy'])
+                    best_epoch = history.history['val_accuracy'].index(best_val_acc) + 1
+                    print(f"   • Best val_accuracy: {best_val_acc:.4f} (epoch {best_epoch})")
+                    
+        except Exception as e:
+            print(f"⚠️  Error logging training summary: {str(e)}")
+    
+    def _cleanup_resources(self):
+        """Cleanup resources after training."""
+        
+        try:
+            # Clear any cached datasets to free memory
+            if hasattr(tf.data.experimental, 'clear_dataset_cache'):
+                tf.data.experimental.clear_dataset_cache()
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            print("🧹 Resources cleaned up")
+            
+        except Exception as e:
+            print(f"⚠️  Error during cleanup: {str(e)}")
+    
+    # Additional utility methods for compatibility and evaluation
+    
+    def evaluate(self, dataset: Optional[tf.data.Dataset] = None) -> Optional[Dict[str, float]]:
+        """
+        Evaluate the trained model.
+        
+        Args:
+            dataset: Dataset to evaluate on (uses validation dataset if None)
+            
+        Returns:
+            Dict[str, float]: Evaluation metrics
+        """
+        
+        if self.model is None:
+            print("❌ No model available for evaluation")
             return None
+        
+        eval_dataset = dataset or self.val_dataset
+        if eval_dataset is None:
+            print("❌ No dataset available for evaluation")
+            return None
+        
+        try:
+            print("📊 Starting model evaluation...")
+            
+            # Run evaluation
+            results = self.model.evaluate(eval_dataset, verbose=1, return_dict=True)
+            
+            print("✅ Evaluation completed")
+            for metric, value in results.items():
+                print(f"   • {metric}: {value:.4f}")
+            
+            return results
+            
+        except Exception as e:
+            print(f"❌ Evaluation failed: {str(e)}")
+            return None
+    
+    def predict(self, dataset: tf.data.Dataset, save_predictions: bool = False) -> Optional[tf.Tensor]:
+        """
+        Generate predictions using the trained model.
+        
+        Args:
+            dataset: Dataset to predict on
+            save_predictions: Whether to save predictions to file
+            
+        Returns:
+            tf.Tensor: Model predictions
+        """
+        
+        if self.model is None:
+            print("❌ No model available for prediction")
+            return None
+        
+        try:
+            print("🔮 Generating predictions...")
+            
+            predictions = self.model.predict(dataset, verbose=1)
+            
+            if save_predictions:
+                model_dir = self.config.get('runtime', {}).get('model_dir', './logs')
+                pred_path = os.path.join(model_dir, 'predictions.npy')
+                import numpy as np
+                np.save(pred_path, predictions)
+                print(f"💾 Predictions saved: {pred_path}")
+            
+            print("✅ Prediction completed")
+            return predictions
+            
+        except Exception as e:
+            print(f"❌ Prediction failed: {str(e)}")
+            return None
+    
+    def _load_saved_model(self) -> bool:
+        """
+        Load a saved model for evaluation/prediction.
+        
+        Returns:
+            bool: True if model loaded successfully, False otherwise
+        """
+        try:
+            model_dir = self.config.get('runtime', {}).get('model_dir', './logs')
+            
+            # Try different model file formats
+            model_paths = [
+                os.path.join(model_dir, 'final_model.keras'),
+                os.path.join(model_dir, 'best_model.keras'),
+                os.path.join(model_dir, 'savedmodel'),
+                model_dir  # In case model_dir is the model path itself
+            ]
+            
+            for model_path in model_paths:
+                if os.path.exists(model_path):
+                    print(f"🔄 Loading model from {model_path}")
+                    try:
+                        if model_path.endswith('.keras'):
+                            self.model = keras.models.load_model(model_path)
+                        else:
+                            # Try loading as SavedModel format
+                            self.model = tf.keras.models.load_model(model_path)
+                        
+                        print(f"✅ Model loaded successfully from {model_path}")
+                        return True
+                        
+                    except Exception as e:
+                        print(f"⚠️  Failed to load model from {model_path}: {str(e)}")
+                        continue
+            
+            print(f"❌ No valid model found in {model_dir}")
+            return False
+            
+        except Exception as e:
+            print(f"❌ Model loading failed: {str(e)}")
+            return False

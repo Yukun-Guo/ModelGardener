@@ -897,29 +897,40 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
     if 'data' in improved_config['configuration'] and 'augmentation' in improved_config['configuration']['data']:
         augmentation_functions = discover_custom_functions('./example_funcs/example_custom_augmentations.py')
         for func_name, func_info in augmentation_functions.items():
-            display_name = f"{func_name.replace('_', ' ').title()} (custom)"
+            # Use interactive mode format: function_name (custom)
+            display_name = f"{func_name} (custom)"
             augmentation_config = {
-                'enabled': False,
+                'enabled': False,  # Disabled by default in template
                 'function_name': func_name, 
-                'file_path': './custom_modules/custom_augmentations.py'
+                'file_path': './custom_modules/custom_augmentations.py',
+                'probability': 0.5  # Add probability parameter for augmentations
             }
             # Add function-specific parameters
-            augmentation_config.update(func_info.get('parameters', {}))
+            params = func_info.get('parameters', {})
+            if params:
+                augmentation_config['parameters'] = params
             improved_config['configuration']['data']['augmentation'][display_name] = augmentation_config
     
-    # Add all available custom preprocessing functions
+    # Add all available custom preprocessing functions using interactive mode format
     if 'data' in improved_config['configuration'] and 'preprocessing' in improved_config['configuration']['data']:
         preprocessing_functions = discover_custom_functions('./example_funcs/example_custom_preprocessing.py')
-        for func_name, func_info in preprocessing_functions.items():
-            display_name = f"{func_name.replace('_', ' ').title()} (custom)"
+        if preprocessing_functions:
+            # Use the first preprocessing function as an example, disabled by default
+            first_func_name = list(preprocessing_functions.keys())[0]
+            first_func_info = preprocessing_functions[first_func_name]
+            
             preprocessing_config = {
-                'enabled': False,
-                'function_name': func_name,
+                'enabled': False,  # Disabled by default in template
+                'function_name': first_func_name,
                 'file_path': './custom_modules/custom_preprocessing.py'
             }
             # Add function-specific parameters
-            preprocessing_config.update(func_info.get('parameters', {}))
-            improved_config['configuration']['data']['preprocessing'][display_name] = preprocessing_config
+            params = first_func_info.get('parameters', {})
+            if params:
+                preprocessing_config['parameters'] = params
+            
+            # Use interactive mode format: "Custom Preprocessing"
+            improved_config['configuration']['data']['preprocessing']['Custom Preprocessing'] = preprocessing_config
     
     # Add custom callback option
     if 'model' in improved_config['configuration'] and 'callbacks' in improved_config['configuration']['model']:
@@ -1010,6 +1021,8 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
             }]
         }
         
+    # Update metadata to include custom functions (instead of None)
+    if 'metadata' in improved_config:
         improved_config['metadata']['custom_functions'] = known_functions
         
     return improved_config

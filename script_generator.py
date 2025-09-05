@@ -1140,9 +1140,83 @@ if __name__ == "__main__":
     
     def _extract_custom_functions_info(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Extract custom functions information from configuration."""
-        # This would extract custom function metadata if present
+        # First try the old metadata format (for backward compatibility)
         metadata = config.get('metadata', {})
         custom_functions = metadata.get('custom_functions', {})
+        
+        # If metadata is empty/None, try to extract from the new format (interactive mode)
+        if not custom_functions or custom_functions is None:
+            custom_functions = {}
+            
+            # Handle both full config (with 'configuration' key) and config section directly
+            configuration = config.get('configuration', config)
+            
+            # Extract preprocessing functions
+            preprocessing = configuration.get('data', {}).get('preprocessing', {})
+            custom_preprocessing = preprocessing.get('Custom Preprocessing', {})
+            if custom_preprocessing and custom_preprocessing.get('enabled'):
+                custom_functions['preprocessing'] = [{
+                    'name': custom_preprocessing.get('function_name'),
+                    'file_path': custom_preprocessing.get('file_path'),
+                    'function_name': custom_preprocessing.get('function_name'),
+                    'type': 'function',
+                    'parameters': custom_preprocessing.get('parameters', {})
+                }]
+            
+            # Extract augmentation functions
+            augmentation = configuration.get('data', {}).get('augmentation', {})
+            augmentations = []
+            for key, value in augmentation.items():
+                if ' (custom)' in key and value.get('enabled'):
+                    augmentations.append({
+                        'name': value.get('function_name'),
+                        'file_path': value.get('file_path'),
+                        'function_name': value.get('function_name'),
+                        'type': 'function',
+                        'parameters': value.get('parameters', {})
+                    })
+            if augmentations:
+                custom_functions['augmentations'] = augmentations
+            
+            # Extract loss functions
+            loss_functions = configuration.get('model', {}).get('loss_functions', {})
+            loss_selection = loss_functions.get('Loss Selection', {})
+            if loss_selection.get('custom_loss_path'):
+                custom_functions['loss_functions'] = [{
+                    'name': loss_selection.get('selected_loss'),
+                    'file_path': loss_selection.get('custom_loss_path'),
+                    'function_name': loss_selection.get('selected_loss'),
+                    'type': 'function',
+                    'parameters': loss_selection.get('parameters', {})
+                }]
+            
+            # Extract metrics
+            metrics = configuration.get('model', {}).get('metrics', {})
+            metrics_selection = metrics.get('Metrics Selection', {})
+            custom_metrics_configs = metrics_selection.get('custom_metrics_configs', {})
+            if custom_metrics_configs:
+                metrics_list = []
+                for metric_name, metric_config in custom_metrics_configs.items():
+                    metrics_list.append({
+                        'name': metric_name,
+                        'file_path': metric_config.get('custom_metrics_path'),
+                        'function_name': metric_name,
+                        'type': 'function',
+                        'parameters': metric_config.get('parameters', {})
+                    })
+                custom_functions['metrics'] = metrics_list
+            
+            # Extract data loaders
+            data_loader = configuration.get('data', {}).get('data_loader', {})
+            if data_loader.get('custom_data_loader_path'):
+                custom_functions['data_loaders'] = [{
+                    'name': data_loader.get('selected_data_loader'),
+                    'file_path': data_loader.get('custom_data_loader_path'),
+                    'function_name': data_loader.get('selected_data_loader'),
+                    'type': 'function',
+                    'parameters': data_loader.get('parameters', {})
+                }]
+            
         return custom_functions
     
     def _has_custom_preprocessing(self, custom_functions: Dict[str, Any]) -> bool:
@@ -1183,7 +1257,8 @@ if __name__ == "__main__":
                     imports.append(f"# Custom {func_type}")
                     for func_info in functions:
                         if isinstance(func_info, dict):
-                            module_name = func_info.get('relative_file_path', '').replace('.py', '')
+                            file_path = func_info.get('file_path', '')
+                            module_name = file_path.replace('.py', '').replace('./', '')
                             if module_name:
                                 imports.append(f"# from {module_name} import {func_info.get('function_name', 'custom_function')}")
         
@@ -1365,11 +1440,11 @@ def train_model():
         
         # Use the enhanced trainer approach (same as CLI)
         try:
-            # Import the refactored enhanced trainer
-            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
+            # Import the enhanced trainer
+            from enhanced_trainer import EnhancedTrainer
             
             # Initialize trainer with same approach as CLI
-            trainer = RefactoredEnhancedTrainer(
+            trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=custom_functions_data
             )
@@ -1400,7 +1475,7 @@ def train_model():
 def _fallback_training(config, custom_functions):
     """Fallback training method if enhanced trainer is not available."""
     try:
-        # Import the basic enhanced trainer
+        # Import the enhanced trainer (this should always be available now)
         from enhanced_trainer import EnhancedTrainer
         
         # Initialize trainer
