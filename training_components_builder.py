@@ -177,29 +177,63 @@ class TrainingComponentsBuilder:
         callbacks = []
         custom_callbacks = self.custom_functions.get('callbacks', {})
         
+        if not custom_callbacks:
+            return callbacks
+        
         for callback_name, callback_info in custom_callbacks.items():
-            if callback_name.startswith('Custom_'):
-                try:
-                    callback_func = callback_info['function']
-                    callback_type = callback_info['type']
-                    
-                    if callback_type == 'function':
-                        custom_callback = callback_func()
-                    elif callback_type == 'class':
-                        # Instantiate the class
-                        custom_callback = callback_func()
+            try:
+                # Get the callback function/class
+                if isinstance(callback_info, dict):
+                    callback_func = callback_info.get('function')
+                    if callback_func is None:
+                        callback_func = callback_info.get('loader')  # Alternative naming
+                    callback_type = callback_info.get('type', 'function')
+                else:
+                    callback_func = callback_info
+                    callback_type = 'function'
+                
+                if callback_func is None:
+                    print(f"Warning: Custom callback function {callback_name} not found")
+                    continue
+                
+                # Check if callback is enabled in config
+                callback_config = self.callbacks_config.get(callback_name, {})
+                if not callback_config.get('enabled', True):
+                    continue
+                
+                # Prepare callback parameters
+                callback_params = {}
+                if isinstance(callback_info, dict) and 'parameters' in callback_info:
+                    for param in callback_info['parameters']:
+                        param_name = param['name']
+                        param_value = callback_config.get(param_name, param.get('default'))
+                        callback_params[param_name] = param_value
+                
+                # Instantiate the callback
+                if callback_type == 'function':
+                    if callback_params:
+                        custom_callback = callback_func(**callback_params)
                     else:
-                        print(f"Unknown callback type for {callback_name}: {callback_type}")
-                        continue
-                    
-                    if isinstance(custom_callback, keras.callbacks.Callback):
-                        callbacks.append(custom_callback)
-                        print(f"Added custom callback: {callback_name}")
+                        custom_callback = callback_func()
+                elif callback_type == 'class':
+                    # Instantiate the class
+                    if callback_params:
+                        custom_callback = callback_func(**callback_params)
                     else:
-                        print(f"Custom callback {callback_name} is not a valid Keras callback")
-                        
-                except Exception as e:
-                    print(f"Error adding custom callback {callback_name}: {str(e)}")
+                        custom_callback = callback_func()
+                else:
+                    print(f"Unknown callback type for {callback_name}: {callback_type}")
+                    continue
+                
+                # Validate the callback
+                if isinstance(custom_callback, keras.callbacks.Callback):
+                    callbacks.append(custom_callback)
+                    print(f"Added custom callback: {callback_name}")
+                else:
+                    print(f"Custom callback {callback_name} is not a valid Keras callback")
+                    
+            except Exception as e:
+                print(f"Error adding custom callback {callback_name}: {str(e)}")
         
         return callbacks
     

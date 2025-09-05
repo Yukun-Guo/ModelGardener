@@ -408,10 +408,31 @@ class EnhancedModelBuilder:
         
         # Check for custom optimizer
         custom_optimizers = self.custom_functions.get('optimizers', {})
+        
+        # First check if the optimizer is directly in custom functions (without Custom_ prefix)
+        if selected_optimizer in custom_optimizers:
+            optimizer_info = custom_optimizers[selected_optimizer]
+            if isinstance(optimizer_info, dict):
+                optimizer_func = optimizer_info.get('function')
+                if optimizer_func is None:
+                    optimizer_func = optimizer_info.get('loader')  # Alternative naming
+                if optimizer_func:
+                    return optimizer_func()
+            else:
+                return optimizer_info()
+        
+        # Then check with Custom_ prefix for backward compatibility
         if selected_optimizer.startswith('Custom_'):
             optimizer_info = custom_optimizers.get(selected_optimizer)
             if optimizer_info:
-                return optimizer_info['function']()
+                if isinstance(optimizer_info, dict):
+                    optimizer_func = optimizer_info.get('function')
+                    if optimizer_func is None:
+                        optimizer_func = optimizer_info.get('loader')  # Alternative naming
+                    if optimizer_func:
+                        return optimizer_func()
+                else:
+                    return optimizer_info()
         
         # Built-in optimizers
         training_config = self.config.get('training', {})
@@ -480,10 +501,29 @@ class EnhancedModelBuilder:
         
         # Check for custom loss
         custom_losses = self.custom_functions.get('loss_functions', {})
+        
+        # First check if the selected loss is directly in custom functions (without Custom_ prefix)
+        if selected_loss in custom_losses:
+            loss_info = custom_losses[selected_loss]
+            if isinstance(loss_info, dict):
+                loss_func = loss_info.get('function')
+                if loss_func is None:
+                    loss_func = loss_info.get('loader')  # Alternative naming
+                return loss_func
+            else:
+                return loss_info
+        
+        # Then check with Custom_ prefix for backward compatibility
         if selected_loss.startswith('Custom_'):
             loss_info = custom_losses.get(selected_loss)
             if loss_info:
-                return loss_info['function']
+                if isinstance(loss_info, dict):
+                    loss_func = loss_info.get('function')
+                    if loss_func is None:
+                        loss_func = loss_info.get('loader')  # Alternative naming
+                    return loss_func
+                else:
+                    return loss_info
         
         # Built-in losses
         if selected_loss == 'Categorical Crossentropy':
@@ -554,10 +594,29 @@ class EnhancedModelBuilder:
         custom_metrics = self.custom_functions.get('metrics', {})
         
         for metric_name in selected_metrics:
-            if metric_name.startswith('Custom_'):
+            # First check if the metric is directly in custom functions (without Custom_ prefix)
+            if metric_name in custom_metrics:
+                metric_info = custom_metrics[metric_name]
+                if isinstance(metric_info, dict):
+                    metric_func = metric_info.get('function')
+                    if metric_func is None:
+                        metric_func = metric_info.get('loader')  # Alternative naming
+                    if metric_func:
+                        metrics_list.append(metric_func)
+                else:
+                    metrics_list.append(metric_info)
+            elif metric_name.startswith('Custom_'):
+                # Check with Custom_ prefix for backward compatibility
                 metric_info = custom_metrics.get(metric_name)
                 if metric_info:
-                    metrics_list.append(metric_info['function'])
+                    if isinstance(metric_info, dict):
+                        metric_func = metric_info.get('function')
+                        if metric_func is None:
+                            metric_func = metric_info.get('loader')  # Alternative naming
+                        if metric_func:
+                            metrics_list.append(metric_func)
+                    else:
+                        metrics_list.append(metric_info)
             else:
                 # Built-in metrics
                 if metric_name == 'Accuracy':
