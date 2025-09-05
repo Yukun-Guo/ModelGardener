@@ -116,18 +116,6 @@ Easily integrate custom functionality:
 
 For detailed CLI usage, see [CLI_README.md](CLI_README.md)
 
-## Changes in CLI-Only Version
-
-This version has been refactored to remove all PySide6/GUI dependencies:
-
-- ❌ Removed main GUI window
-- ❌ Removed interactive parameter trees
-- ❌ Removed file dialog boxes
-- ❌ Removed progress widgets
-- ✅ Retained all core training functionality
-- ✅ Maintained custom function support
-- ✅ Kept configuration management
-- ✅ Enhanced CLI interface
 
 ## Requirements
 

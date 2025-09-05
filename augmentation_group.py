@@ -1,5 +1,7 @@
 import ast
-import pyqtgraph.parametertree.parameterTypes as pTypes
+import os
+import importlib.util
+
 # CLI-only message functions
 def cli_info(title, message):
     print(f"[INFO] {title}: {message}")
@@ -15,341 +17,388 @@ def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
     print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
     return "", ""
 
-# Custom augmentation group that includes preset methods and allows adding custom methods from files
+# Custom augmentation group that includes preset augmentations and allows adding custom augmentations from files
 
-class AugmentationGroup(pTypes.GroupParameter):
+class AugmentationGroup:
     def __init__(self, **opts):
-        opts['type'] = 'group'
-        pTypes.GroupParameter.__init__(self, **opts)
+        self.config = {
+            'Augmentation Options': {
+                'enable_augmentation': True,
+                'augmentation_probability': 0.8,
+                'apply_to_validation': False
+            },
+            'Image Augmentation': {
+                'rotation_range': 0.0,
+                'width_shift_range': 0.0,
+                'height_shift_range': 0.0,
+                'shear_range': 0.0,
+                'zoom_range': 0.0,
+                'horizontal_flip': False,
+                'vertical_flip': False,
+                'brightness_range': [1.0, 1.0],
+                'channel_shift_range': 0.0
+            },
+            'Advanced Augmentation': {
+                'mixup_alpha': 0.0,
+                'cutmix_alpha': 0.0,
+                'cutout_probability': 0.0,
+                'cutout_size': [16, 16],
+                'mosaic_probability': 0.0,
+                'elastic_transform': False,
+                'gaussian_noise': 0.0
+            },
+            'Custom Parameters': {}
+        }
         
-        # Add preset augmentation methods
-        self._add_preset_augmentations()
+        # Initialize custom augmentation storage
+        self._custom_augmentations = {}
+        self._custom_augmentation_parameters = {}
         
-        # Add custom augmentation button
-        self._add_custom_button()
+    def get_config(self):
+        """Get the current augmentation configuration."""
+        return dict(self.config)
+        
+    def set_config(self, config):
+        """Set the augmentation configuration."""
+        self.config.update(config)
+        
+    def get_value(self, path):
+        """Get a configuration value by path."""
+        keys = path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                return None
+        return value
     
-    def _add_preset_augmentations(self):
-        """Add preset augmentation methods with their parameters."""
-        preset_methods = [
-            {
-                'name': 'Horizontal Flip',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable horizontal flip augmentation'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying horizontal flip'}
-                ],
-                'tip': 'Randomly flip images horizontally'
-            },
-            {
-                'name': 'Vertical Flip',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable vertical flip augmentation'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying vertical flip'}
-                ],
-                'tip': 'Randomly flip images vertically'
-            },
-            {
-                'name': 'Rotation',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable rotation augmentation'},
-                    {'name': 'angle_range', 'type': 'float', 'value': 15.0, 'limits': (0.0, 180.0), 'suffix': '°', 'tip': 'Maximum rotation angle in degrees'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of applying rotation'}
-                ],
-                'tip': 'Randomly rotate images by specified angle range'
-            },
-            {
-                'name': 'Gaussian Noise',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable Gaussian noise augmentation'},
-                    {'name': 'variance_limit', 'type': 'float', 'value': 0.01, 'limits': (0.0, 0.1), 'tip': 'Maximum variance of Gaussian noise'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Probability of adding noise'}
-                ],
-                'tip': 'Add random Gaussian noise to images'
-            },
-            {
-                'name': 'Brightness Adjustment',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable brightness adjustment'},
-                    {'name': 'brightness_limit', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Maximum brightness change (±)'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of brightness adjustment'}
-                ],
-                'tip': 'Randomly adjust image brightness'
-            },
-            {
-                'name': 'Contrast Adjustment',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': False, 'tip': 'Enable contrast adjustment'},
-                    {'name': 'contrast_limit', 'type': 'float', 'value': 0.2, 'limits': (0.0, 1.0), 'tip': 'Maximum contrast change (±)'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of contrast adjustment'}
-                ],
-                'tip': 'Randomly adjust image contrast'
-            },
-            {
-                'name': 'Color Jittering',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable color jittering'},
-                    {'name': 'hue_shift_limit', 'type': 'int', 'value': 20, 'limits': (0, 50), 'tip': 'Maximum hue shift'},
-                    {'name': 'sat_shift_limit', 'type': 'int', 'value': 30, 'limits': (0, 100), 'tip': 'Maximum saturation shift'},
-                    {'name': 'val_shift_limit', 'type': 'int', 'value': 20, 'limits': (0, 100), 'tip': 'Maximum value shift'},
-                    {'name': 'probability', 'type': 'float', 'value': 0.5, 'limits': (0.0, 1.0), 'tip': 'Probability of color jittering'}
-                ],
-                'tip': 'Randomly adjust hue, saturation, and value'
-            },
-            {
-                'name': 'Random Cropping',
-                'type': 'group',
-                'children': [
-                    {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': 'Enable random cropping'},
-                    {'name': 'crop_area_min', 'type': 'float', 'value': 0.08, 'limits': (0.01, 1.0), 'tip': 'Minimum crop area as fraction of original'},
-                    {'name': 'crop_area_max', 'type': 'float', 'value': 1.0, 'limits': (0.01, 1.0), 'tip': 'Maximum crop area as fraction of original'},
-                    {'name': 'aspect_ratio_min', 'type': 'float', 'value': 0.75, 'limits': (0.1, 2.0), 'tip': 'Minimum aspect ratio for cropping'},
-                    {'name': 'aspect_ratio_max', 'type': 'float', 'value': 1.33, 'limits': (0.1, 2.0), 'tip': 'Maximum aspect ratio for cropping'},
-                    {'name': 'probability', 'type': 'float', 'value': 1.0, 'limits': (0.0, 1.0), 'tip': 'Probability of random cropping'}
-                ],
-                'tip': 'Randomly crop parts of the image with specified area and aspect ratio constraints'
-            }
+    def set_value(self, path, value):
+        """Set a configuration value by path."""
+        keys = path.split('.')
+        config = self.config
+        for key in keys[:-1]:
+            if key not in config:
+                config[key] = {}
+            config = config[key]
+        config[keys[-1]] = value
+    
+    def _get_augmentation_options(self):
+        """Get list of available augmentation methods including custom ones."""
+        base_options = [
+            'rotation',
+            'width_shift',
+            'height_shift',
+            'shear',
+            'zoom',
+            'horizontal_flip',
+            'vertical_flip',
+            'brightness',
+            'channel_shift',
+            'mixup',
+            'cutmix',
+            'cutout',
+            'mosaic',
+            'elastic_transform',
+            'gaussian_noise'
         ]
         
-        # Add all preset methods
-        for method in preset_methods:
-            self.addChild(method)
+        # Add custom augmentations if any
+        if hasattr(self, '_custom_augmentations'):
+            custom_options = list(self._custom_augmentations.keys())
+            return base_options + custom_options
+        
+        return base_options
     
-    def _add_custom_button(self):
-        """Add a button parameter for loading custom augmentation functions from files."""
-        self.addChild({
-            'name': 'Load Custom Augmentations',
-            'type': 'action',
-            'tip': 'Click to load custom augmentation functions from a Python file'
-        })
-        
-        # Connect the action to the file loading function
-        custom_button = self.child('Load Custom Augmentations')
-        custom_button.sigActivated.connect(self._load_custom_augmentations)
-    
-    def _load_custom_augmentations(self):
-        """Load custom augmentation functions from a selected Python file."""
-        
-        # Open file dialog to select Python file
-        file_path, _ = cli_get_file_path(
-            None,
-            "Select Python file with custom augmentation functions",
-            "",
-            "Python Files (*.py)"
-        )
-        
-        if not file_path:
-            return
-        
+    def load_custom_augmentations(self, file_path):
+        """Load custom augmentation functions from a file."""
         try:
-            # Load and parse the Python file
             custom_functions = self._extract_augmentation_functions(file_path)
             
             if not custom_functions:
                 cli_warning(
-                    None,
                     "No Functions Found",
                     "No valid augmentation functions found in the selected file.\n\n"
-                    "Functions should accept 'image' parameter and return modified image."
+                    "Functions should accept image/data arrays and return augmented arrays."
                 )
-                return
+                return False
             
-            # Add each found function as a custom augmentation
-            added_count = 0
+            # Add custom functions to the available augmentation options
             for func_name, func_info in custom_functions.items():
-                if self._add_custom_function(func_name, func_info):
-                    added_count += 1
+                self._add_custom_augmentation_option(func_name, func_info)
             
-            if added_count > 0:
-                cli_info(
-                    None,
-                    "Functions Loaded",
-                    f"Successfully loaded {added_count} custom augmentation function(s):\n" +
-                    "\n".join(custom_functions.keys())
-                )
-            else:
-                cli_warning(
-                    None,
-                    "No New Functions",
-                    "All functions from the file are already loaded or invalid."
-                )
+            cli_info(
+                "Functions Loaded",
+                f"Successfully loaded {len(custom_functions)} custom augmentation(s):\n" +
+                "\n".join(custom_functions.keys()) +
+                "\n\nThese augmentations are now available for use."
+            )
+            return True
                 
-        except Exception as e:
+        except (OSError, SyntaxError) as e:
             cli_error(
-                None,
                 "Error Loading File",
                 f"Failed to load custom augmentations from file:\n{str(e)}"
             )
-    
-    def _extract_augmentation_functions(self, file_path):
-        """Extract valid augmentation functions from a Python file."""
-        custom_functions = {}
-        
-        try:
-            # Read and parse the file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Parse the AST
-            tree = ast.parse(content)
-            
-            # Find function definitions
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    func_name = node.name
-                    
-                    # Check if it's a valid augmentation function
-                    if self._is_valid_augmentation_function(node):
-                        # Extract function parameters
-                        params = self._extract_function_parameters(node)
-                        
-                        # Extract docstring if available
-                        docstring = ast.get_docstring(node) or f"Custom augmentation function: {func_name}"
-                        
-                        custom_functions[func_name] = {
-                            'parameters': params,
-                            'docstring': docstring,
-                            'file_path': file_path,
-                            'function_name': func_name
-                        }
-            
-        except Exception as e:
-            print(f"Error parsing file {file_path}: {e}")
-        
-        return custom_functions
-    
-    def _is_valid_augmentation_function(self, func_node):
-        """Check if a function is a valid augmentation function."""
-        # Check if function has at least one parameter (should be 'image')
-        if not func_node.args.args:
             return False
-        
-        # Check if first parameter is likely an image parameter
-        first_param = func_node.args.args[0].arg
-        if first_param not in ['image', 'img', 'x', 'data']:
-            return False
-        
-        # Function should return something (basic check)
-        has_return = any(isinstance(node, ast.Return) for node in ast.walk(func_node))
-        if not has_return:
-            return False
-        
-        return True
     
-    def _extract_function_parameters(self, func_node):
-        """Extract parameters from function definition (excluding 'image' parameter)."""
-        params = []
+    def _add_custom_augmentation_option(self, func_name, func_info):
+        """Add a custom augmentation as an option."""
+        # Store the function with metadata
+        self._custom_augmentations[func_name] = func_info
         
-        # Skip the first parameter (image) and extract others
-        for arg in func_node.args.args[1:]:
-            param_name = arg.arg
-            
-            # Try to infer parameter type and default values
-            param_info = {
-                'name': param_name,
-                'type': 'float',  # Default type
-                'default': 0.5,   # Default value
-                'limits': (0.0, 1.0),
-                'tip': f'Parameter for {param_name}'
-            }
-            
-            # Basic type inference based on parameter name
-            if 'angle' in param_name.lower():
-                param_info.update({'type': 'float', 'default': 15.0, 'limits': (0.0, 180.0), 'suffix': '°'})
-            elif 'prob' in param_name.lower() or 'p' == param_name.lower():
-                param_info.update({'type': 'float', 'default': 0.5, 'limits': (0.0, 1.0)})
-            elif 'strength' in param_name.lower() or 'intensity' in param_name.lower():
-                param_info.update({'type': 'float', 'default': 1.0, 'limits': (0.0, 5.0)})
-            elif 'size' in param_name.lower() or 'kernel' in param_name.lower():
-                param_info.update({'type': 'int', 'default': 3, 'limits': (1, 15)})
-            elif 'enable' in param_name.lower():
-                param_info.update({'type': 'bool', 'default': True})
-            
-            params.append(param_info)
+        # Store custom parameters if any
+        if 'parameters' in func_info:
+            self._custom_augmentation_parameters[func_name] = func_info['parameters']
         
-        # Check for default values in function definition
-        if func_node.args.defaults:
-            num_defaults = len(func_node.args.defaults)
-            for i, default in enumerate(func_node.args.defaults):
-                param_index = len(func_node.args.args) - num_defaults + i - 1  # -1 to skip image param
-                if param_index >= 0 and param_index < len(params):
-                    if isinstance(default, ast.Constant):
-                        params[param_index]['default'] = default.value
-                        # Update type based on default value
-                        if isinstance(default.value, bool):
-                            params[param_index]['type'] = 'bool'
-                        elif isinstance(default.value, int):
-                            params[param_index]['type'] = 'int'
-                        elif isinstance(default.value, float):
-                            params[param_index]['type'] = 'float'
-        
-        return params
-    
-    def _add_custom_function(self, func_name, func_info):
-        """Add a custom function as an augmentation method."""
-        # Add (custom) suffix to distinguish from presets
-        display_name = f"{func_name} (custom)"
-        
-        # Check if function already exists (check both original and display names)
-        existing_names = [child.name() for child in self.children()]
-        if func_name in existing_names or display_name in existing_names:
-            return False
-        
-        # Create parameters list
-        children = [
-            {'name': 'enabled', 'type': 'bool', 'value': True, 'tip': f'Enable {func_name} augmentation'}
-        ]
-        
-        # Add function-specific parameters
-        for param_info in func_info['parameters']:
-            children.append({
-                'name': param_info['name'],
-                'type': param_info['type'],
-                'value': param_info['default'],
-                'limits': param_info.get('limits'),
-                'suffix': param_info.get('suffix', ''),
-                'tip': param_info['tip']
-            })
-        
-        # Add metadata parameters
-        children.extend([
-            {'name': 'file_path', 'type': 'str', 'value': func_info['file_path'], 'readonly': True, 'tip': 'Source file path'},
-            {'name': 'function_name', 'type': 'str', 'value': func_info['function_name'], 'readonly': True, 'tip': 'Function name in source file'}
-        ])
-        
-        # Create the augmentation method
-        method_config = {
-            'name': display_name,
-            'type': 'group',
-            'children': children,
-            'removable': True,
-            'renamable': False,  # Keep original function name
-            'tip': func_info['docstring']
+        # Add augmentation configuration section
+        self.config['Custom Parameters'][func_name] = {
+            'enabled': False,
+            'probability': 0.5
         }
         
-        # Insert before the "Load Custom Augmentations" button
-        # Find the button's index and insert before it
-        button_index = None
-        for i, child in enumerate(self.children()):
-            if child.name() == 'Load Custom Augmentations':
-                button_index = i
-                break
-        
-        if button_index is not None:
-            self.insertChild(button_index, method_config)
-        else:
-            # Fallback: add at the end if button not found
-            self.addChild(method_config)
-        
-        return True
+        # Add augmentation-specific parameters
+        if 'parameters' in func_info:
+            for param in func_info['parameters']:
+                self.config['Custom Parameters'][func_name][param['name']] = param.get('default', 0.0)
     
-    def addNew(self, typ=None):
-        """Legacy method - no longer used since we load from files."""
-        # This method is called by the parameter tree system but we use the button instead
-        pass
-
+    def _extract_augmentation_functions(self, file_path):
+        """Extract augmentation function definitions from a Python file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+            
+            tree = ast.parse(content)
+            functions = {}
+            
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    # Check if it's likely an augmentation function
+                    if self._is_augmentation_function(node):
+                        func_info = self._analyze_augmentation_function(node, file_path)
+                        if func_info:
+                            functions[node.name] = func_info
+                elif isinstance(node, ast.ClassDef):
+                    # Check if it's an augmentation class
+                    if self._is_augmentation_class(node):
+                        class_info = self._analyze_augmentation_class(node, file_path)
+                        if class_info:
+                            functions[node.name] = class_info
+            
+            return functions
+            
+        except Exception as e:
+            cli_error("Parse Error", f"Error parsing file: {str(e)}")
+            return {}
+    
+    def _is_augmentation_function(self, node):
+        """Check if a function node is likely an augmentation function."""
+        # Check function name for augmentation indicators
+        augmentation_keywords = ['augment', 'transform', 'flip', 'rotate', 'zoom', 'shift', 'cutout', 'mixup']
+        has_augmentation_name = any(keyword in node.name.lower() for keyword in augmentation_keywords)
+        
+        # Check if function has common augmentation parameters
+        args = [arg.arg for arg in node.args.args]
+        augmentation_args = ['image', 'data', 'array', 'x', 'input', 'tensor']
+        has_augmentation_args = any(arg in args for arg in augmentation_args)
+        
+        return has_augmentation_name or has_augmentation_args
+    
+    def _is_augmentation_class(self, node):
+        """Check if a class node is likely an augmentation class."""
+        # Check class name for augmentation indicators
+        augmentation_keywords = ['augment', 'transform', 'flip', 'rotate', 'zoom', 'shift']
+        has_augmentation_name = any(keyword in node.name.lower() for keyword in augmentation_keywords)
+        
+        # Check if class has __call__ method (callable augmentation)
+        has_call = any(isinstance(child, ast.FunctionDef) and child.name == '__call__' 
+                      for child in node.body)
+        
+        return has_augmentation_name or has_call
+    
+    def _analyze_augmentation_function(self, node, file_path):
+        """Analyze an augmentation function and extract its metadata."""
+        try:
+            # Extract parameters (skip the first parameter which is usually the input data)
+            parameters = []
+            defaults = node.args.defaults
+            default_values = [None] * (len(node.args.args) - len(defaults)) + defaults
+            
+            for i, arg in enumerate(node.args.args[1:], 1):  # Skip first parameter
+                param_info = {
+                    'name': arg.arg,
+                    'type': self._infer_parameter_type(arg.arg),
+                    'default': self._extract_default_value(default_values[i])
+                }
+                parameters.append(param_info)
+            
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom augmentation function: {node.name}"
+            
+            return {
+                'type': 'function',
+                'file_path': file_path,
+                'function_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
+            }
+            
+        except Exception as e:
+            cli_warning("Analysis Error", f"Error analyzing function {node.name}: {str(e)}")
+            return None
+    
+    def _analyze_augmentation_class(self, node, file_path):
+        """Analyze an augmentation class and extract its metadata."""
+        try:
+            # Find __init__ method to extract parameters
+            init_method = None
+            
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef) and child.name == '__init__':
+                    init_method = child
+                    break
+            
+            parameters = []
+            if init_method:
+                defaults = init_method.args.defaults
+                default_values = [None] * (len(init_method.args.args) - len(defaults)) + defaults
+                
+                for i, arg in enumerate(init_method.args.args):
+                    if arg.arg not in ['self']:
+                        param_info = {
+                            'name': arg.arg,
+                            'type': self._infer_parameter_type(arg.arg),
+                            'default': self._extract_default_value(default_values[i])
+                        }
+                        parameters.append(param_info)
+            
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom augmentation class: {node.name}"
+            
+            return {
+                'type': 'class',
+                'file_path': file_path,
+                'class_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
+            }
+            
+        except Exception as e:
+            cli_warning("Analysis Error", f"Error analyzing class {node.name}: {str(e)}")
+            return None
+    
+    def _infer_parameter_type(self, param_name):
+        """Infer the type of a parameter based on its name."""
+        param_name_lower = param_name.lower()
+        
+        if any(word in param_name_lower for word in ['range', 'factor', 'rate', 'alpha', 'scale', 'intensity']):
+            return 'float'
+        elif any(word in param_name_lower for word in ['size', 'width', 'height', 'num', 'count']):
+            return 'int'
+        elif any(word in param_name_lower for word in ['flip', 'enable', 'use', 'apply']):
+            return 'bool'
+        elif any(word in param_name_lower for word in ['method', 'mode', 'interpolation']):
+            return 'str'
+        else:
+            return 'float'  # Default to float for augmentation parameters
+    
+    def _extract_default_value(self, default_node):
+        """Extract default value from an AST node."""
+        if default_node is None:
+            return None
+        elif isinstance(default_node, ast.Constant):
+            return default_node.value
+        elif isinstance(default_node, ast.Num):  # For older Python versions
+            return default_node.n
+        elif isinstance(default_node, ast.Str):  # For older Python versions
+            return default_node.s
+        elif isinstance(default_node, ast.NameConstant):  # For older Python versions
+            return default_node.value
+        else:
+            return None
+    
+    def get_augmentation_config(self):
+        """Get the current augmentation configuration for training."""
+        config = {}
+        
+        # Basic augmentation options
+        config['augmentation_enabled'] = self.config['Augmentation Options']['enable_augmentation']
+        config['augmentation_probability'] = self.config['Augmentation Options']['augmentation_probability']
+        config['apply_to_validation'] = self.config['Augmentation Options']['apply_to_validation']
+        
+        # Image augmentation parameters
+        image_augmentation = {}
+        for key, value in self.config['Image Augmentation'].items():
+            if isinstance(value, (int, float)) and value != 0.0:
+                image_augmentation[key] = value
+            elif isinstance(value, bool) and value:
+                image_augmentation[key] = value
+            elif isinstance(value, list) and value != [1.0, 1.0]:
+                image_augmentation[key] = value
+        
+        if image_augmentation:
+            config['image_augmentation'] = image_augmentation
+        
+        # Advanced augmentation parameters
+        advanced_augmentation = {}
+        for key, value in self.config['Advanced Augmentation'].items():
+            if isinstance(value, (int, float)) and value != 0.0:
+                advanced_augmentation[key] = value
+            elif isinstance(value, bool) and value:
+                advanced_augmentation[key] = value
+            elif isinstance(value, list) and value:
+                advanced_augmentation[key] = value
+        
+        if advanced_augmentation:
+            config['advanced_augmentation'] = advanced_augmentation
+        
+        # Custom augmentations
+        custom_augmentations = []
+        for aug_name, aug_config in self.config['Custom Parameters'].items():
+            if aug_config.get('enabled', False):
+                custom_aug = {
+                    'name': aug_name,
+                    'parameters': {k: v for k, v in aug_config.items() if k not in ['enabled']}
+                }
+                if aug_name in self._custom_augmentations:
+                    custom_aug['function_info'] = self._custom_augmentations[aug_name]
+                custom_augmentations.append(custom_aug)
+        
+        if custom_augmentations:
+            config['custom_augmentations'] = custom_augmentations
+        
+        return config
+    
+    def load_custom_augmentation_from_metadata(self, metadata):
+        """Load a custom augmentation from saved metadata."""
+        try:
+            file_path = metadata.get('file_path')
+            function_name = metadata.get('function_name')
+            
+            if not file_path or not os.path.exists(file_path):
+                return False
+            
+            # Load the function
+            spec = importlib.util.spec_from_file_location("custom_augmentation", file_path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                if hasattr(module, function_name):
+                    func = getattr(module, function_name)
+                    
+                    # Store the function
+                    self._custom_augmentations[function_name] = {
+                        'function': func,
+                        'metadata': metadata
+                    }
+                    
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            cli_error("Load Error", f"Error loading custom augmentation: {str(e)}")
+            return False

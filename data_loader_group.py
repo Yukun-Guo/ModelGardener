@@ -9,6 +9,7 @@ import os
 import importlib.util
 import ast
 from typing import Dict, Any, List, Optional
+
 # CLI-only message functions
 def cli_info(title, message):
     print(f"[INFO] {title}: {message}")
@@ -23,46 +24,65 @@ def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
     print(f"[CLI] File dialog requested: {title} - {file_filter}")
     print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
     return "", ""
-import pyqtgraph.parametertree.parameterTypes as pTypes
 
 
-class DataLoaderGroup(pTypes.GroupParameter):
+class DataLoaderGroup:
     """Custom data loader group that allows loading custom data loader functions from files."""
     
     def __init__(self, **opts):
-        opts['type'] = 'group'
-        pTypes.GroupParameter.__init__(self, **opts)
+        self.config = {
+            'Data Loader Selection': {
+                'selected_data_loader': 'Default',
+                'use_for_train': True,
+                'use_for_val': True,
+                'batch_size': 32,
+                'shuffle': True,
+                'validation_split': 0.2
+            },
+            'Data Loading': {
+                'data_source': 'files',
+                'preprocessing': True,
+                'augmentation': False
+            },
+            'Custom Parameters': {}
+        }
         
         # Initialize custom data loader storage
         self._custom_data_loaders = {}
         self._custom_data_loader_parameters = {}
         
-        # Add data loader selection
-        self._add_data_loader_selection()
+    def get_config(self):
+        """Get the current data loader configuration."""
+        return dict(self.config)
         
-        # Add custom data loader button
-        self._add_custom_button()
+    def set_config(self, config):
+        """Set the data loader configuration."""
+        self.config.update(config)
+        
+    def get_value(self, path):
+        """Get a configuration value by path."""
+        keys = path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                return None
+        return value
     
-    def _add_data_loader_selection(self):
-        """Add data loader selection with preset and custom options."""
-        data_loader_options = self._get_data_loader_options()
+    def set_value(self, path, value):
+        """Set a configuration value by path."""
+        keys = path.split('.')
+        config = self.config
+        for key in keys[:-1]:
+            if key not in config:
+                config[key] = {}
+            config = config[key]
+        config[keys[-1]] = value
         
-        self.addChild({
-            'name': 'Data Loader Selection',
-            'type': 'group',
-            'children': [
-                {'name': 'selected_data_loader', 'type': 'list', 'limits': data_loader_options, 'value': 'Default', 
-                 'tip': 'Select the data loader to use for training and validation'},
-                {'name': 'use_for_train', 'type': 'bool', 'value': True, 
-                 'tip': 'Use this data loader for training data'},
-                {'name': 'use_for_val', 'type': 'bool', 'value': True, 
-                 'tip': 'Use this data loader for validation data'}
-            ],
-            'tip': 'Choose data loader type and configure its parameters'
-        })
-        
-        # Add data loader parameters
-        self._add_selected_data_loader_parameters()
+        # Update dependent configurations if needed
+        if path == 'Data Loader Selection.selected_data_loader':
+            self._update_data_loader_parameters()
     
     def _get_data_loader_options(self):
         """Get list of available data loader names including custom ones."""
@@ -71,468 +91,307 @@ class DataLoaderGroup(pTypes.GroupParameter):
             'TFRecordDataLoader',
             'ImageDataLoader',
             'CSVDataLoader',
-            'HDF5DataLoader'
+            'NumpyDataLoader',
+            'HDF5DataLoader',
+            'JSONDataLoader'
         ]
         
         # Add custom data loaders if any
-        if hasattr(self, '_custom_data_loaders') and self._custom_data_loaders:
+        if hasattr(self, '_custom_data_loaders'):
             custom_options = list(self._custom_data_loaders.keys())
             return base_options + custom_options
         
         return base_options
     
-    def _add_selected_data_loader_parameters(self):
-        """Add parameters for the selected data loader."""
-        parent = self.child('Data Loader Selection')
-        if not parent:
-            return
-            
-        # Connect selection change to parameter update
-        if parent.child('selected_data_loader'):
-            parent.child('selected_data_loader').sigValueChanged.connect(
-                self._update_data_loader_parameters
-            )
-        
-        # Add initial parameters
-        self._update_data_loader_parameters()
-    
     def _update_data_loader_parameters(self):
-        """Update data loader parameters based on selection."""
-        parent = self.child('Data Loader Selection')
-        if not parent:
-            return
-            
-        selected_data_loader = parent.child('selected_data_loader').value()
+        """Update data loader parameters based on selected data loader."""
+        selected = self.config['Data Loader Selection']['selected_data_loader']
         
-        # Remove existing parameters (except selection controls)
-        existing_params = []
-        for child in parent.children():
-            if child.name() not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
-                existing_params.append(child)
-        
-        for param in existing_params:
-            parent.removeChild(param)
-        
-        # Add parameters based on selected data loader
-        data_loader_params = self._get_data_loader_parameters(selected_data_loader)
-        for param_config in data_loader_params:
-            parent.addChild(param_config)
+        # Set default parameters based on data loader type
+        if selected == 'TFRecordDataLoader':
+            self.config['Data Loading'].update({
+                'file_pattern': '*.tfrecord',
+                'compression_type': None,
+                'buffer_size': 8 * 1024 * 1024
+            })
+        elif selected == 'ImageDataLoader':
+            self.config['Data Loading'].update({
+                'image_size': [224, 224],
+                'color_mode': 'rgb',
+                'image_format': 'jpeg'
+            })
+        elif selected == 'CSVDataLoader':
+            self.config['Data Loading'].update({
+                'separator': ',',
+                'header': True,
+                'target_column': 'label'
+            })
+        elif selected == 'NumpyDataLoader':
+            self.config['Data Loading'].update({
+                'file_extension': '.npy',
+                'mmap_mode': None
+            })
+        elif selected == 'HDF5DataLoader':
+            self.config['Data Loading'].update({
+                'dataset_key': 'data',
+                'label_key': 'labels'
+            })
+        elif selected == 'JSONDataLoader':
+            self.config['Data Loading'].update({
+                'json_format': 'records',
+                'orient': 'index'
+            })
     
-    def _get_data_loader_parameters(self, data_loader_name):
-        """Get parameters for a specific data loader."""
-        # Check if it's a custom data loader
-        if hasattr(self, '_custom_data_loader_parameters') and data_loader_name in self._custom_data_loader_parameters:
-            return self._custom_data_loader_parameters[data_loader_name]
-        
-        # Return built-in data loader parameters
-        data_loader_parameters = {
-            'Default': [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for data loading'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle the data'},
-                {'name': 'buffer_size', 'type': 'int', 'value': 10000, 'limits': (1, 100000),
-                 'tip': 'Buffer size for shuffling'}
-            ],
-            'TFRecordDataLoader': [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for data loading'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle the data'},
-                {'name': 'buffer_size', 'type': 'int', 'value': 10000, 'limits': (1, 100000),
-                 'tip': 'Buffer size for shuffling'},
-                {'name': 'num_parallel_calls', 'type': 'int', 'value': -1, 'limits': (-1, 64),
-                 'tip': 'Number of parallel calls for data processing (-1 for auto)'},
-                {'name': 'prefetch_buffer_size', 'type': 'int', 'value': -1, 'limits': (-1, 100),
-                 'tip': 'Prefetch buffer size (-1 for auto)'}
-            ],
-            'ImageDataLoader': [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for data loading'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle the data'},
-                {'name': 'image_size', 'type': 'list', 'value': [224, 224],
-                 'tip': 'Target image size [height, width]'},
-                {'name': 'color_mode', 'type': 'list', 'limits': ['rgb', 'grayscale'], 'value': 'rgb',
-                 'tip': 'Color mode for images'},
-                {'name': 'interpolation', 'type': 'list', 'limits': ['bilinear', 'nearest', 'bicubic'], 'value': 'bilinear',
-                 'tip': 'Interpolation method for resizing'}
-            ],
-            'CSVDataLoader': [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for data loading'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle the data'},
-                {'name': 'delimiter', 'type': 'str', 'value': ',',
-                 'tip': 'CSV delimiter character'},
-                {'name': 'header', 'type': 'bool', 'value': True,
-                 'tip': 'Whether CSV has header row'},
-                {'name': 'skip_blank_lines', 'type': 'bool', 'value': True,
-                 'tip': 'Skip blank lines in CSV'}
-            ],
-            'HDF5DataLoader': [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for data loading'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle the data'},
-                {'name': 'dataset_key', 'type': 'str', 'value': 'data',
-                 'tip': 'Key for the dataset in HDF5 file'},
-                {'name': 'label_key', 'type': 'str', 'value': 'labels',
-                 'tip': 'Key for the labels in HDF5 file'},
-                {'name': 'compression', 'type': 'list', 'limits': ['gzip', 'lzf', 'szip', 'none'], 'value': 'gzip',
-                 'tip': 'Compression method for HDF5 file'}
-            ]
-        }
-        
-        return data_loader_parameters.get(data_loader_name, [])
-    
-    def _add_custom_button(self):
-        """Add button for loading custom data loaders."""
-        self.addChild({
-            'name': 'Load Custom Data Loader',
-            'type': 'action',
-            'tip': 'Load custom data loader functions from Python files'
-        })
-        
-        # Connect the action
-        custom_button = self.child('Load Custom Data Loader')
-        if custom_button:
-            custom_button.sigActivated.connect(self._load_custom_data_loader)
-    
-    def _load_custom_data_loader(self):
-        """Load custom data loader from Python file."""
-        file_path, _ = cli_get_file_path(
-            None,
-            "Select Custom Data Loader Python File",
-            "",
-            "Python files (*.py)"
-        )
-        
-        if not file_path:
-            return
-            
+    def load_custom_data_loaders(self, file_path):
+        """Load custom data loader functions from a file."""
         try:
-            # Parse the Python file to find data loader functions and classes
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            custom_functions = self._extract_data_loader_functions(file_path)
+            
+            if not custom_functions:
+                cli_warning(
+                    "No Functions Found",
+                    "No valid data loader functions found in the selected file.\n\n"
+                    "Functions should return data that can be used for training."
+                )
+                return False
+            
+            # Add custom functions to the available data loader options
+            for func_name, func_info in custom_functions.items():
+                self._add_custom_data_loader_option(func_name, func_info)
+            
+            cli_info(
+                "Functions Loaded",
+                f"Successfully loaded {len(custom_functions)} custom data loader(s):\n" +
+                "\n".join(custom_functions.keys()) +
+                "\n\nThese data loaders are now available in the selection dropdown."
+            )
+            return True
+                
+        except (OSError, SyntaxError) as e:
+            cli_error(
+                "Error Loading File",
+                f"Failed to load custom data loaders from file:\n{str(e)}"
+            )
+            return False
+    
+    def _add_custom_data_loader_option(self, func_name, func_info):
+        """Add a custom data loader as an option."""
+        # Store the function with metadata
+        self._custom_data_loaders[func_name] = func_info
+        
+        # Store custom parameters if any
+        if 'parameters' in func_info:
+            self._custom_data_loader_parameters[func_name] = func_info['parameters']
+    
+    def _extract_data_loader_functions(self, file_path):
+        """Extract data loader function definitions from a Python file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
             
             tree = ast.parse(content)
-            data_loaders = []
+            functions = {}
             
-            # Find both functions and classes that could be data loaders
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
-                    # Check if function seems like a data loader
-                    if self._is_valid_data_loader_function(node):
-                        data_loaders.append(('function', node.name))
+                    # Check if it's likely a data loader function
+                    if self._is_data_loader_function(node):
+                        func_info = self._analyze_data_loader_function(node, file_path)
+                        if func_info:
+                            functions[node.name] = func_info
                 elif isinstance(node, ast.ClassDef):
-                    # Check if class seems like a data loader
-                    if self._is_valid_data_loader_class(node):
-                        data_loaders.append(('class', node.name))
+                    # Check if it's a data loader class
+                    if self._is_data_loader_class(node):
+                        class_info = self._analyze_data_loader_class(node, file_path)
+                        if class_info:
+                            functions[node.name] = class_info
             
-            if not data_loaders:
-                cli_warning(None, "No Data Loaders Found", 
-                                  "No valid data loader functions or classes found in the selected Python file.\n\n"
-                                  "Data loaders should be functions that return tf.data.Dataset or classes with appropriate methods.")
-                return
-            
-            # Load the module
-            spec = importlib.util.spec_from_file_location("custom_data_loader", file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            # Store custom data loaders and their parameters
-            for loader_type, name in data_loaders:
-                if hasattr(module, name):
-                    loader = getattr(module, name)
-                    custom_name = f"Custom_{name}"
-                    
-                    # Store the function/class
-                    if not hasattr(self, '_custom_data_loaders'):
-                        self._custom_data_loaders = {}
-                    self._custom_data_loaders[custom_name] = {
-                        'loader': loader,
-                        'type': loader_type,
-                        'file_path': file_path,
-                        'original_name': name
-                    }
-                    
-                    # Extract parameters from function/class signature
-                    self._extract_custom_data_loader_parameters(custom_name, loader, loader_type)
-            
-            # Update data loader options
-            self._refresh_data_loader_options()
-            
-            # Show success message
-            cli_info(None, "Custom Data Loaders Loaded", 
-                                  f"Successfully loaded {len(data_loaders)} custom data loader(s) from:\n{os.path.basename(file_path)}")
+            return functions
             
         except Exception as e:
-            cli_error(None, "Error Loading Custom Data Loader", 
-                               f"Failed to load custom data loader:\n{str(e)}")
+            cli_error("Parse Error", f"Error parsing file: {str(e)}")
+            return {}
     
-    def _is_valid_data_loader_function(self, node):
-        """Check if a function node is a valid data loader function."""
-        func_name = node.name.lower()
-        
-        # Check function name patterns
-        valid_patterns = ['load', 'dataset', 'data', 'batch', 'input_fn', 'get_data']
-        if any(pattern in func_name for pattern in valid_patterns):
-            return True
+    def _is_data_loader_function(self, node):
+        """Check if a function node is likely a data loader function."""
+        # Check function name for data loader indicators
+        loader_keywords = ['load', 'data', 'batch', 'dataset', 'generator', 'reader']
+        has_loader_name = any(keyword in node.name.lower() for keyword in loader_keywords)
         
         # Check if function has common data loader parameters
-        arg_names = [arg.arg.lower() for arg in node.args.args]
-        data_loader_args = ['batch_size', 'shuffle', 'data_dir', 'file_pattern', 'split']
-        if any(arg in arg_names for arg in data_loader_args):
-            return True
-            
-        return False
-    
-    def _is_valid_data_loader_class(self, node):
-        """Check if a class node is a valid data loader class."""
-        class_name = node.name.lower()
+        args = [arg.arg for arg in node.args.args]
+        loader_args = ['path', 'file_path', 'data_path', 'batch_size', 'shuffle']
+        has_loader_args = any(arg in args for arg in loader_args)
         
-        # Check class name patterns
-        valid_patterns = ['loader', 'dataset', 'data', 'reader', 'input']
-        if any(pattern in class_name for pattern in valid_patterns):
-            return True
-            
-        # Check if class has common data loader methods
-        method_names = []
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                method_names.append(item.name.lower())
-        
-        data_loader_methods = ['load', 'get_dataset', 'build_dataset', '__call__', '__iter__']
-        if any(method in method_names for method in data_loader_methods):
-            return True
-            
-        return False
+        return has_loader_name or has_loader_args
     
-    def _extract_custom_data_loader_parameters(self, data_loader_name, loader, loader_type):
-        """Extract parameters from custom data loader function/class signature."""
+    def _is_data_loader_class(self, node):
+        """Check if a class node is likely a data loader class."""
+        # Check class name for data loader indicators
+        loader_keywords = ['loader', 'data', 'dataset', 'generator', 'reader']
+        has_loader_name = any(keyword in node.name.lower() for keyword in loader_keywords)
+        
+        # Check if class has __iter__ or __getitem__ methods
+        has_iteration = any(isinstance(child, ast.FunctionDef) and child.name in ['__iter__', '__getitem__', '__next__'] 
+                          for child in node.body)
+        
+        return has_loader_name or has_iteration
+    
+    def _analyze_data_loader_function(self, node, file_path):
+        """Analyze a data loader function and extract its metadata."""
         try:
-            import inspect
-            
-            if loader_type == 'function':
-                sig = inspect.signature(loader)
-            else:  # class
-                # Try to get __init__ method signature
-                if hasattr(loader, '__init__'):
-                    sig = inspect.signature(loader.__init__)
-                else:
-                    # Fallback to class signature
-                    sig = inspect.signature(loader)
-            
+            # Extract parameters
             parameters = []
+            defaults = node.args.defaults
+            default_values = [None] * (len(node.args.args) - len(defaults)) + defaults
             
-            for param_name, param in sig.parameters.items():
-                # Skip 'self' parameter for classes
-                if param_name == 'self':
-                    continue
-                    
-                param_config = {
-                    'name': param_name,
-                    'tip': f'Custom parameter: {param_name}'
+            for i, arg in enumerate(node.args.args):
+                param_info = {
+                    'name': arg.arg,
+                    'type': self._infer_parameter_type(arg.arg),
+                    'default': self._extract_default_value(default_values[i])
                 }
-                
-                # Infer parameter type and set defaults
-                if param_name.lower() in ['batch_size', 'buffer_size', 'num_classes', 'epochs', 'steps']:
-                    param_config['type'] = 'int'
-                    param_config['value'] = param.default if param.default != inspect.Parameter.empty else 32
-                    if param_name.lower() == 'batch_size':
-                        param_config['limits'] = (1, 1024)
-                    elif param_name.lower() in ['buffer_size', 'steps']:
-                        param_config['limits'] = (1, 100000)
-                    else:
-                        param_config['limits'] = (1, 10000)
-                elif param_name.lower() in ['learning_rate', 'dropout_rate', 'split_ratio']:
-                    param_config['type'] = 'float'
-                    param_config['value'] = param.default if param.default != inspect.Parameter.empty else 0.001
-                    param_config['limits'] = (0.0, 1.0)
-                elif param_name.lower() in ['shuffle', 'augment', 'normalize', 'cache']:
-                    param_config['type'] = 'bool'
-                    param_config['value'] = param.default if param.default != inspect.Parameter.empty else True
-                else:
-                    # Default to string for other parameters
-                    param_config['type'] = 'str'
-                    param_config['value'] = param.default if param.default != inspect.Parameter.empty else ''
-                
-                parameters.append(param_config)
+                parameters.append(param_info)
             
-            # Store custom parameters
-            if not hasattr(self, '_custom_data_loader_parameters'):
-                self._custom_data_loader_parameters = {}
-            self._custom_data_loader_parameters[data_loader_name] = parameters
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom data loader function: {node.name}"
+            
+            return {
+                'type': 'function',
+                'file_path': file_path,
+                'function_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
+            }
             
         except Exception as e:
-            # If parameter extraction fails, create basic parameter set
-            if not hasattr(self, '_custom_data_loader_parameters'):
-                self._custom_data_loader_parameters = {}
-            self._custom_data_loader_parameters[data_loader_name] = [
-                {'name': 'batch_size', 'type': 'int', 'value': 32, 'limits': (1, 1024),
-                 'tip': 'Batch size for custom data loader'},
-                {'name': 'shuffle', 'type': 'bool', 'value': True,
-                 'tip': 'Whether to shuffle data in custom loader'}
-            ]
+            cli_warning("Analysis Error", f"Error analyzing function {node.name}: {str(e)}")
+            return None
     
-    def _refresh_data_loader_options(self):
-        """Refresh the data loader selection options after loading custom data loaders."""
-        selection_group = self.child('Data Loader Selection')
-        if selection_group:
-            data_loader_selector = selection_group.child('selected_data_loader')
-            if data_loader_selector:
-                new_options = self._get_data_loader_options()
-                data_loader_selector.setLimits(new_options)
+    def _analyze_data_loader_class(self, node, file_path):
+        """Analyze a data loader class and extract its metadata."""
+        try:
+            # Find __init__ method to extract parameters
+            init_method = None
+            
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef) and child.name == '__init__':
+                    init_method = child
+                    break
+            
+            parameters = []
+            if init_method:
+                defaults = init_method.args.defaults
+                default_values = [None] * (len(init_method.args.args) - len(defaults)) + defaults
+                
+                for i, arg in enumerate(init_method.args.args):
+                    if arg.arg not in ['self']:
+                        param_info = {
+                            'name': arg.arg,
+                            'type': self._infer_parameter_type(arg.arg),
+                            'default': self._extract_default_value(default_values[i])
+                        }
+                        parameters.append(param_info)
+            
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom data loader class: {node.name}"
+            
+            return {
+                'type': 'class',
+                'file_path': file_path,
+                'class_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
+            }
+            
+        except Exception as e:
+            cli_warning("Analysis Error", f"Error analyzing class {node.name}: {str(e)}")
+            return None
+    
+    def _infer_parameter_type(self, param_name):
+        """Infer the type of a parameter based on its name."""
+        param_name_lower = param_name.lower()
+        
+        if any(word in param_name_lower for word in ['size', 'batch', 'num', 'count', 'length']):
+            return 'int'
+        elif any(word in param_name_lower for word in ['rate', 'ratio', 'split', 'factor']):
+            return 'float'
+        elif any(word in param_name_lower for word in ['shuffle', 'use', 'enable', 'disable']):
+            return 'bool'
+        elif any(word in param_name_lower for word in ['path', 'file', 'dir', 'url']):
+            return 'str'
+        else:
+            return 'str'  # Default to string
+    
+    def _extract_default_value(self, default_node):
+        """Extract default value from an AST node."""
+        if default_node is None:
+            return None
+        elif isinstance(default_node, ast.Constant):
+            return default_node.value
+        elif isinstance(default_node, ast.Num):  # For older Python versions
+            return default_node.n
+        elif isinstance(default_node, ast.Str):  # For older Python versions
+            return default_node.s
+        elif isinstance(default_node, ast.NameConstant):  # For older Python versions
+            return default_node.value
+        else:
+            return None
     
     def get_data_loader_config(self):
-        """Get the current data loader configuration."""
-        selection_group = self.child('Data Loader Selection')
-        if not selection_group:
-            return None
-            
+        """Get the current data loader configuration for training."""
         config = {}
         
-        # Get selected data loader
-        data_loader_selector = selection_group.child('selected_data_loader')
-        if data_loader_selector:
-            config['selected_data_loader'] = data_loader_selector.value()
+        selection = self.config['Data Loader Selection']
+        data_loading = self.config['Data Loading']
         
-        # Get usage flags
-        use_for_train = selection_group.child('use_for_train')
-        if use_for_train:
-            config['use_for_train'] = use_for_train.value()
-            
-        use_for_val = selection_group.child('use_for_val')
-        if use_for_val:
-            config['use_for_val'] = use_for_val.value()
+        config['data_loader'] = selection['selected_data_loader']
+        config['batch_size'] = selection['batch_size']
+        config['shuffle'] = selection['shuffle']
+        config['validation_split'] = selection['validation_split']
+        config['use_for_train'] = selection['use_for_train']
+        config['use_for_val'] = selection['use_for_val']
         
-        # Get parameters
-        params = {}
-        for child in selection_group.children():
-            if child.name() not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
-                params[child.name()] = child.value()
+        # Add data loading specific parameters
+        config.update(data_loading)
         
-        config['parameters'] = params
-        
-        # Add custom data loader info if applicable
-        selected_name = config.get('selected_data_loader', '')
-        if (hasattr(self, '_custom_data_loaders') and 
-            selected_name in self._custom_data_loaders):
-            config['custom_info'] = self._custom_data_loaders[selected_name]
+        # Add custom parameters if using custom data loader
+        if selection['selected_data_loader'] in self._custom_data_loaders:
+            custom_info = self._custom_data_loaders[selection['selected_data_loader']]
+            config['custom_data_loader'] = custom_info
         
         return config
     
-    def set_data_loader_config(self, config):
-        """Set the data loader configuration from loaded config data."""
-        if not config or not isinstance(config, dict):
-            return
-            
-        selection_group = self.child('Data Loader Selection')
-        if not selection_group:
-            return
-            
-        # Get the Data Loader Selection config
-        selection_config = config.get('Data Loader Selection', {})
-        if not selection_config:
-            return
-        
-        # Set selected data loader if available in options
-        selected_data_loader = selection_config.get('selected_data_loader')
-        if selected_data_loader:
-            data_loader_selector = selection_group.child('selected_data_loader')
-            if data_loader_selector:
-                # Check if the selected data loader is in the available options
-                available_options = data_loader_selector.opts['limits']
-                if selected_data_loader in available_options:
-                    data_loader_selector.setValue(selected_data_loader)
-                    # Update parameters after setting the value
-                    self._update_data_loader_parameters()
-                else:
-                    # If the selected data loader is not available, keep default but log
-                    print(f"Warning: Selected data loader '{selected_data_loader}' not found in available options: {available_options}")
-            else:
-                print("Warning: data_loader_selector parameter not found")
-        
-        # Set usage flags
-        use_for_train = selection_config.get('use_for_train')
-        if use_for_train is not None:
-            train_param = selection_group.child('use_for_train')
-            if train_param:
-                train_param.setValue(use_for_train)
-                
-        use_for_val = selection_config.get('use_for_val')
-        if use_for_val is not None:
-            val_param = selection_group.child('use_for_val')
-            if val_param:
-                val_param.setValue(use_for_val)
-        
-        # Set parameter values
-        for param_name, param_value in selection_config.items():
-            if param_name not in ['selected_data_loader', 'use_for_train', 'use_for_val']:
-                try:
-                    param = selection_group.child(param_name)
-                    if param:
-                        try:
-                            param.setValue(param_value)
-                        except Exception as e:
-                            print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
-                    else:
-                        print(f"Warning: Parameter '{param_name}' not found in current data loader configuration")
-                except KeyError as e:
-                    print(f"Warning: Parameter '{param_name}' not found in selection group: {e}")
-                except Exception as e:
-                    print(f"Warning: Error accessing parameter '{param_name}': {e}")
-    
-    def load_custom_data_loader_from_metadata(self, loader_info):
-        """Load custom data loader from metadata info."""
+    def load_custom_data_loader_from_metadata(self, metadata):
+        """Load a custom data loader from saved metadata."""
         try:
-            file_path = loader_info.get('file_path', '')
-            function_name = loader_info.get('function_name', '') or loader_info.get('original_name', '')
-            loader_type = loader_info.get('type', 'function')
+            file_path = metadata.get('file_path')
+            function_name = metadata.get('function_name')
             
-            # Check for empty function name
-            if not function_name:
-                print(f"Warning: Empty function name in custom data loader metadata for {file_path}")
+            if not file_path or not os.path.exists(file_path):
                 return False
             
-            if not os.path.exists(file_path):
-                print(f"Warning: Custom data loader file not found: {file_path}")
-                return False
-                
-            # Load the module
+            # Load the function
             spec = importlib.util.spec_from_file_location("custom_data_loader", file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            if not hasattr(module, function_name):
-                print(f"Warning: Function '{function_name}' not found in {file_path}")
-                return False
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
                 
-            loader = getattr(module, function_name)
-            custom_name = f"Custom_{function_name}"
+                if hasattr(module, function_name):
+                    func = getattr(module, function_name)
+                    
+                    # Store the function
+                    self._custom_data_loaders[function_name] = {
+                        'function': func,
+                        'metadata': metadata
+                    }
+                    
+                    return True
             
-            # Store the function/class
-            if not hasattr(self, '_custom_data_loaders'):
-                self._custom_data_loaders = {}
-                
-            self._custom_data_loaders[custom_name] = {
-                'loader': loader,
-                'type': loader_type,
-                'file_path': file_path,
-                'original_name': function_name
-            }
-            
-            # Extract parameters
-            self._extract_custom_data_loader_parameters(custom_name, loader, loader_type)
-            
-            # Update data loader options
-            self._refresh_data_loader_options()
-            
-            return True
+            return False
             
         except Exception as e:
-            print(f"Error loading custom data loader from metadata: {e}")
-            import traceback
-            traceback.print_exc()
+            cli_error("Load Error", f"Error loading custom data loader: {str(e)}")
             return False

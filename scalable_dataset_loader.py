@@ -263,12 +263,11 @@ class ScalableDatasetLoader:
         
         preprocessing_config = self.data_config.get('preprocessing', {})
         
-        def preprocess_fn(image, label):
+        def preprocess_fn(images: Tuple[tf.Tensor, tf.Tensor], labels: Tuple[tf.Tensor, tf.Tensor]) -> Tuple[Tuple[tf.Tensor, tf.Tensor], Tuple[tf.Tensor, tf.Tensor]]:
             # Apply normalization
             norm_config = preprocessing_config.get('Normalization', {})
             if norm_config.get('enabled', True):
                 method = norm_config.get('method', 'zero-center')
-                
                 if method == 'zero-center':
                     # Normalize to [-1, 1]
                     image = (image - 0.5) * 2.0
@@ -286,7 +285,7 @@ class ScalableDatasetLoader:
                 height = target_size.get('height', 224)
                 image = tf.image.resize(image, [height, width])
             
-            return image, label
+            return image, labels
         
         if preprocessing_config:
             dataset = dataset.map(preprocess_fn, num_parallel_calls=tf.data.AUTOTUNE)

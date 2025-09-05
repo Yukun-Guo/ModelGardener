@@ -7,9 +7,6 @@ following the same pattern as other custom function groups with load button func
 
 import os
 import ast
-import importlib.util
-import inspect
-from typing import Dict, Any, List, Optional
 
 # CLI-only message functions (no GUI dialogs)
 def cli_info(title, message):
@@ -30,57 +27,61 @@ def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
     print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
     return "", ""
 
-import pyqtgraph.parametertree.parameterTypes as pTypes
 
-
-class TrainingLoopGroup(pTypes.GroupParameter):
+class TrainingLoopGroup:
     """Custom training loop group that includes preset training configurations and allows loading custom training loops from files."""
     
-    def __init__(self, **opts):
-        opts['type'] = 'group'
-        pTypes.GroupParameter.__init__(self, **opts)
+    def __init__(self, **_):
+        self.config = {
+            'Training Strategy': {
+                'selected_strategy': 'Standard Training',
+                'use_distributed': False,
+                'mixed_precision': False
+            },
+            'Strategy Config': {}
+        }
+        self._custom_training_strategies = {}
         
-        # Add training strategy selection
-        self._add_training_strategy()
+        # Initialize with default strategy parameters
+        self._update_strategy_parameters()
+    
+    def get_value(self, path):
+        """Get a configuration value by path."""
+        keys = path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                return None
+        return value
+    
+    def get_config(self):
+        """Get the current training loop configuration."""
+        return dict(self.config)
         
-        # Add custom training loop button
-        self._add_custom_button()
+    def set_config(self, config):
+        """Set the training loop configuration."""
+        self.config.update(config)
+    
+    def set_value(self, path, value):
+        """Set a configuration value by path."""
+        keys = path.split('.')
+        config = self.config
+        for key in keys[:-1]:
+            if key not in config:
+                config[key] = {}
+            config = config[key]
+        config[keys[-1]] = value
+        
+        # Update strategy parameters if strategy changed
+        if path == 'Training Strategy.selected_strategy':
+            self._update_strategy_parameters()
     
     def _add_training_strategy(self):
-        """Add training strategy selection."""
-        self.addChild({
-            'name': 'Training Strategy',
-            'type': 'group',
-            'children': [
-                {
-                    'name': 'selected_strategy',
-                    'type': 'list',
-                    'limits': self._get_training_strategy_options(),
-                    'value': 'Standard Training',
-                    'tip': 'Select the training strategy/loop to use'
-                },
-                {
-                    'name': 'use_distributed',
-                    'type': 'bool',
-                    'value': False,
-                    'tip': 'Enable distributed training across multiple devices'
-                },
-                {
-                    'name': 'mixed_precision',
-                    'type': 'bool',
-                    'value': False,
-                    'tip': 'Enable automatic mixed precision training'
-                }
-            ],
-            'tip': 'Configure the training loop strategy and options'
-        })
-        
-        # Connect strategy change to parameter update
-        strategy_group = self.child('Training Strategy')
-        strategy_group.child('selected_strategy').sigValueChanged.connect(self._update_strategy_parameters)
-        
-        # Add initial parameters
-        self._add_strategy_parameters()
+        """Initialize training strategy configuration."""
+        # This method is now handled in __init__
+        return
     
     def _get_training_strategy_options(self):
         """Get list of available training strategy names including custom ones."""
@@ -101,26 +102,16 @@ class TrainingLoopGroup(pTypes.GroupParameter):
     
     def _add_strategy_parameters(self):
         """Add parameters for the selected training strategy."""
-        strategy_group = self.child('Training Strategy')
-        if not strategy_group:
-            return
-            
-        selected_strategy = strategy_group.child('selected_strategy').value()
+        selected_strategy = self.config['Training Strategy']['selected_strategy']
         
-        # Remove existing strategy-specific parameters
-        for child in list(self.children()):
-            if child.name().startswith('Strategy Config'):
-                self.removeChild(child)
-        
-        # Add strategy-specific parameters
+        # Get strategy-specific parameters
         strategy_params = self._get_strategy_parameters(selected_strategy)
-        if strategy_params:
-            self.addChild({
-                'name': 'Strategy Config',
-                'type': 'group',
-                'children': strategy_params,
-                'tip': f'Configuration parameters for {selected_strategy}'
-            })
+        
+        # Update strategy config
+        self.config['Strategy Config'] = {}
+        for param in strategy_params:
+            self.config['Strategy Config'][param['name']] = param['value']
+            self.config['Strategy Config'][param['name']] = param['value']
     
     def _get_strategy_parameters(self, strategy_name):
         """Get parameters for a specific training strategy."""
@@ -209,27 +200,11 @@ class TrainingLoopGroup(pTypes.GroupParameter):
     
     def _add_custom_button(self):
         """Add button to load custom training loops."""
-        self.addChild({
-            'name': 'Load Custom Training Loop',
-            'type': 'action',
-            'title': 'Load Custom Training Loop...',
-            'tip': 'Load custom training loop function from a Python file'
-        })
-        
-        # Connect the button
-        load_button = self.child('Load Custom Training Loop')
-        load_button.sigActivated.connect(self._load_custom_training_loop)
+        # In CLI mode, this is handled through configuration files
+        return
     
-    def _load_custom_training_loop(self):
+    def load_custom_training_loop(self, file_path):
         """Load custom training loop functions from a Python file."""
-        file_path, _ = cli_get_file_path(
-            "Load Custom Training Loop",
-            "Python Files (*.py);;All Files (*)"
-        )
-        
-        if not file_path:
-            return
-        
         try:
             # Load and parse the Python file
             custom_functions = self._extract_training_loop_functions(file_path)
@@ -240,14 +215,11 @@ class TrainingLoopGroup(pTypes.GroupParameter):
                     "No valid training loop functions found in the selected file.\n\n"
                     "Functions should be named with 'train' or 'loop' in the name and accept appropriate training parameters."
                 )
-                return
+                return False
             
             # Add custom functions to the available training strategy options
             for func_name, func_info in custom_functions.items():
                 self._add_custom_training_strategy(func_name, func_info)
-            
-            # Update training strategy dropdown
-            self._update_training_strategy_options()
             
             cli_info(
                 "Functions Loaded",
@@ -255,12 +227,14 @@ class TrainingLoopGroup(pTypes.GroupParameter):
                 "\n".join(custom_functions.keys()) +
                 "\n\nThese functions are now available in the training strategy selection."
             )
+            return True
                 
-        except Exception as e:
+        except (OSError, ValueError, SyntaxError) as e:
             cli_error(
                 "Error Loading File",
                 f"Failed to load custom training loop functions from file:\n{str(e)}"
             )
+            return False
     
     def _extract_training_loop_functions(self, file_path):
         """Extract training loop functions from a Python file."""
@@ -307,7 +281,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
                         
                         custom_functions[class_name] = class_info
         
-        except Exception as e:
+        except (OSError, SyntaxError) as e:
             print(f"Error parsing file {file_path}: {e}")
         
         return custom_functions
@@ -425,36 +399,17 @@ class TrainingLoopGroup(pTypes.GroupParameter):
     
     def _update_training_strategy_options(self):
         """Update the training strategy dropdown with custom options."""
-        strategy_group = self.child('Training Strategy')
-        if strategy_group:
-            selected_strategy_param = strategy_group.child('selected_strategy')
-            if selected_strategy_param:
-                new_options = self._get_training_strategy_options()
-                selected_strategy_param.setLimits(new_options)
+        # In CLI mode, options are updated through the config system
+        return
     
     def get_training_loop_config(self):
         """Get the current training loop configuration."""
-        config = {}
-        
-        # Get training strategy configuration
-        strategy_group = self.child('Training Strategy')
-        if strategy_group:
-            config['Training Strategy'] = {}
-            for child in strategy_group.children():
-                config['Training Strategy'][child.name()] = child.value()
-        
-        # Get strategy-specific configuration
-        strategy_config = self.child('Strategy Config')
-        if strategy_config:
-            config['Strategy Config'] = {}
-            for child in strategy_config.children():
-                config['Strategy Config'][child.name()] = child.value()
+        config = dict(self.config)
         
         # Include custom training strategy info if applicable
-        if hasattr(self, '_custom_training_strategies'):
-            selected_strategy = strategy_group.child('selected_strategy').value()
-            if selected_strategy in self._custom_training_strategies:
-                config['custom_info'] = self._custom_training_strategies[selected_strategy].copy()
+        selected_strategy = self.config['Training Strategy']['selected_strategy']
+        if hasattr(self, '_custom_training_strategies') and selected_strategy in self._custom_training_strategies:
+            config['custom_info'] = self._custom_training_strategies[selected_strategy].copy()
         
         return config
     
@@ -463,23 +418,17 @@ class TrainingLoopGroup(pTypes.GroupParameter):
         try:
             # Set training strategy configuration
             if 'Training Strategy' in config:
-                strategy_group = self.child('Training Strategy')
-                if strategy_group:
-                    strategy_config = config['Training Strategy']
-                    for param_name, value in strategy_config.items():
-                        param = strategy_group.child(param_name)
-                        if param:
-                            param.setValue(value)
+                strategy_config = config['Training Strategy']
+                for param_name, value in strategy_config.items():
+                    if param_name in self.config['Training Strategy']:
+                        self.config['Training Strategy'][param_name] = value
             
             # Set strategy-specific configuration  
             if 'Strategy Config' in config:
-                strategy_config_group = self.child('Strategy Config')
-                if strategy_config_group:
-                    strategy_params = config['Strategy Config']
-                    for param_name, value in strategy_params.items():
-                        param = strategy_config_group.child(param_name)
-                        if param:
-                            param.setValue(value)
+                strategy_params = config['Strategy Config']
+                for param_name, value in strategy_params.items():
+                    if param_name in self.config['Strategy Config']:
+                        self.config['Strategy Config'][param_name] = value
             
             # Load custom training strategy if needed
             if 'custom_info' in config:
@@ -492,10 +441,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
                 strategy_name = custom_info['name'] + ' (custom)'
                 self._custom_training_strategies[strategy_name] = custom_info
                 
-                # Update dropdown options
-                self._update_training_strategy_options()
-                
-        except Exception as e:
+        except (KeyError, ValueError) as e:
             print(f"Error setting training loop config: {e}")
     
     def load_custom_training_loop_from_metadata(self, training_loop_info):
@@ -512,7 +458,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
             
             # Find the specific function
             target_function = None
-            for func_name, func_info in custom_functions.items():
+            for _, func_info in custom_functions.items():
                 if func_info['function_name'] == function_name or func_info.get('class_name') == function_name:
                     target_function = func_info
                     break
@@ -523,7 +469,7 @@ class TrainingLoopGroup(pTypes.GroupParameter):
                 self._update_training_strategy_options()
                 return True
                 
-        except Exception as e:
+        except (OSError, KeyError, ValueError) as e:
             print(f"Error loading custom training loop from metadata: {e}")
         
         return False

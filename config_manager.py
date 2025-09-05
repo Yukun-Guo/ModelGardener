@@ -8,8 +8,6 @@ import yaml
 import os
 import importlib.util
 from typing import Dict, Any, Optional, List
-from PySide6.QtWidgets import QMessageBox
-
 # Import script generator
 try:
     from script_generator import ScriptGenerator
@@ -21,8 +19,8 @@ except ImportError:
 class ConfigManager:
     """Enhanced configuration manager that properly handles custom functions."""
     
-    def __init__(self, main_window=None):
-        self.main_window = main_window
+    def __init__(self):
+        pass
         
     def save_enhanced_config(self, config_data: Dict[str, Any], file_path: str, 
                            custom_functions_info: Optional[Dict] = None) -> bool:
@@ -74,9 +72,6 @@ class ConfigManager:
             return True
             
         except Exception as e:
-            if self.main_window:
-                QMessageBox.critical(self.main_window, "Save Error", 
-                                   f"Failed to save configuration:\n{str(e)}")
             return False
     
     def _get_current_timestamp(self) -> str:
@@ -131,9 +126,6 @@ class ConfigManager:
                 
         except Exception as e:
             print(f"❌ Error generating Python scripts: {str(e)}")
-            if self.main_window:
-                # Don't show critical error for script generation failure, just log it
-                print(f"Script generation error: {str(e)}")
     
     
     def _enhance_custom_functions_metadata(self, custom_functions_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -311,9 +303,6 @@ class ConfigManager:
             return config_data, custom_functions_info
             
         except Exception as e:
-            if self.main_window:
-                QMessageBox.critical(self.main_window, "Load Error", 
-                                   f"Failed to load configuration:\n{str(e)}")
             return None, None
     
     def _extract_embedded_custom_functions(self, custom_functions_info: Dict[str, Any], 
@@ -451,17 +440,13 @@ class ConfigManager:
         
         message += "Custom functions are now ready to be loaded into ModelGardener!"
         
-        if errors:
-            QMessageBox.warning(self.main_window, "Custom Functions Extraction", message)
-        else:
-            QMessageBox.information(self.main_window, "Custom Functions Extraction", message)
     
-    def collect_custom_functions_info(self, parameter_tree) -> Dict[str, Any]:
+    def collect_custom_functions_info(self, custom_functions_registry: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Collect custom functions information from parameter tree groups.
+        Collect custom functions information from registry or groups.
         
         Args:
-            parameter_tree: The main parameter tree
+            custom_functions_registry: Registry of custom functions from configuration groups
             
         Returns:
             Dict containing custom functions metadata
@@ -471,135 +456,27 @@ class ConfigManager:
             'optimizers': [],
             'loss_functions': [],
             'metrics': [],
-            'models': [],  # Add custom models collection
+            'models': [],
             'augmentations': [],
             'callbacks': [],
             'preprocessing': [],
-            'training_loops': []  # Add training loops collection
+            'training_loops': []
         }
         
+        if not custom_functions_registry:
+            return custom_info
+        
         try:
-            # Get basic configuration groups only (no advanced section)
-            basic_group = parameter_tree.child('basic')
-            if basic_group:
-                # Data related custom functions
-                data_group = basic_group.child('data')
-                if data_group:
-                    # Data loaders
-                    data_loader_group = data_group.child('data_loader')
-                    if data_loader_group and hasattr(data_loader_group, '_custom_data_loaders'):
-                        for name, info in data_loader_group._custom_data_loaders.items():
-                            custom_info['data_loaders'].append({
+            # Convert registry format to metadata format
+            for func_type, functions_dict in custom_functions_registry.items():
+                if func_type in custom_info and functions_dict:
+                    for name, info in functions_dict.items():
+                        if isinstance(info, dict):
+                            custom_info[func_type].append({
                                 'name': name,
-                                'file_path': info['file_path'],
-                                'original_name': info['original_name'],
-                                'type': info['type']
-                            })
-                    
-                    # Preprocessing functions
-                    preprocessing_group = data_group.child('preprocessing')
-                    if preprocessing_group:
-                        for child in preprocessing_group.children():
-                            if child.name().endswith('(custom)'):
-                                file_path_param = child.child('file_path')
-                                function_name_param = child.child('function_name')
-                                if file_path_param and function_name_param:
-                                    custom_info['preprocessing'].append({
-                                        'name': child.name(),
-                                        'file_path': file_path_param.value(),
-                                        'function_name': function_name_param.value()
-                                    })
-                    
-                    # Augmentations (moved to basic > data)
-                    aug_group = data_group.child('augmentation')
-                    if aug_group:
-                        for child in aug_group.children():
-                            if child.name().endswith('(custom)'):
-                                file_path_param = child.child('file_path')
-                                function_name_param = child.child('function_name')
-                                if file_path_param and function_name_param:
-                                    custom_info['augmentations'].append({
-                                        'name': child.name(),
-                                        'file_path': file_path_param.value(),
-                                        'function_name': function_name_param.value()
-                                    })
-                
-                # Model related custom functions
-                model_group = basic_group.child('model')
-                if model_group:
-                    # Custom models
-                    model_parameters_group = model_group.child('model_parameters')
-                    if (model_parameters_group and 
-                        hasattr(model_parameters_group, 'custom_model_path') and 
-                        hasattr(model_parameters_group, 'custom_model_function')):
-                        if (model_parameters_group.custom_model_path and 
-                            model_parameters_group.custom_model_function):
-                            custom_info['models'].append({
-                                'name': model_parameters_group.custom_model_function.get('name'),
-                                'file_path': model_parameters_group.custom_model_function.get('file_path'),
-                                'function_name': model_parameters_group.custom_model_function.get('name'),
-                                'type': model_parameters_group.custom_model_function.get('type', 'function')
-                            })
-                    
-                    # Optimizers
-                    optimizer_group = model_group.child('optimizer')
-                    if optimizer_group and hasattr(optimizer_group, '_custom_optimizer_metadata'):
-                        for name, info in optimizer_group._custom_optimizer_metadata.items():
-                            custom_info['optimizers'].append({
-                                'name': name,
-                                'file_path': info['file_path'],
-                                'function_name': info['function_name'],
-                                'type': info['type']
-                            })
-                    
-                    # Loss functions
-                    loss_group = model_group.child('loss_functions')
-                    if loss_group and hasattr(loss_group, '_custom_loss_functions'):
-                        for name, info in loss_group._custom_loss_functions.items():
-                            custom_info['loss_functions'].append({
-                                'name': name,
-                                'file_path': info['file_path'],
-                                'function_name': info['function_name'],
-                                'type': info['type']
-                            })
-                    
-                    # Metrics
-                    metrics_group = model_group.child('metrics')
-                    if metrics_group and hasattr(metrics_group, '_custom_metric_functions'):
-                        for name, info in metrics_group._custom_metric_functions.items():
-                            custom_info['metrics'].append({
-                                'name': name,
-                                'file_path': info['file_path'],
-                                'function_name': info['function_name'],
-                                'type': info['type']
-                            })
-                    
-                    # Callbacks (moved to basic > model)
-                    callbacks_group = model_group.child('callbacks')
-                    if callbacks_group:
-                        for child in callbacks_group.children():
-                            if child.name().endswith('(custom)'):
-                                file_path_param = child.child('file_path')
-                                function_name_param = child.child('function_name')
-                                if file_path_param and function_name_param:
-                                    custom_info['callbacks'].append({
-                                        'name': child.name(),
-                                        'file_path': file_path_param.value(),
-                                        'function_name': function_name_param.value()
-                                    })
-                
-                # Training related custom functions
-                training_group = basic_group.child('training')
-                if training_group:
-                    training_loop_group = training_group.child('training_loop')
-                    if training_loop_group and hasattr(training_loop_group, '_custom_training_strategies'):
-                        for name, info in training_loop_group._custom_training_strategies.items():
-                            custom_info['training_loops'].append({
-                                'name': name,
-                                'file_path': info['file_path'],
-                                'function_name': info['function_name'] if info.get('type') == 'function' else None,
-                                'class_name': info['class_name'] if info.get('type') == 'class' else None,
-                                'type': info['type']
+                                'file_path': info.get('file_path', ''),
+                                'function_name': info.get('function_name', info.get('original_name', name)),
+                                'type': info.get('type', 'function')
                             })
         
         except Exception as e:
@@ -607,9 +484,12 @@ class ConfigManager:
         
         return custom_info
     
-    def get_all_custom_functions(self) -> Dict[str, Any]:
+    def get_all_custom_functions(self, custom_functions_registry: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Get all loaded custom functions organized by type for the enhanced trainer.
+        
+        Args:
+            custom_functions_registry: Registry of custom functions from configuration groups
         
         Returns:
             Dict containing loaded custom functions organized by type
@@ -626,93 +506,14 @@ class ConfigManager:
             'training_loops': {}
         }
         
-        if not self.main_window or not hasattr(self.main_window, 'params'):
+        if not custom_functions_registry:
             return custom_functions
         
         try:
-            # Get parameter tree
-            params = self.main_window.params
-            
-            # Get basic configuration groups only (no advanced section)
-            basic_group = params.child('basic')
-            if basic_group:
-                # Data related custom functions
-                try:
-                    data_group = basic_group.child('data')
-                    if data_group:
-                        # Data loaders
-                        data_loader_group = data_group.child('data_loader')
-                        if data_loader_group and hasattr(data_loader_group, '_custom_data_loaders'):
-                            custom_functions['data_loaders'] = data_loader_group._custom_data_loaders
-                        
-                        # Preprocessing functions
-                        preprocessing_group = data_group.child('preprocessing')
-                        if preprocessing_group and hasattr(preprocessing_group, '_custom_preprocessing'):
-                            custom_functions['preprocessing'] = preprocessing_group._custom_preprocessing
-                        
-                        # Augmentations (moved to basic > data)
-                        augmentation_group = data_group.child('augmentation')
-                        if augmentation_group and hasattr(augmentation_group, '_custom_augmentations'):
-                            custom_functions['augmentations'] = augmentation_group._custom_augmentations
-                except:
-                    pass  # data group doesn't exist
-                
-                # Model related custom functions
-                try:
-                    model_group = basic_group.child('model')
-                    if model_group:
-                        # Custom models - get from model_parameters group
-                        try:
-                            model_parameters_group = model_group.child('model_parameters')
-                            if (model_parameters_group and 
-                                hasattr(model_parameters_group, 'custom_models')):
-                                custom_functions['models'] = getattr(model_parameters_group, 'custom_models', {})
-                        except:
-                            pass  # model_parameters doesn't exist
-                        
-                        # Optimizers
-                        try:
-                            optimizer_group = model_group.child('optimizer')
-                            if optimizer_group and hasattr(optimizer_group, '_custom_optimizers'):
-                                custom_functions['optimizers'] = optimizer_group._custom_optimizers
-                        except:
-                            pass  # optimizer group doesn't exist
-                        
-                        # Loss functions  
-                        try:
-                            loss_group = model_group.child('loss_functions')
-                            if loss_group and hasattr(loss_group, '_custom_loss_functions'):
-                                custom_functions['loss_functions'] = loss_group._custom_loss_functions
-                        except:
-                            pass  # loss_functions group doesn't exist
-                        
-                        # Metrics
-                        try:
-                            metrics_group = model_group.child('metrics')
-                            if metrics_group and hasattr(metrics_group, '_custom_metric_functions'):
-                                custom_functions['metrics'] = metrics_group._custom_metric_functions
-                        except:
-                            pass  # metrics group doesn't exist
-                            
-                        # Callbacks (moved to basic > model)
-                        try:
-                            callbacks_group = model_group.child('callbacks')
-                            if callbacks_group and hasattr(callbacks_group, '_custom_callbacks'):
-                                custom_functions['callbacks'] = callbacks_group._custom_callbacks
-                        except:
-                            pass  # callbacks group doesn't exist
-                except:
-                    pass  # model group doesn't exist
-                
-                # Training related custom functions
-                try:
-                    training_group = basic_group.child('training')
-                    if training_group:
-                        training_loop_group = training_group.child('training_loop')
-                        if training_loop_group and hasattr(training_loop_group, '_custom_training_strategies'):
-                            custom_functions['training_loops'] = training_loop_group._custom_training_strategies
-                except:
-                    pass  # training_loop group doesn't exist
+            # Copy registry data if provided
+            for func_type in custom_functions.keys():
+                if func_type in custom_functions_registry:
+                    custom_functions[func_type] = custom_functions_registry[func_type] or {}
         
         except Exception as e:
             print(f"Error collecting custom functions: {e}")
@@ -720,13 +521,13 @@ class ConfigManager:
         return custom_functions
     
     def restore_custom_functions(self, custom_functions_info: Dict[str, Any], 
-                                parameter_tree) -> List[str]:
+                                groups_registry: Dict[str, Any]) -> List[str]:
         """
         Restore custom functions from metadata.
         
         Args:
             custom_functions_info: Dictionary containing custom functions metadata
-            parameter_tree: The main parameter tree
+            groups_registry: Dictionary of group objects
             
         Returns:
             List of error messages for functions that couldn't be restored
@@ -741,214 +542,180 @@ class ConfigManager:
                 errors.append("CustomFunctionsLoader not available")
                 return errors
             
-            # Get basic group once
-            basic_group = parameter_tree.child('basic')
-            if not basic_group:
-                errors.append("Basic configuration group not found")
-                return errors
-            
             # Restore data loaders
             for loader_info in custom_functions_info.get('data_loaders', []):
                 try:
-                    data_group = basic_group.child('data')
-                    if data_group:
-                        data_loader_group = data_group.child('data_loader')
-                        if data_loader_group and hasattr(data_loader_group, 'load_custom_data_loader_from_metadata'):
-                            success = data_loader_group.load_custom_data_loader_from_metadata(loader_info)
+                    data_loader_group = groups_registry.get('data_loader')
+                    if data_loader_group and hasattr(data_loader_group, 'load_custom_data_loader_from_metadata'):
+                        success = data_loader_group.load_custom_data_loader_from_metadata(loader_info)
+                        if not success:
+                            errors.append(f"Failed to load data loader: {loader_info.get('name', 'unknown')}")
+                    else:
+                        # Fallback method
+                        file_path = loader_info.get('file_path')
+                        original_name = loader_info.get('original_name', loader_info.get('function_name'))
+                        if file_path and os.path.exists(file_path) and data_loader_group:
+                            success = CustomFunctionsLoader.load_custom_data_loader_from_file(
+                                data_loader_group, file_path, original_name
+                            )
                             if not success:
                                 errors.append(f"Failed to load data loader: {loader_info.get('name', 'unknown')}")
                         else:
-                            # Fallback method
-                            file_path = loader_info.get('file_path')
-                            original_name = loader_info.get('original_name', loader_info.get('function_name'))
-                            if file_path and os.path.exists(file_path) and data_loader_group:
-                                success = CustomFunctionsLoader.load_custom_data_loader_from_file(
-                                    data_loader_group, file_path, original_name
-                                )
-                                if not success:
-                                    errors.append(f"Failed to load data loader: {loader_info.get('name', 'unknown')}")
-                            else:
-                                errors.append(f"Data loader file not found: {file_path}")
-                    else:
-                        errors.append(f"Data group not found for data loader: {loader_info.get('name', 'unknown')}")
+                            errors.append(f"Data loader file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore data loader {loader_info.get('name', 'unknown')}: {e}")
             
             # Restore metrics
             for metric_info in custom_functions_info.get('metrics', []):
                 try:
-                    model_group = basic_group.child('model')
-                    if model_group:
-                        metrics_group = model_group.child('metrics')
-                        if metrics_group and hasattr(metrics_group, 'load_custom_metric_from_metadata'):
-                            success = metrics_group.load_custom_metric_from_metadata(metric_info)
+                    metrics_group = groups_registry.get('metrics')
+                    if metrics_group and hasattr(metrics_group, 'load_custom_metric_from_metadata'):
+                        success = metrics_group.load_custom_metric_from_metadata(metric_info)
+                        if not success:
+                            errors.append(f"Failed to load metric: {metric_info.get('name', 'unknown')}")
+                    else:
+                        # Fallback method
+                        file_path = metric_info.get('file_path')
+                        function_name = metric_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and metrics_group:
+                            success = CustomFunctionsLoader.load_custom_metric_from_file(
+                                metrics_group, file_path, function_name
+                            )
                             if not success:
                                 errors.append(f"Failed to load metric: {metric_info.get('name', 'unknown')}")
                         else:
-                            # Fallback method
-                            file_path = metric_info.get('file_path')
-                            function_name = metric_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and metrics_group:
-                                success = CustomFunctionsLoader.load_custom_metric_from_file(
-                                    metrics_group, file_path, function_name
-                                )
-                                if not success:
-                                    errors.append(f"Failed to load metric: {metric_info.get('name', 'unknown')}")
-                            else:
-                                errors.append(f"Metric file not found: {file_path}")
-                    else:
-                        errors.append(f"Model group not found for metric: {metric_info.get('name', 'unknown')}")
+                            errors.append(f"Metric file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore metric {metric_info.get('name', 'unknown')}: {e}")
             
             # Restore loss functions
             for loss_info in custom_functions_info.get('loss_functions', []):
                 try:
-                    model_group = basic_group.child('model')
-                    if model_group:
-                        loss_group = model_group.child('loss_functions')
-                        if loss_group and hasattr(loss_group, 'load_custom_loss_function_from_metadata'):
-                            success = loss_group.load_custom_loss_function_from_metadata(loss_info)
+                    loss_group = groups_registry.get('loss_functions')
+                    if loss_group and hasattr(loss_group, 'load_custom_loss_function_from_metadata'):
+                        success = loss_group.load_custom_loss_function_from_metadata(loss_info)
+                        if not success:
+                            errors.append(f"Failed to load loss function: {loss_info.get('name', 'unknown')}")
+                    else:
+                        # Fallback method
+                        file_path = loss_info.get('file_path')
+                        function_name = loss_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and loss_group:
+                            success = CustomFunctionsLoader.load_custom_loss_function_from_file(
+                                loss_group, file_path, function_name
+                            )
                             if not success:
                                 errors.append(f"Failed to load loss function: {loss_info.get('name', 'unknown')}")
                         else:
-                            # Fallback method
-                            file_path = loss_info.get('file_path')
-                            function_name = loss_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and loss_group:
-                                success = CustomFunctionsLoader.load_custom_loss_function_from_file(
-                                    loss_group, file_path, function_name
-                                )
-                                if not success:
-                                    errors.append(f"Failed to load loss function: {loss_info.get('name', 'unknown')}")
-                            else:
-                                errors.append(f"Loss function file not found: {file_path}")
-                    else:
-                        errors.append(f"Model group not found for loss function: {loss_info.get('name', 'unknown')}")
+                            errors.append(f"Loss function file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore loss function {loss_info.get('name', 'unknown')}: {e}")
             
             # Restore optimizers
             for optimizer_info in custom_functions_info.get('optimizers', []):
                 try:
-                    model_group = basic_group.child('model')
-                    if model_group:
-                        optimizer_group = model_group.child('optimizer')
-                        if optimizer_group and hasattr(optimizer_group, 'load_custom_optimizer_from_metadata'):
-                            success = optimizer_group.load_custom_optimizer_from_metadata(optimizer_info)
-                            if not success:
-                                errors.append(f"Failed to load optimizer: {optimizer_info.get('name', 'unknown')}")
-                        else:
-                            # Fallback method if needed
-                            file_path = optimizer_info.get('file_path')
-                            function_name = optimizer_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and optimizer_group:
-                                try:
-                                    success = CustomFunctionsLoader.load_custom_optimizer_from_file(
-                                        optimizer_group, file_path, function_name
-                                    )
-                                    if not success:
-                                        errors.append(f"Failed to load optimizer: {optimizer_info.get('name', 'unknown')}")
-                                except AttributeError:
-                                    # Method might not exist, skip for now
-                                    pass
-                            else:
-                                errors.append(f"Optimizer file not found: {file_path}")
+                    optimizer_group = groups_registry.get('optimizer')
+                    if optimizer_group and hasattr(optimizer_group, 'load_custom_optimizer_from_metadata'):
+                        success = optimizer_group.load_custom_optimizer_from_metadata(optimizer_info)
+                        if not success:
+                            errors.append(f"Failed to load optimizer: {optimizer_info.get('name', 'unknown')}")
                     else:
-                        errors.append(f"Model group not found for optimizer: {optimizer_info.get('name', 'unknown')}")
+                        # Fallback method if needed
+                        file_path = optimizer_info.get('file_path')
+                        function_name = optimizer_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and optimizer_group:
+                            try:
+                                success = CustomFunctionsLoader.load_custom_optimizer_from_file(
+                                    optimizer_group, file_path, function_name
+                                )
+                                if not success:
+                                    errors.append(f"Failed to load optimizer: {optimizer_info.get('name', 'unknown')}")
+                            except AttributeError:
+                                # Method might not exist, skip for now
+                                pass
+                        else:
+                            errors.append(f"Optimizer file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore optimizer {optimizer_info.get('name', 'unknown')}: {e}")
             
-            # Restore callbacks (moved to basic > model)
+            # Restore callbacks
             for callback_info in custom_functions_info.get('callbacks', []):
                 try:
-                    model_group = basic_group.child('model')
-                    if model_group:
-                        callbacks_group = model_group.child('callbacks')
-                        if callbacks_group and hasattr(callbacks_group, 'load_custom_callback_from_metadata'):
-                            success = callbacks_group.load_custom_callback_from_metadata(callback_info)
-                            if not success:
-                                errors.append(f"Failed to load callback: {callback_info.get('name', 'unknown')}")
-                        else:
-                            # Fallback method
-                            file_path = callback_info.get('file_path')
-                            function_name = callback_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and callbacks_group:
-                                try:
-                                    success = CustomFunctionsLoader.load_custom_callback_from_file(
-                                        callbacks_group, file_path, function_name
-                                    )
-                                    if not success:
-                                        errors.append(f"Failed to load callback: {callback_info.get('name', 'unknown')}")
-                                except AttributeError:
-                                    # Method might not exist, skip for now
-                                    pass
-                            else:
-                                errors.append(f"Callback file not found: {file_path}")
+                    callbacks_group = groups_registry.get('callbacks')
+                    if callbacks_group and hasattr(callbacks_group, 'load_custom_callback_from_metadata'):
+                        success = callbacks_group.load_custom_callback_from_metadata(callback_info)
+                        if not success:
+                            errors.append(f"Failed to load callback: {callback_info.get('name', 'unknown')}")
                     else:
-                        errors.append(f"Model group not found for callback: {callback_info.get('name', 'unknown')}")
+                        # Fallback method
+                        file_path = callback_info.get('file_path')
+                        function_name = callback_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and callbacks_group:
+                            try:
+                                success = CustomFunctionsLoader.load_custom_callback_from_file(
+                                    callbacks_group, file_path, function_name
+                                )
+                                if not success:
+                                    errors.append(f"Failed to load callback: {callback_info.get('name', 'unknown')}")
+                            except AttributeError:
+                                # Method might not exist, skip for now
+                                pass
+                        else:
+                            errors.append(f"Callback file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore callback {callback_info.get('name', 'unknown')}: {e}")
             
-            # Restore augmentations (moved to basic > data)
+            # Restore augmentations
             for augmentation_info in custom_functions_info.get('augmentations', []):
                 try:
-                    data_group = basic_group.child('data')
-                    if data_group:
-                        augmentation_group = data_group.child('augmentation')
-                        if augmentation_group and hasattr(augmentation_group, 'load_custom_augmentation_from_metadata'):
-                            success = augmentation_group.load_custom_augmentation_from_metadata(augmentation_info)
-                            if not success:
-                                errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
-                        else:
-                            # Fallback method
-                            file_path = augmentation_info.get('file_path')
-                            function_name = augmentation_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and augmentation_group:
-                                try:
-                                    success = CustomFunctionsLoader.load_custom_augmentation_from_file(
-                                        augmentation_group, file_path, function_name
-                                    )
-                                    if not success:
-                                        errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
-                                except AttributeError:
-                                    # Method might not exist, skip for now
-                                    pass
-                            else:
-                                errors.append(f"Augmentation file not found: {file_path}")
+                    augmentation_group = groups_registry.get('augmentation')
+                    if augmentation_group and hasattr(augmentation_group, 'load_custom_augmentation_from_metadata'):
+                        success = augmentation_group.load_custom_augmentation_from_metadata(augmentation_info)
+                        if not success:
+                            errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
                     else:
-                        errors.append(f"Data group not found for augmentation: {augmentation_info.get('name', 'unknown')}")
+                        # Fallback method
+                        file_path = augmentation_info.get('file_path')
+                        function_name = augmentation_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and augmentation_group:
+                            try:
+                                success = CustomFunctionsLoader.load_custom_augmentation_from_file(
+                                    augmentation_group, file_path, function_name
+                                )
+                                if not success:
+                                    errors.append(f"Failed to load augmentation: {augmentation_info.get('name', 'unknown')}")
+                            except AttributeError:
+                                # Method might not exist, skip for now
+                                pass
+                        else:
+                            errors.append(f"Augmentation file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore augmentation {augmentation_info.get('name', 'unknown')}: {e}")
             
             # Restore preprocessing functions
             for preprocessing_info in custom_functions_info.get('preprocessing', []):
                 try:
-                    data_group = basic_group.child('data')
-                    if data_group:
-                        preprocessing_group = data_group.child('preprocessing')
-                        if preprocessing_group and hasattr(preprocessing_group, 'load_custom_preprocessing_from_metadata'):
-                            success = preprocessing_group.load_custom_preprocessing_from_metadata(preprocessing_info)
-                            if not success:
-                                errors.append(f"Failed to load preprocessing: {preprocessing_info.get('name', 'unknown')}")
-                        else:
-                            # Fallback method
-                            file_path = preprocessing_info.get('file_path')
-                            function_name = preprocessing_info.get('function_name')
-                            if file_path and os.path.exists(file_path) and preprocessing_group:
-                                try:
-                                    success = CustomFunctionsLoader.load_custom_preprocessing_from_file(
-                                        preprocessing_group, file_path, function_name
-                                    )
-                                    if not success:
-                                        errors.append(f"Failed to load preprocessing: {preprocessing_info.get('name', 'unknown')}")
-                                except AttributeError:
-                                    # Method might not exist, skip for now
-                                    pass
-                            else:
-                                errors.append(f"Preprocessing file not found: {file_path}")
+                    preprocessing_group = groups_registry.get('preprocessing')
+                    if preprocessing_group and hasattr(preprocessing_group, 'load_custom_preprocessing_from_metadata'):
+                        success = preprocessing_group.load_custom_preprocessing_from_metadata(preprocessing_info)
+                        if not success:
+                            errors.append(f"Failed to load preprocessing: {preprocessing_info.get('name', 'unknown')}")
                     else:
-                        errors.append(f"Data group not found for preprocessing: {preprocessing_info.get('name', 'unknown')}")
+                        # Fallback method
+                        file_path = preprocessing_info.get('file_path')
+                        function_name = preprocessing_info.get('function_name')
+                        if file_path and os.path.exists(file_path) and preprocessing_group:
+                            try:
+                                success = CustomFunctionsLoader.load_custom_preprocessing_from_file(
+                                    preprocessing_group, file_path, function_name
+                                )
+                                if not success:
+                                    errors.append(f"Failed to load preprocessing: {preprocessing_info.get('name', 'unknown')}")
+                            except AttributeError:
+                                # Method might not exist, skip for now
+                                pass
+                        else:
+                            errors.append(f"Preprocessing file not found: {file_path}")
                 except Exception as e:
                     errors.append(f"Failed to restore preprocessing {preprocessing_info.get('name', 'unknown')}: {e}")
             
@@ -958,13 +725,13 @@ class ConfigManager:
         return errors
     
     def auto_reload_custom_functions(self, custom_functions_info: Dict[str, Any], 
-                                   parameter_tree) -> bool:
+                                   groups_registry: Dict[str, Any]) -> bool:
         """
         Automatically reload custom functions when loading a configuration.
         
         Args:
             custom_functions_info: Dictionary containing custom functions metadata
-            parameter_tree: The main parameter tree
+            groups_registry: Dictionary of group objects
             
         Returns:
             bool: True if all functions were loaded successfully
@@ -972,14 +739,11 @@ class ConfigManager:
         if not custom_functions_info:
             return True
         
-        errors = self.restore_custom_functions(custom_functions_info, parameter_tree)
+        errors = self.restore_custom_functions(custom_functions_info, groups_registry)
         
         if errors:
             error_msg = "Some custom functions could not be reloaded:\n\n" + "\n".join(errors)
             error_msg += "\n\nYou may need to manually reload these custom functions."
-            
-            if self.main_window:
-                QMessageBox.warning(self.main_window, "Custom Functions Warning", error_msg)
             return False
         
         return True
@@ -1078,9 +842,6 @@ class ConfigManager:
             return True
             
         except Exception as e:
-            if self.main_window:
-                QMessageBox.critical(self.main_window, "Package Creation Error", 
-                                   f"Failed to create shareable package:\n{str(e)}")
             return False
     
     def _generate_package_readme(self, config_data: Dict[str, Any], 

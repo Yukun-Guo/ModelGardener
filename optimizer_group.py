@@ -9,6 +9,7 @@ import os
 import importlib.util
 import ast
 from typing import Dict, Any, List, Optional
+
 # CLI-only message functions
 def cli_info(title, message):
     print(f"[INFO] {title}: {message}")
@@ -23,432 +24,390 @@ def cli_get_file_path(title="Select File", file_filter="Python Files (*.py)"):
     print(f"[CLI] File dialog requested: {title} - {file_filter}")
     print("[CLI] File dialogs not supported in CLI mode. Use config files to specify custom functions.")
     return "", ""
-import pyqtgraph.parametertree.parameterTypes as pTypes
 
 
-class OptimizerGroup(pTypes.GroupParameter):
+class OptimizerGroup:
     """Custom optimizer group that includes preset optimizers and allows loading custom optimizers from files."""
     
     def __init__(self, **opts):
-        opts['type'] = 'group'
-        pTypes.GroupParameter.__init__(self, **opts)
+        self.config = {
+            'Optimizer Selection': {
+                'selected_optimizer': 'Adam',
+                'learning_rate': 0.001,
+                'use_learning_rate_schedule': False
+            },
+            'Learning Rate Schedule': {
+                'schedule_type': 'exponential_decay',
+                'decay_steps': 1000,
+                'decay_rate': 0.96,
+                'staircase': False
+            },
+            'Custom Parameters': {}
+        }
         
         # Initialize custom optimizer storage
         self._custom_optimizers = {}
         self._custom_optimizer_parameters = {}
         
-        # Add optimizer selection
-        self._add_optimizer_selection()
+    def get_config(self):
+        """Get the current optimizer configuration."""
+        return dict(self.config)
         
-        # Add custom optimizer button
-        self._add_custom_button()
+    def set_config(self, config):
+        """Set the optimizer configuration."""
+        self.config.update(config)
+        
+    def get_value(self, path):
+        """Get a configuration value by path."""
+        keys = path.split('.')
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict) and key in value:
+                value = value[key]
+            else:
+                return None
+        return value
     
-    def _add_optimizer_selection(self):
-        """Add optimizer selection with preset options."""
-        optimizer_options = self._get_optimizer_options()
+    def set_value(self, path, value):
+        """Set a configuration value by path."""
+        keys = path.split('.')
+        config = self.config
+        for key in keys[:-1]:
+            if key not in config:
+                config[key] = {}
+            config = config[key]
+        config[keys[-1]] = value
         
-        self.addChild({
-            'name': 'Optimizer Selection',
-            'type': 'group',
-            'children': [
-                {'name': 'selected_optimizer', 'type': 'list', 'limits': optimizer_options, 'value': 'Adam', 
-                 'tip': 'Select the optimizer to use for training'}
-            ],
-            'tip': 'Choose optimizer type and configure its parameters'
-        })
-        
-        # Add optimizer parameters
-        self._add_selected_optimizer_parameters()
+        # Update dependent configurations
+        if path == 'Optimizer Selection.selected_optimizer':
+            self._update_optimizer_parameters()
     
     def _get_optimizer_options(self):
         """Get list of available optimizer names including custom ones."""
         base_options = [
             'Adam',
-            'SGD', 
+            'SGD',
             'RMSprop',
             'Adagrad',
-            'AdamW',
             'Adadelta',
             'Adamax',
             'Nadam',
-            'FTRL'
+            'Ftrl'
         ]
         
         # Add custom optimizers if any
-        if hasattr(self, '_custom_optimizers') and self._custom_optimizers:
+        if hasattr(self, '_custom_optimizers'):
             custom_options = list(self._custom_optimizers.keys())
             return base_options + custom_options
         
         return base_options
     
-    def _add_selected_optimizer_parameters(self):
-        """Add parameters for the selected optimizer."""
-        parent = self.child('Optimizer Selection')
-        if not parent:
-            return
-            
-        # Connect selection change to parameter update
-        if parent.child('selected_optimizer'):
-            parent.child('selected_optimizer').sigValueChanged.connect(
-                self._update_optimizer_parameters
-            )
-        
-        # Add initial parameters
-        self._update_optimizer_parameters()
-    
     def _update_optimizer_parameters(self):
-        """Update optimizer parameters based on selection."""
-        parent = self.child('Optimizer Selection')
-        if not parent:
-            return
-            
-        selected_optimizer = parent.child('selected_optimizer').value()
+        """Update optimizer parameters based on selected optimizer."""
+        selected = self.config['Optimizer Selection']['selected_optimizer']
         
-        # Remove existing parameters (except selected_optimizer)
-        existing_params = []
-        for child in parent.children():
-            if child.name() not in ['selected_optimizer']:
-                existing_params.append(child)
-        
-        for param in existing_params:
-            parent.removeChild(param)
-        
-        # Add parameters based on selected optimizer
-        optimizer_params = self._get_optimizer_parameters(selected_optimizer)
-        for param_config in optimizer_params:
-            parent.addChild(param_config)
+        # Set default parameters based on optimizer type
+        if selected == 'Adam':
+            self.config['Optimizer Selection'].update({
+                'beta_1': 0.9,
+                'beta_2': 0.999,
+                'epsilon': 1e-7,
+                'amsgrad': False
+            })
+        elif selected == 'SGD':
+            self.config['Optimizer Selection'].update({
+                'momentum': 0.0,
+                'nesterov': False
+            })
+        elif selected == 'RMSprop':
+            self.config['Optimizer Selection'].update({
+                'rho': 0.9,
+                'momentum': 0.0,
+                'epsilon': 1e-7,
+                'centered': False
+            })
+        elif selected == 'Adagrad':
+            self.config['Optimizer Selection'].update({
+                'initial_accumulator_value': 0.1,
+                'epsilon': 1e-7
+            })
+        elif selected == 'Adadelta':
+            self.config['Optimizer Selection'].update({
+                'rho': 0.95,
+                'epsilon': 1e-7
+            })
+        elif selected == 'Adamax':
+            self.config['Optimizer Selection'].update({
+                'beta_1': 0.9,
+                'beta_2': 0.999,
+                'epsilon': 1e-7
+            })
+        elif selected == 'Nadam':
+            self.config['Optimizer Selection'].update({
+                'beta_1': 0.9,
+                'beta_2': 0.999,
+                'epsilon': 1e-7
+            })
+        elif selected == 'Ftrl':
+            self.config['Optimizer Selection'].update({
+                'learning_rate_power': -0.5,
+                'initial_accumulator_value': 0.1,
+                'l1_regularization_strength': 0.0,
+                'l2_regularization_strength': 0.0
+            })
     
-    def _get_optimizer_parameters(self, optimizer_name):
-        """Get parameters for a specific optimizer."""
-        # Check if it's a custom optimizer
-        if hasattr(self, '_custom_optimizer_parameters') and optimizer_name in self._custom_optimizer_parameters:
-            return self._custom_optimizer_parameters[optimizer_name]
-        
-        # Return built-in optimizer parameters
-        optimizer_parameters = {
-            'Adam': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0), 
-                 'tip': 'Learning rate for Adam optimizer'},
-                {'name': 'beta_1', 'type': 'float', 'value': 0.9, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for first moment estimates'},
-                {'name': 'beta_2', 'type': 'float', 'value': 0.999, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for second moment estimates'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'},
-                {'name': 'amsgrad', 'type': 'bool', 'value': False, 
-                 'tip': 'Whether to use AMSGrad variant'}
-            ],
-            'SGD': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.01, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for SGD optimizer'},
-                {'name': 'momentum', 'type': 'float', 'value': 0.0, 'limits': (0.0, 1.0),
-                 'tip': 'Momentum factor'},
-                {'name': 'nesterov', 'type': 'bool', 'value': False, 
-                 'tip': 'Whether to use Nesterov momentum'}
-            ],
-            'RMSprop': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for RMSprop optimizer'},
-                {'name': 'rho', 'type': 'float', 'value': 0.9, 'limits': (0.0, 1.0),
-                 'tip': 'Discounting factor for the history/coming gradient'},
-                {'name': 'momentum', 'type': 'float', 'value': 0.0, 'limits': (0.0, 1.0),
-                 'tip': 'Momentum factor'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'Adagrad': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for Adagrad optimizer'},
-                {'name': 'initial_accumulator_value', 'type': 'float', 'value': 0.1, 'limits': (0.0, 10.0),
-                 'tip': 'Starting value for the accumulators'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'AdamW': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for AdamW optimizer'},
-                {'name': 'weight_decay', 'type': 'float', 'value': 0.01, 'limits': (0.0, 1.0),
-                 'tip': 'Weight decay coefficient'},
-                {'name': 'beta_1', 'type': 'float', 'value': 0.9, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for first moment estimates'},
-                {'name': 'beta_2', 'type': 'float', 'value': 0.999, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for second moment estimates'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'Adadelta': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for Adadelta optimizer'},
-                {'name': 'rho', 'type': 'float', 'value': 0.95, 'limits': (0.0, 1.0),
-                 'tip': 'Coefficient used for computing a running average of squared gradients'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'Adamax': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for Adamax optimizer'},
-                {'name': 'beta_1', 'type': 'float', 'value': 0.9, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for first moment estimates'},
-                {'name': 'beta_2', 'type': 'float', 'value': 0.999, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for weighted infinity norm'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'Nadam': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for Nadam optimizer'},
-                {'name': 'beta_1', 'type': 'float', 'value': 0.9, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for first moment estimates'},
-                {'name': 'beta_2', 'type': 'float', 'value': 0.999, 'limits': (0.0, 1.0),
-                 'tip': 'Exponential decay rate for second moment estimates'},
-                {'name': 'epsilon', 'type': 'float', 'value': 1e-07, 'limits': (1e-10, 1e-3),
-                 'tip': 'Small constant for numerical stability'}
-            ],
-            'FTRL': [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for FTRL optimizer'},
-                {'name': 'learning_rate_power', 'type': 'float', 'value': -0.5, 'limits': (-1.0, 0.0),
-                 'tip': 'Controls how the learning rate decreases during training'},
-                {'name': 'initial_accumulator_value', 'type': 'float', 'value': 0.1, 'limits': (0.0, 10.0),
-                 'tip': 'Starting value for the accumulators'},
-                {'name': 'l1_regularization_strength', 'type': 'float', 'value': 0.0, 'limits': (0.0, 1.0),
-                 'tip': 'L1 regularization strength'},
-                {'name': 'l2_regularization_strength', 'type': 'float', 'value': 0.0, 'limits': (0.0, 1.0),
-                 'tip': 'L2 regularization strength'}
-            ]
-        }
-        
-        return optimizer_parameters.get(optimizer_name, [])
-    
-    def _add_custom_button(self):
-        """Add button for loading custom optimizers."""
-        self.addChild({
-            'name': 'Load Custom Optimizer',
-            'type': 'action',
-            'tip': 'Load custom optimizer functions from Python files'
-        })
-        
-        # Connect the action
-        custom_button = self.child('Load Custom Optimizer')
-        if custom_button:
-            custom_button.sigActivated.connect(self._load_custom_optimizer)
-    
-    def _load_custom_optimizer(self):
-        """Load custom optimizer from Python file."""
-        file_path, _ = cli_get_file_path(
-            None,
-            "Select Custom Optimizer Python File",
-            "",
-            "Python files (*.py)"
-        )
-        
-        if not file_path:
-            return
-            
+    def load_custom_optimizers(self, file_path):
+        """Load custom optimizer functions from a file."""
         try:
-            # Parse the Python file to find optimizer functions
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            custom_functions = self._extract_optimizer_functions(file_path)
+            
+            if not custom_functions:
+                cli_warning(
+                    "No Functions Found",
+                    "No valid optimizer functions found in the selected file.\n\n"
+                    "Functions should be TensorFlow optimizer classes or functions that return optimizers."
+                )
+                return False
+            
+            # Add custom functions to the available optimizer options
+            for func_name, func_info in custom_functions.items():
+                self._add_custom_optimizer_option(func_name, func_info)
+            
+            cli_info(
+                "Functions Loaded",
+                f"Successfully loaded {len(custom_functions)} custom optimizer(s):\n" +
+                "\n".join(custom_functions.keys()) +
+                "\n\nThese optimizers are now available in the selection dropdown."
+            )
+            return True
+                
+        except (OSError, SyntaxError) as e:
+            cli_error(
+                "Error Loading File",
+                f"Failed to load custom optimizers from file:\n{str(e)}"
+            )
+            return False
+    
+    def _add_custom_optimizer_option(self, func_name, func_info):
+        """Add a custom optimizer as an option."""
+        # Store the function with metadata
+        self._custom_optimizers[func_name] = func_info
+        
+        # Store custom parameters if any
+        if 'parameters' in func_info:
+            self._custom_optimizer_parameters[func_name] = func_info['parameters']
+    
+    def _extract_optimizer_functions(self, file_path):
+        """Extract optimizer function definitions from a Python file."""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
             
             tree = ast.parse(content)
-            functions = []
+            functions = {}
             
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
-                    functions.append(node.name)
+                    # Check if it's likely an optimizer function
+                    if self._is_optimizer_function(node):
+                        func_info = self._analyze_optimizer_function(node, file_path)
+                        if func_info:
+                            functions[node.name] = func_info
+                elif isinstance(node, ast.ClassDef):
+                    # Check if it's an optimizer class
+                    if self._is_optimizer_class(node):
+                        class_info = self._analyze_optimizer_class(node, file_path)
+                        if class_info:
+                            functions[node.name] = class_info
             
-            if not functions:
-                cli_warning(None, "No Functions Found", 
-                                  "No functions found in the selected Python file.")
-                return
-            
-            # Load the module
-            spec = importlib.util.spec_from_file_location("custom_optimizer", file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            # Store custom optimizers and their parameters
-            for function_name in functions:
-                if hasattr(module, function_name):
-                    func = getattr(module, function_name)
-                    custom_name = f"Custom_{function_name}"
-                    
-                    # Store the function with metadata
-                    if not hasattr(self, '_custom_optimizers'):
-                        self._custom_optimizers = {}
-                    if not hasattr(self, '_custom_optimizer_metadata'):
-                        self._custom_optimizer_metadata = {}
-                    
-                    self._custom_optimizers[custom_name] = func
-                    self._custom_optimizer_metadata[custom_name] = {
-                        'file_path': file_path,
-                        'function_name': function_name,
-                        'type': 'function'
-                    }
-                    
-                    # Extract parameters from function signature
-                    self._extract_custom_optimizer_parameters(custom_name, func)
-            
-            # Update optimizer options
-            self._refresh_optimizer_options()
-            
-            # Show success message
-            cli_info(None, "Custom Optimizers Loaded", 
-                                  f"Successfully loaded {len(functions)} custom optimizer(s) from:\n{os.path.basename(file_path)}")
+            return functions
             
         except Exception as e:
-            cli_error(None, "Error Loading Custom Optimizer", 
-                               f"Failed to load custom optimizer:\n{str(e)}")
+            cli_error("Parse Error", f"Error parsing file: {str(e)}")
+            return {}
     
-    def _extract_custom_optimizer_parameters(self, optimizer_name, func):
-        """Extract parameters from custom optimizer function signature."""
+    def _is_optimizer_function(self, node):
+        """Check if a function node is likely an optimizer function."""
+        # Check function name for optimizer indicators
+        optimizer_keywords = ['optimizer', 'adam', 'sgd', 'rmsprop', 'adagrad']
+        has_optimizer_name = any(keyword in node.name.lower() for keyword in optimizer_keywords)
+        
+        # Check if function has common optimizer parameters
+        args = [arg.arg for arg in node.args.args]
+        optimizer_args = ['learning_rate', 'lr', 'momentum', 'beta_1', 'beta_2']
+        has_optimizer_args = any(arg in args for arg in optimizer_args)
+        
+        return has_optimizer_name or has_optimizer_args
+    
+    def _is_optimizer_class(self, node):
+        """Check if a class node is likely an optimizer class."""
+        # Check class name for optimizer indicators
+        optimizer_keywords = ['optimizer', 'adam', 'sgd', 'rmsprop', 'adagrad']
+        has_optimizer_name = any(keyword in node.name.lower() for keyword in optimizer_keywords)
+        
+        # Check if class has apply_gradients or minimize methods
+        has_optimizer_methods = any(isinstance(child, ast.FunctionDef) and 
+                                  child.name in ['apply_gradients', 'minimize', 'get_updates'] 
+                                  for child in node.body)
+        
+        return has_optimizer_name or has_optimizer_methods
+    
+    def _analyze_optimizer_function(self, node, file_path):
+        """Analyze an optimizer function and extract its metadata."""
         try:
-            import inspect
-            sig = inspect.signature(func)
+            # Extract parameters
             parameters = []
+            defaults = node.args.defaults
+            default_values = [None] * (len(node.args.args) - len(defaults)) + defaults
             
-            for param_name, param in sig.parameters.items():
-                param_config = {
-                    'name': param_name,
-                    'type': 'float' if param_name in ['learning_rate', 'lr'] else 'str',
-                    'value': param.default if param.default != inspect.Parameter.empty else (0.001 if param_name in ['learning_rate', 'lr'] else ''),
-                    'tip': f'Custom parameter: {param_name}'
+            for i, arg in enumerate(node.args.args):
+                param_info = {
+                    'name': arg.arg,
+                    'type': self._infer_parameter_type(arg.arg),
+                    'default': self._extract_default_value(default_values[i])
                 }
-                
-                # Set appropriate limits for common parameters
-                if param_name in ['learning_rate', 'lr']:
-                    param_config['limits'] = (1e-8, 1.0)
-                elif 'rate' in param_name.lower() or 'factor' in param_name.lower():
-                    param_config['type'] = 'float'
-                    param_config['limits'] = (0.0, 1.0)
-                    if param.default == inspect.Parameter.empty:
-                        param_config['value'] = 0.1
-                
-                parameters.append(param_config)
+                parameters.append(param_info)
             
-            # Store custom parameters
-            if not hasattr(self, '_custom_optimizer_parameters'):
-                self._custom_optimizer_parameters = {}
-            self._custom_optimizer_parameters[optimizer_name] = parameters
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom optimizer function: {node.name}"
             
-        except Exception as e:
-            # If parameter extraction fails, create basic parameter set
-            if not hasattr(self, '_custom_optimizer_parameters'):
-                self._custom_optimizer_parameters = {}
-            self._custom_optimizer_parameters[optimizer_name] = [
-                {'name': 'learning_rate', 'type': 'float', 'value': 0.001, 'limits': (1e-8, 1.0),
-                 'tip': 'Learning rate for custom optimizer'}
-            ]
-    
-    def _refresh_optimizer_options(self):
-        """Refresh the optimizer selection options after loading custom optimizers."""
-        selection_group = self.child('Optimizer Selection')
-        if selection_group:
-            optimizer_selector = selection_group.child('selected_optimizer')
-            if optimizer_selector:
-                new_options = self._get_optimizer_options()
-                optimizer_selector.setLimits(new_options)
-    
-    def set_optimizer_config(self, config):
-        """Set the optimizer configuration from loaded config data."""
-        if not config or not isinstance(config, dict):
-            return
-            
-        selection_group = self.child('Optimizer Selection')
-        if not selection_group:
-            return
-            
-        # Get the Optimizer Selection config
-        selection_config = config.get('Optimizer Selection', {})
-        if not selection_config:
-            return
-        
-        # Set selected optimizer if available in options
-        selected_optimizer = selection_config.get('selected_optimizer')
-        if selected_optimizer:
-            optimizer_selector = selection_group.child('selected_optimizer')
-            if optimizer_selector:
-                # Check if the selected optimizer is in the available options
-                available_options = optimizer_selector.opts['limits']
-                if selected_optimizer in available_options:
-                    optimizer_selector.setValue(selected_optimizer)
-                    # Update parameters after setting the value
-                    self._update_optimizer_parameters()
-                else:
-                    # If the selected optimizer is not available, keep default but log
-                    print(f"Warning: Selected optimizer '{selected_optimizer}' not found in available options: {available_options}")
-            else:
-                print("Warning: optimizer_selector parameter not found")
-        
-        # Set parameter values
-        for param_name, param_value in selection_config.items():
-            if param_name not in ['selected_optimizer']:
-                try:
-                    param = selection_group.child(param_name)
-                    if param:
-                        try:
-                            param.setValue(param_value)
-                        except Exception as e:
-                            print(f"Warning: Could not set parameter '{param_name}' to '{param_value}': {e}")
-                    else:
-                        print(f"Warning: Parameter '{param_name}' not found in current optimizer configuration")
-                except KeyError as e:
-                    print(f"Warning: Parameter '{param_name}' not found in selection group: {e}")
-                except Exception as e:
-                    print(f"Warning: Error accessing parameter '{param_name}': {e}")
-    
-    def load_custom_optimizer_from_metadata(self, optimizer_info):
-        """Load custom optimizer from metadata info."""
-        try:
-            file_path = optimizer_info.get('file_path', '')
-            function_name = optimizer_info.get('function_name', '') or optimizer_info.get('original_name', '')
-            optimizer_type = optimizer_info.get('type', 'function')
-            
-            # Check for empty function name
-            if not function_name:
-                print(f"Warning: Empty function name in custom optimizer metadata for {file_path}")
-                return False
-            
-            if not os.path.exists(file_path):
-                print(f"Warning: Custom optimizer file not found: {file_path}")
-                return False
-                
-            # Load the module
-            spec = importlib.util.spec_from_file_location("custom_optimizer", file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            if not hasattr(module, function_name):
-                print(f"Warning: Function '{function_name}' not found in {file_path}")
-                return False
-                
-            optimizer = getattr(module, function_name)
-            custom_name = f"Custom_{function_name}"
-            
-            # Store the function/class with metadata
-            if not hasattr(self, '_custom_optimizers'):
-                self._custom_optimizers = {}
-            if not hasattr(self, '_custom_optimizer_metadata'):
-                self._custom_optimizer_metadata = {}
-                
-            self._custom_optimizers[custom_name] = optimizer
-            self._custom_optimizer_metadata[custom_name] = {
+            return {
+                'type': 'function',
                 'file_path': file_path,
-                'function_name': function_name,
-                'type': optimizer_type
+                'function_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
             }
             
-            # Extract parameters
-            self._extract_custom_optimizer_parameters(custom_name, optimizer)
+        except Exception as e:
+            cli_warning("Analysis Error", f"Error analyzing function {node.name}: {str(e)}")
+            return None
+    
+    def _analyze_optimizer_class(self, node, file_path):
+        """Analyze an optimizer class and extract its metadata."""
+        try:
+            # Find __init__ method to extract parameters
+            init_method = None
             
-            # Update optimizer options
-            self._refresh_optimizer_options()
+            for child in node.body:
+                if isinstance(child, ast.FunctionDef) and child.name == '__init__':
+                    init_method = child
+                    break
             
-            return True
+            parameters = []
+            if init_method:
+                defaults = init_method.args.defaults
+                default_values = [None] * (len(init_method.args.args) - len(defaults)) + defaults
+                
+                for i, arg in enumerate(init_method.args.args):
+                    if arg.arg not in ['self']:
+                        param_info = {
+                            'name': arg.arg,
+                            'type': self._infer_parameter_type(arg.arg),
+                            'default': self._extract_default_value(default_values[i])
+                        }
+                        parameters.append(param_info)
+            
+            # Extract docstring
+            docstring = ast.get_docstring(node) or f"Custom optimizer class: {node.name}"
+            
+            return {
+                'type': 'class',
+                'file_path': file_path,
+                'class_name': node.name,
+                'parameters': parameters,
+                'docstring': docstring,
+                'source_lines': (node.lineno, node.end_lineno) if hasattr(node, 'end_lineno') else (node.lineno, node.lineno)
+            }
             
         except Exception as e:
-            print(f"Error loading custom optimizer from metadata: {e}")
-            import traceback
-            traceback.print_exc()
+            cli_warning("Analysis Error", f"Error analyzing class {node.name}: {str(e)}")
+            return None
+    
+    def _infer_parameter_type(self, param_name):
+        """Infer the type of a parameter based on its name."""
+        param_name_lower = param_name.lower()
+        
+        if any(word in param_name_lower for word in ['rate', 'lr', 'momentum', 'beta', 'epsilon', 'rho', 'decay']):
+            return 'float'
+        elif any(word in param_name_lower for word in ['steps', 'iterations', 'accumulator']):
+            return 'int'
+        elif any(word in param_name_lower for word in ['use', 'enable', 'nesterov', 'amsgrad', 'centered', 'staircase']):
+            return 'bool'
+        else:
+            return 'float'  # Default to float for optimizers
+    
+    def _extract_default_value(self, default_node):
+        """Extract default value from an AST node."""
+        if default_node is None:
+            return None
+        elif isinstance(default_node, ast.Constant):
+            return default_node.value
+        elif isinstance(default_node, ast.Num):  # For older Python versions
+            return default_node.n
+        elif isinstance(default_node, ast.Str):  # For older Python versions
+            return default_node.s
+        elif isinstance(default_node, ast.NameConstant):  # For older Python versions
+            return default_node.value
+        else:
+            return None
+    
+    def get_optimizer_config(self):
+        """Get the current optimizer configuration for training."""
+        config = {}
+        
+        selection = self.config['Optimizer Selection']
+        lr_schedule = self.config['Learning Rate Schedule']
+        
+        config['optimizer'] = selection['selected_optimizer']
+        config['learning_rate'] = selection['learning_rate']
+        config['use_learning_rate_schedule'] = selection['use_learning_rate_schedule']
+        
+        # Add optimizer-specific parameters
+        for key, value in selection.items():
+            if key not in ['selected_optimizer', 'learning_rate', 'use_learning_rate_schedule']:
+                config[key] = value
+        
+        # Add learning rate schedule if enabled
+        if selection['use_learning_rate_schedule']:
+            config['learning_rate_schedule'] = dict(lr_schedule)
+        
+        # Add custom parameters if using custom optimizer
+        if selection['selected_optimizer'] in self._custom_optimizers:
+            custom_info = self._custom_optimizers[selection['selected_optimizer']]
+            config['custom_optimizer'] = custom_info
+        
+        return config
+    
+    def load_custom_optimizer_from_metadata(self, metadata):
+        """Load a custom optimizer from saved metadata."""
+        try:
+            file_path = metadata.get('file_path')
+            function_name = metadata.get('function_name')
+            
+            if not file_path or not os.path.exists(file_path):
+                return False
+            
+            # Load the function
+            spec = importlib.util.spec_from_file_location("custom_optimizer", file_path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                if hasattr(module, function_name):
+                    func = getattr(module, function_name)
+                    
+                    # Store the function
+                    self._custom_optimizers[function_name] = {
+                        'function': func,
+                        'metadata': metadata
+                    }
+                    
+                    return True
+            
             return False
-
+            
+        except Exception as e:
+            cli_error("Load Error", f"Error loading custom optimizer: {str(e)}")
+            return False

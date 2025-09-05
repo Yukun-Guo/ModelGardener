@@ -1,6 +1,6 @@
 # ModelGardener CLI Interface Documentation
 
-The ModelGardener CLI interface provides a command-line alternative to the PySide6 GUI, allowing you to configure and run model training with enhanced user-friendly features including automatic parameter extraction from custom functions and comprehensive configuration templates.
+The ModelGardener CLI interface provides a command-line, allowing you to configure and run model training with enhanced user-friendly features including automatic parameter extraction from custom functions and comprehensive configuration templates.
 
 ## 🆕 What's New - Enhanced Configuration System
 

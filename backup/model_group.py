@@ -1,6 +1,5 @@
 """
 Model configuration group for dynamic model-specific parameters and custom model loading.
-CLI-only version with PySide6 dependencies removed.
 """
 
 import os
@@ -12,15 +11,12 @@ import keras
 
 # CLI-only message functions
 def cli_info(title, message):
-    """CLI alternative to QMessageBox.information"""
     print(f"[INFO] {title}: {message}")
 
 def cli_warning(title, message):
-    """CLI alternative to QMessageBox.warning"""
     print(f"[WARNING] {title}: {message}")
 
 def cli_error(title, message):
-    """CLI alternative to QMessageBox.critical"""
     print(f"[ERROR] {title}: {message}")
 
 # Try to import pyqtgraph (for GUI functionality) but make it optional
