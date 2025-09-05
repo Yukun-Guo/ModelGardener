@@ -1097,6 +1097,10 @@ if __name__ == "__main__":
         # Custom functions handling
         custom_functions = self._extract_custom_functions_info(config)
         
+        # Check if custom preprocessing is enabled
+        use_custom_preprocessing = self._has_custom_preprocessing(custom_functions)
+        use_custom_loader = self._has_custom_data_loader(custom_functions)
+        
         # Replace template placeholders
         replacements = {
             '{{CONFIG_FILE}}': config_file_name,
@@ -1118,8 +1122,11 @@ if __name__ == "__main__":
             '{{METRICS}}': metrics,
             '{{CV_ENABLED}}': str(cv_enabled),
             '{{K_FOLDS}}': str(k_folds),
+            '{{USE_CUSTOM_PREPROCESSING}}': str(use_custom_preprocessing).lower(),
+            '{{USE_CUSTOM_LOADER}}': str(use_custom_loader).lower(),
             '{{CUSTOM_IMPORTS}}': self._generate_custom_imports(custom_functions),
             '{{CUSTOM_LOADER_CALLS}}': self._generate_custom_loader_calls(custom_functions),
+            '{{CUSTOM_PREPROCESSING_CALLS}}': self._generate_custom_preprocessing_calls(custom_functions),
             '{{DATA_LOADING_CODE}}': self._generate_data_loading_code(config, custom_functions),
             '{{GENERATION_DATE}}': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
@@ -1137,6 +1144,30 @@ if __name__ == "__main__":
         metadata = config.get('metadata', {})
         custom_functions = metadata.get('custom_functions', {})
         return custom_functions
+    
+    def _has_custom_preprocessing(self, custom_functions: Dict[str, Any]) -> bool:
+        """Check if custom preprocessing functions are available."""
+        preprocessing_funcs = custom_functions.get('preprocessing', [])
+        return len(preprocessing_funcs) > 0
+    
+    def _has_custom_data_loader(self, custom_functions: Dict[str, Any]) -> bool:
+        """Check if custom data loader functions are available."""
+        data_loader_funcs = custom_functions.get('data_loaders', [])
+        return len(data_loader_funcs) > 0
+    
+    def _generate_custom_preprocessing_calls(self, custom_functions: Dict[str, Any]) -> str:
+        """Generate custom preprocessing function calls."""
+        preprocessing_funcs = custom_functions.get('preprocessing', [])
+        if not preprocessing_funcs:
+            return "# No custom preprocessing functions available"
+        
+        # For now, return a placeholder for the first preprocessing function
+        first_func = preprocessing_funcs[0] if preprocessing_funcs else None
+        if first_func:
+            func_name = first_func.get('function_name', 'preprocess_function')
+            return f"# Apply custom preprocessing: {func_name}(img)"
+        
+        return "# No custom preprocessing functions available"
     
     def _generate_custom_imports(self, custom_functions: Dict[str, Any]) -> str:
         """Generate import statements for custom functions."""
@@ -1405,10 +1436,10 @@ if __name__ == "__main__":
 '''
     
     def _get_evaluation_template(self) -> str:
-        """Get the evaluation script template."""
+        """Get the enhanced evaluation script template."""
         return '''#!/usr/bin/env python3
 """
-Evaluation Script for ModelGardener
+Enhanced Evaluation Script for ModelGardener
 Generated on: {{GENERATION_DATE}}
 Configuration: {{CONFIG_FILE}}
 """
@@ -1416,13 +1447,16 @@ Configuration: {{CONFIG_FILE}}
 import os
 import sys
 import yaml
+import json
+import argparse
 import tensorflow as tf
 import keras
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_recall_fscore_support
 import seaborn as sns
 from pathlib import Path
+from datetime import datetime
 
 {{CUSTOM_IMPORTS}}
 
@@ -1431,73 +1465,319 @@ def load_config(config_path):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def create_test_generator(test_dir, batch_size=32, img_height=224, img_width=224):
-    """Create test data generator."""
-    test_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
+def setup_tensorflow():
+    """Setup TensorFlow configuration."""
+    # Enable mixed precision if supported
+    try:
+        policy = tf.keras.mixed_precision.Policy('mixed_float16')
+        tf.keras.mixed_precision.set_global_policy(policy)
+        print("✅ Mixed precision enabled")
+    except:
+        print("⚠️ Mixed precision not available")
     
-    test_generator = test_datagen.flow_from_directory(
-        test_dir,
-        target_size=(img_height, img_width),
-        batch_size=batch_size,
-        class_mode='categorical',
-        shuffle=False  # Important for evaluation
-    )
-    
-    return test_generator
+    # Configure GPU memory growth
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"✅ Found {len(gpus)} GPU(s), memory growth enabled")
+        except RuntimeError as e:
+            print(f"⚠️ GPU configuration error: {e}")
+    else:
+        print("ℹ️ No GPUs found, using CPU")
 
-def evaluate_model():
-    """Main evaluation function."""
+def create_evaluation_dataset(data_path, batch_size=32, img_height=224, img_width=224, use_custom_loader=False):
+    """Create evaluation dataset."""
+    if use_custom_loader:
+        # Use custom data loader if available
+        {{CUSTOM_LOADER_CALLS}}
+        return custom_dataset, class_labels
+    else:
+        # Use standard data generator
+        test_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
+        
+        test_generator = test_datagen.flow_from_directory(
+            data_path,
+            target_size=(img_height, img_width),
+            batch_size=batch_size,
+            class_mode='categorical',
+            shuffle=False  # Important for evaluation
+        )
+        
+        class_labels = list(test_generator.class_indices.keys())
+        return test_generator, class_labels
+
+def load_model_with_fallback(model_dir):
+    """Load model with multiple fallback options."""
+    model_patterns = [
+        'best_model.keras', 'best_model.h5', 'final_model.keras', 'final_model.h5',
+        'model.keras', 'model.h5', 'saved_model'
+    ]
     
-    # Configuration
+    for pattern in model_patterns:
+        model_path = os.path.join(model_dir, pattern)
+        if os.path.exists(model_path):
+            try:
+                print(f"📥 Loading model from: {model_path}")
+                if pattern == 'saved_model':
+                    model = tf.keras.models.load_model(model_path)
+                else:
+                    model = keras.models.load_model(model_path)
+                print("✅ Model loaded successfully")
+                return model
+            except Exception as e:
+                print(f"⚠️ Failed to load {model_path}: {e}")
+                continue
+    
+    raise FileNotFoundError(f"No valid model found in {model_dir}")
+
+def calculate_detailed_metrics(y_true, y_pred, class_labels):
+    """Calculate detailed evaluation metrics."""
+    # Convert to class indices if needed
+    if len(y_true.shape) > 1:
+        y_true_indices = np.argmax(y_true, axis=1)
+    else:
+        y_true_indices = y_true
+        
+    if len(y_pred.shape) > 1:
+        y_pred_indices = np.argmax(y_pred, axis=1)
+    else:
+        y_pred_indices = y_pred
+    
+    # Basic metrics
+    accuracy = accuracy_score(y_true_indices, y_pred_indices)
+    precision, recall, f1, support = precision_recall_fscore_support(y_true_indices, y_pred_indices, average='weighted')
+    
+    # Per-class metrics
+    per_class_metrics = classification_report(y_true_indices, y_pred_indices, 
+                                            target_names=class_labels, output_dict=True)
+    
+    # Confusion matrix
+    cm = confusion_matrix(y_true_indices, y_pred_indices)
+    
+    return {
+        'accuracy': float(accuracy),
+        'precision': float(precision),
+        'recall': float(recall),
+        'f1_score': float(f1),
+        'per_class_metrics': per_class_metrics,
+        'confusion_matrix': cm.tolist(),
+        'class_labels': class_labels
+    }
+
+def plot_confusion_matrix(cm, class_labels, save_path):
+    """Plot and save confusion matrix."""
+    plt.figure(figsize=(12, 10))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_labels, yticklabels=class_labels)
+    plt.title('Confusion Matrix')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📊 Confusion matrix saved: {save_path}")
+
+def plot_per_class_metrics(metrics, save_path):
+    """Plot per-class precision, recall, and F1-score."""
+    classes = [k for k in metrics['per_class_metrics'].keys() 
+              if k not in ['accuracy', 'macro avg', 'weighted avg']]
+    
+    precision_scores = [metrics['per_class_metrics'][c]['precision'] for c in classes]
+    recall_scores = [metrics['per_class_metrics'][c]['recall'] for c in classes]
+    f1_scores = [metrics['per_class_metrics'][c]['f1-score'] for c in classes]
+    
+    x = np.arange(len(classes))
+    width = 0.25
+    
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    ax.bar(x - width, precision_scores, width, label='Precision', alpha=0.8)
+    ax.bar(x, recall_scores, width, label='Recall', alpha=0.8)
+    ax.bar(x + width, f1_scores, width, label='F1-Score', alpha=0.8)
+    
+    ax.set_xlabel('Classes')
+    ax.set_ylabel('Score')
+    ax.set_title('Per-Class Metrics')
+    ax.set_xticks(x)
+    ax.set_xticklabels(classes, rotation=45, ha='right')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"📊 Per-class metrics plot saved: {save_path}")
+
+def save_results(results, output_path, format='yaml'):
+    """Save evaluation results to file."""
+    # Convert numpy arrays to lists for serialization
+    if 'confusion_matrix' in results:
+        results['confusion_matrix'] = np.array(results['confusion_matrix']).tolist()
+    
+    if format.lower() == 'json':
+        with open(output_path, 'w') as f:
+            json.dump(results, f, indent=2)
+    else:
+        with open(output_path, 'w') as f:
+            yaml.dump(results, f, default_flow_style=False)
+    
+    print(f"💾 Results saved: {output_path}")
+
+def evaluate_model(data_path=None, model_path=None, output_format='yaml', 
+                  save_plots=True, batch_size=None):
+    """Enhanced evaluation function with comprehensive metrics."""
+    
+    # Configuration defaults
     config_file = "{{CONFIG_FILE}}"
-    test_dir = "{{TEST_DIR}}"
-    model_dir = "{{MODEL_DIR}}"
-    batch_size = {{BATCH_SIZE}}
+    default_test_dir = "{{TEST_DIR}}"
+    default_model_dir = "{{MODEL_DIR}}"
+    default_batch_size = {{BATCH_SIZE}}
     img_height = {{IMG_HEIGHT}}
     img_width = {{IMG_WIDTH}}
     
-    # Load configuration if available
+    # Use provided parameters or defaults
+    test_dir = data_path or default_test_dir
+    model_dir = model_path or default_model_dir
+    batch_size = batch_size or default_batch_size
+    
+    print(f"🎯 Starting ModelGardener Enhanced Evaluation")
+    print(f"📄 Configuration: {config_file}")
+    print(f"📁 Test data: {test_dir}")
+    print(f"🤖 Model directory: {model_dir}")
+    print(f"🔢 Batch size: {batch_size}")
+    
+    # Setup TensorFlow
+    setup_tensorflow()
+    
+    # Load configuration
+    config = {}
     if os.path.exists(config_file):
         try:
             config = load_config(config_file)
-            print(f"✅ Loaded configuration from {config_file}")
+            print(f"✅ Configuration loaded")
         except Exception as e:
-            print(f"⚠️  Could not load configuration: {e}")
-            config = {}
-    else:
-        print(f"⚠️  Configuration file {config_file} not found, using defaults")
-        config = {}
-    
-    {{CUSTOM_LOADER_CALLS}}
-    
-    # Find model file
-    model_files = []
-    if os.path.exists(model_dir):
-        for file in os.listdir(model_dir):
-            if file.endswith('.h5') and ('best' in file or 'final' in file):
-                model_files.append(os.path.join(model_dir, file))
-    
-    if not model_files:
-        print(f"❌ No model files found in {model_dir}")
-        return
-    
-    # Use the best model if available, otherwise use the first one
-    model_file = None
-    for file in model_files:
-        if 'best' in os.path.basename(file):
-            model_file = file
-            break
-    if not model_file:
-        model_file = model_files[0]
-    
-    print(f"📥 Loading model from: {model_file}")
+            print(f"⚠️ Could not load configuration: {e}")
     
     # Load model
     try:
-        model = keras.models.load_model(model_file)
-        print("✅ Model loaded successfully")
+        model = load_model_with_fallback(model_dir)
     except Exception as e:
         print(f"❌ Error loading model: {e}")
+        return False
+    
+    # Create evaluation dataset
+    print("📊 Preparing evaluation dataset...")
+    try:
+        use_custom = {{USE_CUSTOM_LOADER}}
+        test_dataset, class_labels = create_evaluation_dataset(
+            test_dir, batch_size, img_height, img_width, use_custom
+        )
+        print(f"✅ Dataset prepared with {len(class_labels)} classes")
+    except Exception as e:
+        print(f"❌ Error creating dataset: {e}")
+        return False
+    
+    # Run evaluation
+    print("🔍 Running model evaluation...")
+    try:
+        # Get predictions
+        if hasattr(test_dataset, 'reset'):
+            test_dataset.reset()
+        
+        predictions = model.predict(test_dataset, verbose=1)
+        
+        # Get true labels
+        if hasattr(test_dataset, 'classes') and hasattr(test_dataset, 'class_indices'):
+            y_true = test_dataset.classes
+            y_true_categorical = tf.keras.utils.to_categorical(y_true, len(class_labels))
+        else:
+            # For custom datasets, collect labels
+            y_true_list = []
+            for batch in test_dataset:
+                if isinstance(batch, tuple) and len(batch) >= 2:
+                    y_true_list.append(batch[1])
+                else:
+                    print("⚠️ Could not extract labels from dataset")
+                    return False
+            y_true_categorical = np.concatenate(y_true_list, axis=0)
+            y_true = np.argmax(y_true_categorical, axis=1)
+        
+        # Calculate comprehensive metrics
+        print("📈 Calculating detailed metrics...")
+        results = calculate_detailed_metrics(y_true_categorical, predictions, class_labels)
+        
+        # Add metadata
+        results['evaluation_info'] = {
+            'timestamp': datetime.now().isoformat(),
+            'config_file': config_file,
+            'model_dir': model_dir,
+            'test_dir': test_dir,
+            'batch_size': batch_size,
+            'total_samples': len(y_true),
+            'num_classes': len(class_labels)
+        }
+        
+        # Print summary
+        print("\\n📊 Evaluation Results:")
+        print(f"  🎯 Accuracy: {results['accuracy']:.4f}")
+        print(f"  🎯 Precision: {results['precision']:.4f}")
+        print(f"  🎯 Recall: {results['recall']:.4f}")
+        print(f"  🎯 F1-Score: {results['f1_score']:.4f}")
+        
+        # Save results
+        results_file = os.path.join(model_dir, f'evaluation_results.{output_format}')
+        save_results(results, results_file, output_format)
+        
+        # Generate and save plots
+        if save_plots:
+            print("� Generating evaluation plots...")
+            plots_dir = os.path.join(model_dir, 'evaluation_plots')
+            os.makedirs(plots_dir, exist_ok=True)
+            
+            # Confusion matrix
+            cm_path = os.path.join(plots_dir, 'confusion_matrix.png')
+            plot_confusion_matrix(np.array(results['confusion_matrix']), class_labels, cm_path)
+            
+            # Per-class metrics
+            metrics_path = os.path.join(plots_dir, 'per_class_metrics.png')
+            plot_per_class_metrics(results, metrics_path)
+        
+        print("\\n✅ Evaluation completed successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error during evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def main():
+    """Main function with command-line interface."""
+    parser = argparse.ArgumentParser(description='Enhanced ModelGardener Evaluation')
+    parser.add_argument('--data-path', type=str, help='Path to evaluation data')
+    parser.add_argument('--model-path', type=str, help='Path to model directory')
+    parser.add_argument('--output-format', choices=['yaml', 'json'], default='yaml',
+                        help='Output format for results')
+    parser.add_argument('--no-plots', action='store_true', help='Skip generating plots')
+    parser.add_argument('--batch-size', type=int, help='Batch size for evaluation')
+    
+    args = parser.parse_args()
+    
+    success = evaluate_model(
+        data_path=args.data_path,
+        model_path=args.model_path,
+        output_format=args.output_format,
+        save_plots=not args.no_plots,
+        batch_size=args.batch_size
+    )
+    
+    sys.exit(0 if success else 1)
+
+if __name__ == "__main__":
+    main()
+'''
         return
     
     # Create test generator
@@ -1568,10 +1848,10 @@ if __name__ == "__main__":
 '''
     
     def _get_prediction_template(self) -> str:
-        """Get the prediction script template."""
+        """Get the enhanced prediction script template."""
         return '''#!/usr/bin/env python3
 """
-Prediction Script for ModelGardener
+Enhanced Prediction Script for ModelGardener
 Generated on: {{GENERATION_DATE}}
 Configuration: {{CONFIG_FILE}}
 """
@@ -1579,12 +1859,16 @@ Configuration: {{CONFIG_FILE}}
 import os
 import sys
 import yaml
+import json
+import argparse
 import tensorflow as tf
 import keras
 import numpy as np
-from PIL import Image
-import argparse
+from PIL import Image, ImageDraw, ImageFont
+import matplotlib.pyplot as plt
 from pathlib import Path
+import time
+from datetime import datetime
 
 {{CUSTOM_IMPORTS}}
 
@@ -1593,18 +1877,61 @@ def load_config(config_path):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def preprocess_image(image_path, target_size=(224, 224)):
-    """Preprocess a single image for prediction."""
+def setup_tensorflow():
+    """Setup TensorFlow configuration."""
+    # Configure GPU memory growth
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            print(f"✅ Found {len(gpus)} GPU(s), memory growth enabled")
+        except RuntimeError as e:
+            print(f"⚠️ GPU configuration error: {e}")
+    else:
+        print("ℹ️ No GPUs found, using CPU")
+
+def load_model_with_fallback(model_dir):
+    """Load model with multiple fallback options."""
+    model_patterns = [
+        'best_model.keras', 'best_model.h5', 'final_model.keras', 'final_model.h5',
+        'model.keras', 'model.h5', 'saved_model'
+    ]
+    
+    for pattern in model_patterns:
+        model_path = os.path.join(model_dir, pattern)
+        if os.path.exists(model_path):
+            try:
+                print(f"📥 Loading model from: {model_path}")
+                if pattern == 'saved_model':
+                    model = tf.keras.models.load_model(model_path)
+                else:
+                    model = keras.models.load_model(model_path)
+                print("✅ Model loaded successfully")
+                return model
+            except Exception as e:
+                print(f"⚠️ Failed to load {model_path}: {e}")
+                continue
+    
+    raise FileNotFoundError(f"No valid model found in {model_dir}")
+
+def preprocess_image(image_path, target_size=(224, 224), apply_custom_preprocessing=False):
+    """Enhanced image preprocessing with custom preprocessing support."""
     try:
         # Load image
         img = Image.open(image_path)
+        original_size = img.size
         
         # Convert to RGB if needed
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
+        # Apply custom preprocessing if available
+        if apply_custom_preprocessing:
+            {{CUSTOM_PREPROCESSING_CALLS}}
+        
         # Resize
-        img = img.resize(target_size)
+        img = img.resize(target_size, Image.Resampling.LANCZOS)
         
         # Convert to numpy array and normalize
         img_array = np.array(img) / 255.0
@@ -1612,43 +1939,356 @@ def preprocess_image(image_path, target_size=(224, 224)):
         # Add batch dimension
         img_array = np.expand_dims(img_array, axis=0)
         
-        return img_array
+        return img_array, original_size
         
     except Exception as e:
-        print(f"Error preprocessing image {image_path}: {e}")
-        return None
+        print(f"❌ Error preprocessing image {image_path}: {e}")
+        return None, None
 
-def predict_single_image(model, image_path, class_labels, target_size=(224, 224)):
-    """Predict class for a single image."""
+def predict_single_image(model, image_path, class_labels, target_size=(224, 224), 
+                        top_k=5, apply_custom_preprocessing=False):
+    """Enhanced single image prediction with top-k results."""
     
     # Preprocess image
-    img_array = preprocess_image(image_path, target_size)
+    img_array, original_size = preprocess_image(image_path, target_size, apply_custom_preprocessing)
     if img_array is None:
-        return None, None, None
+        return None
     
     # Make prediction
+    start_time = time.time()
     predictions = model.predict(img_array, verbose=0)
-    predicted_class_idx = np.argmax(predictions[0])
-    confidence = float(predictions[0][predicted_class_idx])
-    predicted_class = class_labels[predicted_class_idx]
+    inference_time = time.time() - start_time
     
-    return predicted_class, confidence, predictions[0]
+    # Get top-k results
+    top_indices = np.argsort(predictions[0])[::-1][:top_k]
+    
+    results = {
+        'image_path': str(image_path),
+        'image_size': original_size,
+        'inference_time': inference_time,
+        'predictions': []
+    }
+    
+    for i, idx in enumerate(top_indices):
+        class_name = class_labels[idx] if idx < len(class_labels) else f"class_{idx}"
+        confidence = float(predictions[0][idx])
+        results['predictions'].append({
+            'rank': i + 1,
+            'class': class_name,
+            'confidence': confidence,
+            'probability': confidence
+        })
+    
+    return results
 
-def predict_batch(model, image_dir, class_labels, target_size=(224, 224)):
-    """Predict classes for all images in a directory."""
+def predict_batch_optimized(model, image_paths, class_labels, target_size=(224, 224), 
+                           batch_size=32, top_k=5, apply_custom_preprocessing=False):
+    """Optimized batch prediction for multiple images."""
     
     results = []
+    total_images = len(image_paths)
+    
+    print(f"📷 Processing {total_images} images in batches of {batch_size}")
+    
+    for i in range(0, total_images, batch_size):
+        batch_paths = image_paths[i:i+batch_size]
+        batch_images = []
+        valid_paths = []
+        
+        # Preprocess batch
+        for path in batch_paths:
+            img_array, _ = preprocess_image(path, target_size, apply_custom_preprocessing)
+            if img_array is not None:
+                batch_images.append(img_array[0])  # Remove batch dimension
+                valid_paths.append(path)
+        
+        if not batch_images:
+            continue
+        
+        # Convert to batch
+        batch_array = np.array(batch_images)
+        
+        # Predict batch
+        start_time = time.time()
+        predictions = model.predict(batch_array, verbose=0)
+        batch_time = time.time() - start_time
+        
+        # Process results
+        for j, path in enumerate(valid_paths):
+            top_indices = np.argsort(predictions[j])[::-1][:top_k]
+            
+            result = {
+                'image_path': str(path),
+                'batch_index': i + j,
+                'inference_time': batch_time / len(valid_paths),
+                'predictions': []
+            }
+            
+            for k, idx in enumerate(top_indices):
+                class_name = class_labels[idx] if idx < len(class_labels) else f"class_{idx}"
+                confidence = float(predictions[j][idx])
+                result['predictions'].append({
+                    'rank': k + 1,
+                    'class': class_name,
+                    'confidence': confidence
+                })
+            
+            results.append(result)
+        
+        # Progress update
+        processed = min(i + batch_size, total_images)
+        print(f"📊 Processed {processed}/{total_images} images ({processed/total_images*100:.1f}%)")
+    
+    return results
+
+def predict_directory(model, image_dir, class_labels, target_size=(224, 224), 
+                     batch_size=32, top_k=5, recursive=False, apply_custom_preprocessing=False):
+    """Predict on all images in a directory."""
     
     # Supported image extensions
-    extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+    extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
     
     # Find all images
     image_files = []
-    for ext in extensions:
-        image_files.extend(Path(image_dir).glob(f'*{ext}'))
-        image_files.extend(Path(image_dir).glob(f'*{ext.upper()}'))
+    search_pattern = "**/*" if recursive else "*"
+    
+    for pattern in [f"{search_pattern}{ext}" for ext in extensions] + [f"{search_pattern}{ext.upper()}" for ext in extensions]:
+        image_files.extend(Path(image_dir).glob(pattern))
     
     if not image_files:
+        print(f"❌ No images found in {image_dir}")
+        return []
+    
+    print(f"📁 Found {len(image_files)} images")
+    
+    # Use batch prediction for efficiency
+    results = predict_batch_optimized(
+        model, image_files, class_labels, target_size, 
+        batch_size, top_k, apply_custom_preprocessing
+    )
+    
+    return results
+
+def visualize_predictions(image_path, predictions, save_path=None, show_top_k=3):
+    """Create visualization of predictions on the image."""
+    try:
+        # Load original image
+        img = Image.open(image_path)
+        
+        # Create figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        
+        # Show original image
+        ax1.imshow(img)
+        ax1.set_title(f"Original Image\\n{Path(image_path).name}")
+        ax1.axis('off')
+        
+        # Show top predictions
+        top_predictions = predictions['predictions'][:show_top_k]
+        classes = [p['class'] for p in top_predictions]
+        confidences = [p['confidence'] for p in top_predictions]
+        
+        bars = ax2.barh(range(len(classes)), confidences)
+        ax2.set_yticks(range(len(classes)))
+        ax2.set_yticklabels(classes)
+        ax2.set_xlabel('Confidence')
+        ax2.set_title(f'Top {show_top_k} Predictions')
+        ax2.set_xlim(0, 1)
+        
+        # Add confidence values on bars
+        for i, (bar, conf) in enumerate(zip(bars, confidences)):
+            ax2.text(conf + 0.01, i, f'{conf:.3f}', va='center')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"📊 Visualization saved: {save_path}")
+        else:
+            plt.show()
+    
+    except Exception as e:
+        print(f"⚠️ Error creating visualization: {e}")
+
+def save_results(results, output_path, format='json'):
+    """Save prediction results to file."""
+    try:
+        if format.lower() == 'yaml':
+            with open(output_path, 'w') as f:
+                yaml.dump(results, f, default_flow_style=False)
+        else:
+            with open(output_path, 'w') as f:
+                json.dump(results, f, indent=2)
+        
+        print(f"💾 Results saved: {output_path}")
+    except Exception as e:
+        print(f"⚠️ Error saving results: {e}")
+
+def print_prediction_results(results):
+    """Print formatted prediction results."""
+    if isinstance(results, list):
+        # Multiple images
+        for i, result in enumerate(results[:10]):  # Show first 10
+            print(f"\\n📷 {Path(result['image_path']).name}:")
+            for pred in result['predictions'][:3]:  # Top 3
+                print(f"  {pred['rank']}. {pred['class']}: {pred['confidence']:.4f}")
+        
+        if len(results) > 10:
+            print(f"\\n... and {len(results) - 10} more images")
+    else:
+        # Single image
+        print(f"\\n📷 {Path(results['image_path']).name}:")
+        for pred in results['predictions']:
+            print(f"  {pred['rank']}. {pred['class']}: {pred['confidence']:.4f}")
+
+def predict(input_path, model_path=None, output_path=None, top_k=5, 
+           batch_size=32, recursive=False, visualize=False, format='json'):
+    """Main prediction function with comprehensive options."""
+    
+    # Configuration defaults
+    config_file = "{{CONFIG_FILE}}"
+    default_model_dir = "{{MODEL_DIR}}"
+    img_height = {{IMG_HEIGHT}}
+    img_width = {{IMG_WIDTH}}
+    target_size = (img_height, img_width)
+    
+    # Use provided model path or default
+    model_dir = model_path or default_model_dir
+    
+    print(f"🔮 Starting ModelGardener Enhanced Prediction")
+    print(f"📄 Configuration: {config_file}")
+    print(f"📁 Input: {input_path}")
+    print(f"🤖 Model directory: {model_dir}")
+    print(f"🎯 Top-K: {top_k}")
+    
+    # Setup TensorFlow
+    setup_tensorflow()
+    
+    # Load configuration
+    config = {}
+    if os.path.exists(config_file):
+        try:
+            config = load_config(config_file)
+            print("✅ Configuration loaded")
+        except Exception as e:
+            print(f"⚠️ Could not load configuration: {e}")
+    
+    # Load model
+    try:
+        model = load_model_with_fallback(model_dir)
+    except Exception as e:
+        print(f"❌ Error loading model: {e}")
+        return False
+    
+    # Get class labels
+    num_classes = config.get('configuration', {}).get('model', {}).get('model_parameters', {}).get('classes', 10)
+    class_labels = [f"class_{i}" for i in range(num_classes)]
+    
+    # Check if custom preprocessing is available
+    apply_custom_preprocessing = {{USE_CUSTOM_PREPROCESSING}}
+    
+    # Run prediction
+    print("🔍 Running predictions...")
+    try:
+        if os.path.isfile(input_path):
+            # Single file prediction
+            results = predict_single_image(
+                model, input_path, class_labels, target_size, 
+                top_k, apply_custom_preprocessing
+            )
+            
+            if results:
+                print_prediction_results(results)
+                
+                # Create visualization if requested
+                if visualize:
+                    viz_path = os.path.join(os.path.dirname(output_path or '.'), 
+                                          f"prediction_viz_{Path(input_path).stem}.png")
+                    visualize_predictions(input_path, results, viz_path)
+        
+        elif os.path.isdir(input_path):
+            # Directory prediction
+            results = predict_directory(
+                model, input_path, class_labels, target_size,
+                batch_size, top_k, recursive, apply_custom_preprocessing
+            )
+            
+            if results:
+                print_prediction_results(results)
+                
+                # Add summary information
+                summary = {
+                    'total_images': len(results),
+                    'total_time': sum(r['inference_time'] for r in results),
+                    'average_time_per_image': sum(r['inference_time'] for r in results) / len(results),
+                    'timestamp': datetime.now().isoformat(),
+                    'config_file': config_file,
+                    'model_dir': model_dir,
+                    'input_path': input_path
+                }
+                
+                final_results = {
+                    'summary': summary,
+                    'predictions': results
+                }
+                results = final_results
+        
+        else:
+            print(f"❌ Invalid input path: {input_path}")
+            return False
+        
+        # Save results if output path provided
+        if output_path and results:
+            save_results(results, output_path, format)
+        
+        print("\\n✅ Prediction completed successfully!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error during prediction: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def main():
+    """Main function with comprehensive command-line interface."""
+    parser = argparse.ArgumentParser(description='Enhanced ModelGardener Prediction')
+    parser.add_argument('--input', '-i', type=str, required=True,
+                        help='Input image file or directory')
+    parser.add_argument('--model-path', type=str, 
+                        help='Path to model directory (overrides config)')
+    parser.add_argument('--output', '-o', type=str,
+                        help='Output file for results (JSON/YAML)')
+    parser.add_argument('--top-k', type=int, default=5,
+                        help='Number of top predictions to show')
+    parser.add_argument('--batch-size', type=int, default=32,
+                        help='Batch size for directory processing')
+    parser.add_argument('--recursive', '-r', action='store_true',
+                        help='Process directories recursively')
+    parser.add_argument('--visualize', '-v', action='store_true',
+                        help='Create prediction visualizations')
+    parser.add_argument('--format', choices=['json', 'yaml'], default='json',
+                        help='Output format for results file')
+    
+    args = parser.parse_args()
+    
+    success = predict(
+        input_path=args.input,
+        model_path=args.model_path,
+        output_path=args.output,
+        top_k=args.top_k,
+        batch_size=args.batch_size,
+        recursive=args.recursive,
+        visualize=args.visualize,
+        format=args.format
+    )
+    
+    sys.exit(0 if success else 1)
+
+if __name__ == "__main__":
+    main()
+'''
         print(f"No images found in {image_dir}")
         return results
     
@@ -1820,46 +2460,293 @@ if __name__ == "__main__":
 '''
     
     def _get_deploy_template(self) -> str:
-        """Get the deployment script template."""
+        """Get the enhanced deployment script template with multiple format support."""
         return '''#!/usr/bin/env python3
 """
-Deployment Script for ModelGardener
+Enhanced Deployment Script for ModelGardener
 Generated on: {{GENERATION_DATE}}
 Configuration: {{CONFIG_FILE}}
+Support: ONNX, TensorFlow Lite, TensorFlow.js, Encrypted Models
 """
 
 import os
 import sys
 import yaml
+import json
+import argparse
 import tensorflow as tf
 import keras
 import numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from PIL import Image
 import io
 import base64
 from pathlib import Path
+import time
+from datetime import datetime
+import threading
+import logging
 
 {{CUSTOM_IMPORTS}}
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
 # Global variables
 model = None
+onnx_session = None
+tflite_interpreter = None
 class_labels = []
 target_size = (224, 224)
+model_info = {}
+deployment_config = {}
 
 def load_config(config_path):
     """Load configuration from YAML file."""
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
-def preprocess_image(image_data, target_size=(224, 224)):
-    """Preprocess image for prediction."""
+def setup_tensorflow():
+    """Setup TensorFlow configuration for deployment."""
+    # Configure GPU memory growth
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+            logger.info(f"Found {len(gpus)} GPU(s), memory growth enabled")
+        except RuntimeError as e:
+            logger.warning(f"GPU configuration error: {e}")
+    else:
+        logger.info("No GPUs found, using CPU")
+
+def convert_model_to_formats(model, output_dir, formats=['onnx', 'tflite'], quantize=False, encrypt=False, encryption_key=None):
+    """Convert and save model in multiple formats."""
+    
+    conversion_results = {
+        'formats': {},
+        'errors': []
+    }
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for format_name in formats:
+        try:
+            if format_name.lower() == 'onnx':
+                result = convert_to_onnx(model, output_dir, quantize)
+                conversion_results['formats']['onnx'] = result
+                
+            elif format_name.lower() == 'tflite':
+                result = convert_to_tflite(model, output_dir, quantize)
+                conversion_results['formats']['tflite'] = result
+                
+            elif format_name.lower() == 'tfjs':
+                result = convert_to_tfjs(model, output_dir)
+                conversion_results['formats']['tfjs'] = result
+                
+            elif format_name.lower() == 'keras':
+                result = save_keras_model(model, output_dir, encrypt, encryption_key)
+                conversion_results['formats']['keras'] = result
+                
+        except Exception as e:
+            error_msg = f"Error converting to {format_name}: {str(e)}"
+            logger.error(error_msg)
+            conversion_results['errors'].append(error_msg)
+    
+    return conversion_results
+
+def convert_to_onnx(model, output_dir, quantize=False):
+    """Convert model to ONNX format."""
     try:
-        # If image_data is base64 string, decode it
+        import tf2onnx
+        import onnx
+        
+        output_path = os.path.join(output_dir, 'model.onnx')
+        
+        # Convert to ONNX
+        model_proto, _ = tf2onnx.convert.from_keras(model, output_path=output_path)
+        
+        result = {
+            'path': output_path,
+            'size_mb': os.path.getsize(output_path) / (1024 * 1024),
+            'quantized': False
+        }
+        
+        if quantize:
+            try:
+                from onnxruntime.quantization import quantize_dynamic, QuantType
+                quantized_path = os.path.join(output_dir, 'model_quantized.onnx')
+                quantize_dynamic(output_path, quantized_path, weight_type=QuantType.QUInt8)
+                
+                result['quantized_path'] = quantized_path
+                result['quantized_size_mb'] = os.path.getsize(quantized_path) / (1024 * 1024)
+                result['quantized'] = True
+                
+            except ImportError:
+                logger.warning("onnxruntime not available for quantization")
+        
+        logger.info(f"ONNX model saved: {output_path}")
+        return result
+        
+    except ImportError:
+        raise ImportError("tf2onnx not installed. Install with: pip install tf2onnx onnx")
+
+def convert_to_tflite(model, output_dir, quantize=False):
+    """Convert model to TensorFlow Lite format."""
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    
+    if quantize:
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.target_spec.supported_types = [tf.float16]
+    
+    tflite_model = converter.convert()
+    
+    suffix = '_quantized' if quantize else ''
+    output_path = os.path.join(output_dir, f'model{suffix}.tflite')
+    
+    with open(output_path, 'wb') as f:
+        f.write(tflite_model)
+    
+    result = {
+        'path': output_path,
+        'size_mb': len(tflite_model) / (1024 * 1024),
+        'quantized': quantize
+    }
+    
+    logger.info(f"TFLite model saved: {output_path}")
+    return result
+
+def convert_to_tfjs(model, output_dir):
+    """Convert model to TensorFlow.js format."""
+    try:
+        import tensorflowjs as tfjs
+        
+        output_path = os.path.join(output_dir, 'tfjs_model')
+        tfjs.converters.save_keras_model(model, output_path)
+        
+        # Calculate total size
+        total_size = sum(os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, dirnames, filenames in os.walk(output_path)
+                        for filename in filenames)
+        
+        result = {
+            'path': output_path,
+            'size_mb': total_size / (1024 * 1024)
+        }
+        
+        logger.info(f"TensorFlow.js model saved: {output_path}")
+        return result
+        
+    except ImportError:
+        raise ImportError("tensorflowjs not installed. Install with: pip install tensorflowjs")
+
+def save_keras_model(model, output_dir, encrypt=False, encryption_key=None):
+    """Save Keras model with optional encryption."""
+    output_path = os.path.join(output_dir, 'model.keras')
+    model.save(output_path)
+    
+    result = {
+        'path': output_path,
+        'size_mb': os.path.getsize(output_path) / (1024 * 1024),
+        'encrypted': False
+    }
+    
+    if encrypt and encryption_key:
+        encrypted_path = os.path.join(output_dir, 'model_encrypted.keras')
+        encrypt_model_file(output_path, encrypted_path, encryption_key)
+        
+        result['encrypted_path'] = encrypted_path
+        result['encrypted_size_mb'] = os.path.getsize(encrypted_path) / (1024 * 1024)
+        result['encrypted'] = True
+    
+    logger.info(f"Keras model saved: {output_path}")
+    return result
+
+def encrypt_model_file(input_path, output_path, key):
+    """Encrypt model file using cryptography or fallback to XOR."""
+    try:
+        from cryptography.fernet import Fernet
+        import base64
+        
+        # Generate key from provided string
+        key_bytes = key.encode('utf-8')
+        key_bytes = key_bytes[:32].ljust(32, b'\\0')
+        key_b64 = base64.urlsafe_b64encode(key_bytes)
+        
+        fernet = Fernet(key_b64)
+        
+        with open(input_path, 'rb') as f:
+            data = f.read()
+        
+        encrypted_data = fernet.encrypt(data)
+        
+        with open(output_path, 'wb') as f:
+            f.write(encrypted_data)
+            
+        logger.info("Model encrypted using Fernet encryption")
+        
+    except ImportError:
+        # Fallback to simple XOR encryption
+        with open(input_path, 'rb') as f:
+            data = f.read()
+        
+        key_bytes = key.encode('utf-8')
+        encrypted = bytearray()
+        for i, byte in enumerate(data):
+            encrypted.append(byte ^ key_bytes[i % len(key_bytes)])
+        
+        with open(output_path, 'wb') as f:
+            f.write(encrypted)
+            
+        logger.warning("Using simple XOR encryption (install cryptography for better security)")
+
+def load_model_with_format(model_dir, preferred_format='keras'):
+    """Load model with format preference."""
+    global model, onnx_session, tflite_interpreter
+    
+    if preferred_format == 'onnx':
+        try:
+            import onnxruntime as ort
+            onnx_path = os.path.join(model_dir, 'model.onnx')
+            if os.path.exists(onnx_path):
+                onnx_session = ort.InferenceSession(onnx_path)
+                logger.info(f"Loaded ONNX model: {onnx_path}")
+                return True
+        except ImportError:
+            logger.warning("onnxruntime not available")
+    
+    elif preferred_format == 'tflite':
+        tflite_path = os.path.join(model_dir, 'model.tflite')
+        if os.path.exists(tflite_path):
+            tflite_interpreter = tf.lite.Interpreter(model_path=tflite_path)
+            tflite_interpreter.allocate_tensors()
+            logger.info(f"Loaded TFLite model: {tflite_path}")
+            return True
+    
+    # Fallback to Keras/TensorFlow
+    model_patterns = ['model.keras', 'best_model.keras', 'model.h5', 'best_model.h5']
+    for pattern in model_patterns:
+        model_path = os.path.join(model_dir, pattern)
+        if os.path.exists(model_path):
+            model = keras.models.load_model(model_path)
+            logger.info(f"Loaded Keras model: {model_path}")
+            return True
+    
+    return False
+
+def preprocess_image(image_data, target_size=(224, 224)):
+    """Enhanced image preprocessing."""
+    try:
+        # Handle different input types
         if isinstance(image_data, str):
+            # Base64 encoded
             image_data = base64.b64decode(image_data)
+        elif hasattr(image_data, 'read'):
+            # File-like object
+            image_data = image_data.read()
         
         # Load image
         img = Image.open(io.BytesIO(image_data))
@@ -1868,11 +2755,14 @@ def preprocess_image(image_data, target_size=(224, 224)):
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
+        # Apply custom preprocessing if available
+        {{CUSTOM_PREPROCESSING_CALLS}}
+        
         # Resize
-        img = img.resize(target_size)
+        img = img.resize(target_size, Image.Resampling.LANCZOS)
         
         # Convert to numpy array and normalize
-        img_array = np.array(img) / 255.0
+        img_array = np.array(img, dtype=np.float32) / 255.0
         
         # Add batch dimension
         img_array = np.expand_dims(img_array, axis=0)
@@ -1880,15 +2770,288 @@ def preprocess_image(image_data, target_size=(224, 224)):
         return img_array
         
     except Exception as e:
-        print(f"Error preprocessing image: {e}")
+        logger.error(f"Error preprocessing image: {e}")
         return None
 
+def predict_with_model(img_array):
+    """Make prediction using the available model format."""
+    global model, onnx_session, tflite_interpreter
+    
+    if onnx_session is not None:
+        # ONNX prediction
+        input_name = onnx_session.get_inputs()[0].name
+        predictions = onnx_session.run(None, {input_name: img_array})[0]
+        
+    elif tflite_interpreter is not None:
+        # TFLite prediction
+        input_details = tflite_interpreter.get_input_details()
+        output_details = tflite_interpreter.get_output_details()
+        
+        tflite_interpreter.set_tensor(input_details[0]['index'], img_array.astype(np.float32))
+        tflite_interpreter.invoke()
+        predictions = tflite_interpreter.get_tensor(output_details[0]['index'])
+        
+    elif model is not None:
+        # Keras/TensorFlow prediction
+        predictions = model.predict(img_array, verbose=0)
+        
+    else:
+        raise RuntimeError("No model loaded")
+    
+    return predictions
+
+# API Routes
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
-    return jsonify({'status': 'healthy', 'model_loaded': model is not None})
+    """Enhanced health check endpoint."""
+    model_loaded = (model is not None) or (onnx_session is not None) or (tflite_interpreter is not None)
+    
+    model_type = 'none'
+    if model is not None:
+        model_type = 'keras'
+    elif onnx_session is not None:
+        model_type = 'onnx'
+    elif tflite_interpreter is not None:
+        model_type = 'tflite'
+    
+    return jsonify({
+        'status': 'healthy' if model_loaded else 'no_model',
+        'model_loaded': model_loaded,
+        'model_type': model_type,
+        'model_info': model_info,
+        'timestamp': datetime.now().isoformat()
+    })
 
 @app.route('/predict', methods=['POST'])
+def predict():
+    """Enhanced prediction endpoint with performance metrics."""
+    start_time = time.time()
+    
+    try:
+        # Check if model is loaded
+        if not (model or onnx_session or tflite_interpreter):
+            return jsonify({'error': 'Model not loaded'}), 500
+        
+        # Get image from request
+        image_data = None
+        if 'image' in request.files:
+            image_data = request.files['image']
+        elif request.is_json:
+            data = request.get_json()
+            if 'image' in data:
+                image_data = data['image']
+        
+        if image_data is None:
+            return jsonify({'error': 'No image provided'}), 400
+        
+        # Preprocess image
+        preprocessing_start = time.time()
+        img_array = preprocess_image(image_data, target_size)
+        preprocessing_time = time.time() - preprocessing_start
+        
+        if img_array is None:
+            return jsonify({'error': 'Failed to preprocess image'}), 400
+        
+        # Make prediction
+        inference_start = time.time()
+        predictions = predict_with_model(img_array)
+        inference_time = time.time() - inference_start
+        
+        # Process results
+        predicted_class_idx = np.argmax(predictions[0])
+        confidence = float(predictions[0][predicted_class_idx])
+        predicted_class = class_labels[predicted_class_idx] if predicted_class_idx < len(class_labels) else f"class_{predicted_class_idx}"
+        
+        # Get top 5 predictions
+        top_5_indices = np.argsort(predictions[0])[::-1][:5]
+        top_5_predictions = [
+            {
+                'class': class_labels[idx] if idx < len(class_labels) else f"class_{idx}",
+                'confidence': float(predictions[0][idx])
+            }
+            for idx in top_5_indices
+        ]
+        
+        total_time = time.time() - start_time
+        
+        return jsonify({
+            'predicted_class': predicted_class,
+            'confidence': confidence,
+            'top_predictions': top_5_predictions,
+            'performance': {
+                'preprocessing_time': preprocessing_time,
+                'inference_time': inference_time,
+                'total_time': total_time
+            },
+            'timestamp': datetime.now().isoformat()
+        })
+    
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/model/info', methods=['GET'])
+def get_model_info():
+    """Get detailed model information."""
+    return jsonify(model_info)
+
+@app.route('/model/convert', methods=['POST'])
+def convert_model():
+    """Convert model to different formats on demand."""
+    try:
+        if not model:
+            return jsonify({'error': 'No Keras model loaded for conversion'}), 400
+        
+        data = request.get_json() or {}
+        formats = data.get('formats', ['onnx', 'tflite'])
+        quantize = data.get('quantize', False)
+        encrypt = data.get('encrypt', False)
+        encryption_key = data.get('encryption_key')
+        
+        output_dir = os.path.join(deployment_config.get('model_dir', './models'), 'converted')
+        
+        results = convert_model_to_formats(
+            model, output_dir, formats, quantize, encrypt, encryption_key
+        )
+        
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'output_directory': output_dir
+        })
+        
+    except Exception as e:
+        logger.error(f"Conversion error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/classes', methods=['GET'])
+def get_classes():
+    """Get available classes."""
+    return jsonify({
+        'classes': class_labels,
+        'num_classes': len(class_labels)
+    })
+
+def load_model_and_setup():
+    """Load model and setup deployment configuration."""
+    global model, class_labels, target_size, model_info, deployment_config
+    
+    # Configuration
+    config_file = "{{CONFIG_FILE}}"
+    model_dir = "{{MODEL_DIR}}"
+    img_height = {{IMG_HEIGHT}}
+    img_width = {{IMG_WIDTH}}
+    target_size = (img_height, img_width)
+    
+    deployment_config = {
+        'config_file': config_file,
+        'model_dir': model_dir,
+        'target_size': target_size
+    }
+    
+    # Load configuration if available
+    if os.path.exists(config_file):
+        try:
+            config = load_config(config_file)
+            logger.info(f"Loaded configuration from {config_file}")
+            
+            # Extract model info
+            model_config = config.get('configuration', {}).get('model', {})
+            deployment_config.update({
+                'model_family': model_config.get('model_selection', {}).get('selected_model_family'),
+                'model_name': model_config.get('model_selection', {}).get('selected_model_name'),
+                'num_classes': model_config.get('model_parameters', {}).get('classes', 10)
+            })
+            
+        except Exception as e:
+            logger.warning(f"Could not load configuration: {e}")
+            config = {}
+    else:
+        logger.warning(f"Configuration file {config_file} not found")
+        config = {}
+    
+    # Generate class labels
+    num_classes = deployment_config.get('num_classes', 10)
+    class_labels = [f"class_{i}" for i in range(num_classes)]
+    
+    # Load model with preferred format
+    preferred_format = os.environ.get('MODEL_FORMAT', 'keras')
+    if not load_model_with_format(model_dir, preferred_format):
+        logger.error(f"No model found in {model_dir}")
+        return False
+    
+    # Setup model info
+    model_info = {
+        'loaded': True,
+        'format': 'onnx' if onnx_session else 'tflite' if tflite_interpreter else 'keras',
+        'classes': len(class_labels),
+        'input_shape': list(target_size) + [3],
+        'deployment_config': deployment_config
+    }
+    
+    logger.info("Model loaded and deployment setup complete")
+    return True
+
+def main():
+    """Main deployment function with CLI support."""
+    parser = argparse.ArgumentParser(description='Enhanced ModelGardener Deployment')
+    parser.add_argument('--port', type=int, default=5000, help='Port to run the server on')
+    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind the server to')
+    parser.add_argument('--model-format', choices=['keras', 'onnx', 'tflite'], default='keras',
+                        help='Preferred model format to load')
+    parser.add_argument('--convert', action='store_true', help='Convert model to multiple formats before serving')
+    parser.add_argument('--formats', nargs='+', choices=['onnx', 'tflite', 'tfjs', 'keras'],
+                        default=['onnx', 'tflite'], help='Formats to convert to')
+    parser.add_argument('--quantize', action='store_true', help='Apply quantization during conversion')
+    parser.add_argument('--encrypt', action='store_true', help='Encrypt converted models')
+    parser.add_argument('--encryption-key', type=str, help='Encryption key for model files')
+    parser.add_argument('--debug', action='store_true', help='Run in debug mode')
+    
+    args = parser.parse_args()
+    
+    # Setup TensorFlow
+    setup_tensorflow()
+    
+    # Set preferred model format
+    os.environ['MODEL_FORMAT'] = args.model_format
+    
+    # Load model and setup
+    if not load_model_and_setup():
+        logger.error("Failed to load model and setup deployment")
+        sys.exit(1)
+    
+    # Convert models if requested
+    if args.convert:
+        logger.info("Converting model to multiple formats...")
+        output_dir = os.path.join(deployment_config['model_dir'], 'deployment_formats')
+        
+        if model:  # Only convert if we have a Keras model
+            try:
+                results = convert_model_to_formats(
+                    model, output_dir, args.formats, 
+                    args.quantize, args.encrypt, args.encryption_key
+                )
+                logger.info(f"Conversion completed: {results}")
+            except Exception as e:
+                logger.error(f"Conversion failed: {e}")
+        else:
+            logger.warning("No Keras model available for conversion")
+    
+    # Start the Flask server
+    logger.info(f"Starting deployment server on {args.host}:{args.port}")
+    logger.info(f"Model format: {model_info.get('format', 'unknown')}")
+    logger.info(f"API endpoints: /health, /predict, /model/info, /model/convert, /classes")
+    
+    app.run(
+        host=args.host,
+        port=args.port,
+        debug=args.debug,
+        threaded=True
+    )
+
+if __name__ == "__main__":
+    main()
+'''
 def predict():
     """Prediction endpoint."""
     try:

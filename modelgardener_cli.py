@@ -8,7 +8,11 @@ import argparse
 import sys
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
+import yaml
+import json
+import numpy as np
+from PIL import Image
 
 # Add the current directory to Python path for imports
 current_dir = Path(__file__).parent
@@ -140,9 +144,15 @@ class ModelGardenerCLI:
             traceback.print_exc()
             return False
 
-    def run_evaluation(self, config_file: str, model_path: str = None):
-        """Run model evaluation using CLI."""
+    def run_evaluation(self, config_file: str, model_path: str = None, data_path: str = None, 
+                      output_format: str = "yaml", save_results: bool = True):
+        """Run enhanced model evaluation using CLI."""
         print(f"📊 Starting ModelGardener evaluation from CLI")
+        print(f"📄 Configuration: {config_file}")
+        if model_path:
+            print(f"🤖 Model path: {model_path}")
+        if data_path:
+            print(f"📁 Data path: {data_path}")
         
         if not os.path.exists(config_file):
             print(f"❌ Configuration file not found: {config_file}")
@@ -161,13 +171,23 @@ class ModelGardenerCLI:
             if model_path:
                 main_config['runtime']['model_dir'] = model_path
             
+            # Use provided data path for evaluation
+            if data_path:
+                main_config['data']['test_dir'] = data_path
+            
             print("✅ Configuration loaded for evaluation")
             
-            # Initialize trainer for evaluation
-            trainer = EnhancedTrainer(
+            # Use RefactoredEnhancedTrainer for consistent behavior
+            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
+            trainer = RefactoredEnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
+            
+            # Load model if not already loaded
+            if not trainer.model:
+                print("🔄 Loading model for evaluation...")
+                trainer._load_saved_model()
             
             # Run evaluation
             print("\n📈 Starting evaluation...")
@@ -177,7 +197,12 @@ class ModelGardenerCLI:
                 print("✅ Evaluation completed successfully!")
                 print("\n📊 Results:")
                 for metric, value in results.items():
-                    print(f"  {metric}: {value}")
+                    print(f"  {metric}: {value:.4f}")
+                
+                # Save results if requested
+                if save_results:
+                    self._save_evaluation_results(results, main_config.get('runtime', {}).get('model_dir', './logs'), output_format)
+                
                 return True
             else:
                 print("❌ Evaluation failed")
@@ -188,6 +213,434 @@ class ModelGardenerCLI:
             import traceback
             traceback.print_exc()
             return False
+
+    def run_prediction(self, config_file: str, input_path: str, model_path: str = None, 
+                      output_path: str = None, top_k: int = 5, batch_size: int = 32):
+        """Run prediction using CLI."""
+        print(f"🔮 Starting ModelGardener prediction from CLI")
+        print(f"📄 Configuration: {config_file}")
+        print(f"📁 Input: {input_path}")
+        if model_path:
+            print(f"🤖 Model path: {model_path}")
+        
+        if not os.path.exists(config_file):
+            print(f"❌ Configuration file not found: {config_file}")
+            return False
+        
+        if not os.path.exists(input_path):
+            print(f"❌ Input path not found: {input_path}")
+            return False
+        
+        try:
+            # Load configuration
+            config = self.config_cli.load_config(config_file)
+            if not config:
+                print("❌ Failed to load configuration")
+                return False
+            
+            main_config = config.get('configuration', {})
+            
+            # Use provided model path or default from config
+            if model_path:
+                main_config['runtime']['model_dir'] = model_path
+            
+            print("✅ Configuration loaded for prediction")
+            
+            # Use RefactoredEnhancedTrainer for consistent behavior
+            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
+            trainer = RefactoredEnhancedTrainer(
+                config=main_config,
+                custom_functions=config.get('metadata', {}).get('custom_functions', {})
+            )
+            
+            # Load model if not already loaded
+            if not trainer.model:
+                print("🔄 Loading model for prediction...")
+                trainer._load_saved_model()
+            
+            # Run prediction
+            print(f"\n🔮 Starting prediction on {input_path}...")
+            results = self._run_prediction_on_path(trainer, input_path, top_k, batch_size, main_config)
+            
+            if results:
+                print("✅ Prediction completed successfully!")
+                
+                # Save results if output path specified
+                if output_path:
+                    self._save_prediction_results(results, output_path)
+                    print(f"💾 Results saved to: {output_path}")
+                
+                return True
+            else:
+                print("❌ Prediction failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error during prediction: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def run_deployment(self, config_file: str, model_path: str = None, output_formats: List[str] = None,
+                      quantize: bool = False, encrypt: bool = False, encryption_key: str = None):
+        """Run enhanced model deployment with multiple format support."""
+        print(f"🚀 Starting ModelGardener deployment from CLI")
+        print(f"📄 Configuration: {config_file}")
+        if model_path:
+            print(f"🤖 Model path: {model_path}")
+        if output_formats:
+            print(f"📦 Output formats: {', '.join(output_formats)}")
+        
+        if not os.path.exists(config_file):
+            print(f"❌ Configuration file not found: {config_file}")
+            return False
+        
+        try:
+            # Load configuration
+            config = self.config_cli.load_config(config_file)
+            if not config:
+                print("❌ Failed to load configuration")
+                return False
+            
+            main_config = config.get('configuration', {})
+            
+            # Use provided model path or default from config
+            if model_path:
+                main_config['runtime']['model_dir'] = model_path
+            
+            print("✅ Configuration loaded for deployment")
+            
+            # Use RefactoredEnhancedTrainer for consistent behavior
+            from refactored_enhanced_trainer import RefactoredEnhancedTrainer
+            trainer = RefactoredEnhancedTrainer(
+                config=main_config,
+                custom_functions=config.get('metadata', {}).get('custom_functions', {})
+            )
+            
+            # Load model if not already loaded
+            if not trainer.model:
+                print("🔄 Loading model for deployment...")
+                trainer._load_saved_model()
+            
+            # Run deployment
+            print("\n🚀 Starting model deployment...")
+            success = self._deploy_model_formats(trainer, main_config, output_formats, quantize, encrypt, encryption_key)
+            
+            if success:
+                print("✅ Deployment completed successfully!")
+                return True
+            else:
+                print("❌ Deployment failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error during deployment: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _save_evaluation_results(self, results: Dict[str, float], model_dir: str, output_format: str):
+        """Save evaluation results to file."""
+        try:
+            os.makedirs(model_dir, exist_ok=True)
+            
+            if output_format.lower() == 'json':
+                results_path = os.path.join(model_dir, 'evaluation_results.json')
+                with open(results_path, 'w') as f:
+                    json.dump(results, f, indent=2)
+            else:  # yaml
+                results_path = os.path.join(model_dir, 'evaluation_results.yaml')
+                with open(results_path, 'w') as f:
+                    yaml.dump(results, f, default_flow_style=False)
+            
+            print(f"💾 Evaluation results saved to: {results_path}")
+            
+        except Exception as e:
+            print(f"⚠️ Could not save evaluation results: {str(e)}")
+
+    def _run_prediction_on_path(self, trainer, input_path: str, top_k: int, batch_size: int, config: Dict[str, Any]):
+        """Run prediction on a file or directory."""
+        try:
+            # Get target size from config
+            input_shape = config.get('model', {}).get('model_parameters', {}).get('input_shape', {})
+            target_size = (input_shape.get('height', 224), input_shape.get('width', 224))
+            
+            # Get class labels if available
+            class_labels = self._get_class_labels(config)
+            
+            if os.path.isfile(input_path):
+                # Single file prediction
+                return self._predict_single_file(trainer, input_path, target_size, class_labels, top_k)
+            elif os.path.isdir(input_path):
+                # Directory prediction
+                return self._predict_directory(trainer, input_path, target_size, class_labels, top_k, batch_size)
+            else:
+                print(f"❌ Invalid input path: {input_path}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error during prediction: {str(e)}")
+            return None
+
+    def _predict_single_file(self, trainer, image_path: str, target_size: tuple, class_labels: List[str], top_k: int):
+        """Predict on a single image file."""
+        try:
+            # Load and preprocess image
+            img = Image.open(image_path)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            img = img.resize(target_size)
+            img_array = np.array(img) / 255.0
+            img_array = np.expand_dims(img_array, axis=0)
+            
+            # Make prediction
+            predictions = trainer.model.predict(img_array, verbose=0)
+            
+            # Get top-k results
+            top_indices = np.argsort(predictions[0])[::-1][:top_k]
+            results = []
+            
+            for i, idx in enumerate(top_indices):
+                class_name = class_labels[idx] if idx < len(class_labels) else f"class_{idx}"
+                confidence = float(predictions[0][idx])
+                results.append({
+                    'rank': i + 1,
+                    'class': class_name,
+                    'confidence': confidence
+                })
+                print(f"  {i+1}. {class_name}: {confidence:.4f}")
+            
+            return {'image_path': image_path, 'predictions': results}
+            
+        except Exception as e:
+            print(f"❌ Error predicting {image_path}: {str(e)}")
+            return None
+
+    def _predict_directory(self, trainer, directory: str, target_size: tuple, class_labels: List[str], top_k: int, batch_size: int):
+        """Predict on all images in a directory."""
+        try:
+            # Find all image files
+            extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+            image_files = []
+            
+            for ext in extensions:
+                image_files.extend(Path(directory).glob(f'*{ext}'))
+                image_files.extend(Path(directory).glob(f'*{ext.upper()}'))
+            
+            if not image_files:
+                print(f"❌ No images found in {directory}")
+                return None
+            
+            print(f"📁 Found {len(image_files)} images")
+            results = []
+            
+            # Process images
+            for image_file in image_files:
+                print(f"\n📷 Processing: {image_file.name}")
+                result = self._predict_single_file(trainer, str(image_file), target_size, class_labels, top_k)
+                if result:
+                    results.append(result)
+            
+            return {'directory': directory, 'results': results, 'total_images': len(image_files)}
+            
+        except Exception as e:
+            print(f"❌ Error predicting directory {directory}: {str(e)}")
+            return None
+
+    def _get_class_labels(self, config: Dict[str, Any]) -> List[str]:
+        """Get class labels from config or generate default ones."""
+        try:
+            # Try to get from config
+            num_classes = config.get('model', {}).get('model_parameters', {}).get('classes', 10)
+            return [f"class_{i}" for i in range(num_classes)]
+        except:
+            return [f"class_{i}" for i in range(10)]  # Default
+
+    def _save_prediction_results(self, results: Dict[str, Any], output_path: str):
+        """Save prediction results to file."""
+        try:
+            if output_path.endswith('.json'):
+                with open(output_path, 'w') as f:
+                    json.dump(results, f, indent=2)
+            else:
+                with open(output_path, 'w') as f:
+                    yaml.dump(results, f, default_flow_style=False)
+                    
+        except Exception as e:
+            print(f"⚠️ Could not save prediction results: {str(e)}")
+
+    def _deploy_model_formats(self, trainer, config: Dict[str, Any], output_formats: List[str], 
+                             quantize: bool, encrypt: bool, encryption_key: str) -> bool:
+        """Deploy model in multiple formats."""
+        try:
+            model_dir = config.get('runtime', {}).get('model_dir', './logs')
+            deploy_dir = os.path.join(model_dir, 'deployment')
+            os.makedirs(deploy_dir, exist_ok=True)
+            
+            success = True
+            
+            # Default formats if none specified
+            if not output_formats:
+                output_formats = ['onnx', 'tflite']
+            
+            for format_name in output_formats:
+                print(f"🔄 Converting to {format_name.upper()}...")
+                
+                if format_name.lower() == 'onnx':
+                    success &= self._convert_to_onnx(trainer.model, deploy_dir, quantize)
+                elif format_name.lower() == 'tflite':
+                    success &= self._convert_to_tflite(trainer.model, deploy_dir, quantize)
+                elif format_name.lower() == 'tfjs':
+                    success &= self._convert_to_tfjs(trainer.model, deploy_dir)
+                elif format_name.lower() == 'keras':
+                    success &= self._save_keras_model(trainer.model, deploy_dir, encrypt, encryption_key)
+                else:
+                    print(f"⚠️ Unsupported format: {format_name}")
+                    
+            return success
+            
+        except Exception as e:
+            print(f"❌ Error during deployment: {str(e)}")
+            return False
+
+    def _convert_to_onnx(self, model, deploy_dir: str, quantize: bool) -> bool:
+        """Convert model to ONNX format."""
+        try:
+            import tf2onnx
+            import onnx
+            
+            output_path = os.path.join(deploy_dir, 'model.onnx')
+            
+            # Convert to ONNX
+            model_proto, _ = tf2onnx.convert.from_keras(model, output_path=output_path)
+            
+            if quantize:
+                print("🔄 Quantizing ONNX model...")
+                try:
+                    from onnxruntime.quantization import quantize_dynamic, QuantType
+                    quantized_path = os.path.join(deploy_dir, 'model_quantized.onnx')
+                    quantize_dynamic(output_path, quantized_path, weight_type=QuantType.QUInt8)
+                    print(f"✅ Quantized ONNX model saved: {quantized_path}")
+                except ImportError:
+                    print("⚠️ onnxruntime not available for quantization")
+            
+            print(f"✅ ONNX model saved: {output_path}")
+            return True
+            
+        except ImportError:
+            print("❌ tf2onnx not installed. Install with: pip install tf2onnx")
+            return False
+        except Exception as e:
+            print(f"❌ Error converting to ONNX: {str(e)}")
+            return False
+
+    def _convert_to_tflite(self, model, deploy_dir: str, quantize: bool) -> bool:
+        """Convert model to TensorFlow Lite format."""
+        try:
+            import tensorflow as tf
+            
+            # Convert to TFLite
+            converter = tf.lite.TFLiteConverter.from_keras_model(model)
+            
+            if quantize:
+                print("🔄 Applying quantization...")
+                converter.optimizations = [tf.lite.Optimize.DEFAULT]
+                converter.target_spec.supported_types = [tf.float16]
+            
+            tflite_model = converter.convert()
+            
+            # Save model
+            suffix = '_quantized' if quantize else ''
+            output_path = os.path.join(deploy_dir, f'model{suffix}.tflite')
+            with open(output_path, 'wb') as f:
+                f.write(tflite_model)
+            
+            print(f"✅ TFLite model saved: {output_path}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error converting to TFLite: {str(e)}")
+            return False
+
+    def _convert_to_tfjs(self, model, deploy_dir: str) -> bool:
+        """Convert model to TensorFlow.js format."""
+        try:
+            import tensorflowjs as tfjs
+            
+            output_path = os.path.join(deploy_dir, 'tfjs_model')
+            tfjs.converters.save_keras_model(model, output_path)
+            
+            print(f"✅ TensorFlow.js model saved: {output_path}")
+            return True
+            
+        except ImportError:
+            print("❌ tensorflowjs not installed. Install with: pip install tensorflowjs")
+            return False
+        except Exception as e:
+            print(f"❌ Error converting to TensorFlow.js: {str(e)}")
+            return False
+
+    def _save_keras_model(self, model, deploy_dir: str, encrypt: bool, encryption_key: str) -> bool:
+        """Save Keras model with optional encryption."""
+        try:
+            output_path = os.path.join(deploy_dir, 'model.keras')
+            model.save(output_path)
+            
+            if encrypt and encryption_key:
+                print("🔄 Encrypting model...")
+                encrypted_path = os.path.join(deploy_dir, 'model_encrypted.keras')
+                self._encrypt_model_file(output_path, encrypted_path, encryption_key)
+                print(f"✅ Encrypted model saved: {encrypted_path}")
+            
+            print(f"✅ Keras model saved: {output_path}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error saving Keras model: {str(e)}")
+            return False
+
+    def _encrypt_model_file(self, input_path: str, output_path: str, key: str):
+        """Encrypt model file using simple XOR encryption."""
+        try:
+            from cryptography.fernet import Fernet
+            import base64
+            
+            # Generate key from provided string
+            key_bytes = key.encode('utf-8')
+            # Pad or truncate to 32 bytes for Fernet
+            key_bytes = key_bytes[:32].ljust(32, b'\0')
+            key_b64 = base64.urlsafe_b64encode(key_bytes)
+            
+            fernet = Fernet(key_b64)
+            
+            # Encrypt file
+            with open(input_path, 'rb') as f:
+                data = f.read()
+            
+            encrypted_data = fernet.encrypt(data)
+            
+            with open(output_path, 'wb') as f:
+                f.write(encrypted_data)
+                
+            print("🔐 Model encrypted successfully")
+            
+        except ImportError:
+            print("⚠️ cryptography not available, using simple XOR encryption")
+            # Fallback to simple XOR
+            with open(input_path, 'rb') as f:
+                data = f.read()
+            
+            key_bytes = key.encode('utf-8')
+            encrypted = bytearray()
+            for i, byte in enumerate(data):
+                encrypted.append(byte ^ key_bytes[i % len(key_bytes)])
+            
+            with open(output_path, 'wb') as f:
+                f.write(encrypted)
+                
+        except Exception as e:
+            print(f"⚠️ Error encrypting model: {str(e)}")
 
     def list_available_models(self):
         """List all available models."""
@@ -410,6 +863,8 @@ Commands:
   config      Modify existing model configuration files
   train       Train a model
   evaluate    Evaluate a trained model
+  predict     Run prediction on new data
+  deploy      Deploy model in multiple formats (ONNX, TFLite, TF.js, etc.)
   models      List available models
   create      Create a new project template
   check       Check configuration files
@@ -434,7 +889,16 @@ Examples:
   modelgardener_cli.py train --config config.yaml
   
   # Evaluate the trained model
-  modelgardener_cli.py evaluate --config config.yaml
+  modelgardener_cli.py evaluate --config config.yaml --data-path ./test_data
+  modelgardener_cli.py evaluate --config config.yaml --output-format json
+  
+  # Run predictions
+  modelgardener_cli.py predict --config config.yaml --input image.jpg
+  modelgardener_cli.py predict --config config.yaml --input ./images/ --output results.json
+  
+  # Deploy models
+  modelgardener_cli.py deploy --config config.yaml --formats onnx tflite
+  modelgardener_cli.py deploy --config config.yaml --formats onnx --quantize --encrypt --encryption-key mykey
   
   # List available models
   modelgardener_cli.py models
@@ -473,6 +937,28 @@ Examples:
     eval_parser = subparsers.add_parser('evaluate', help='Evaluate a trained model')
     eval_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
     eval_parser.add_argument('--model-path', type=str, help='Path to trained model')
+    eval_parser.add_argument('--data-path', type=str, help='Path to evaluation data')
+    eval_parser.add_argument('--output-format', choices=['yaml', 'json'], default='yaml', help='Output format for results')
+    eval_parser.add_argument('--no-save', action='store_true', help='Do not save evaluation results')
+    
+    # Predict command
+    predict_parser = subparsers.add_parser('predict', help='Run prediction on new data')
+    predict_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
+    predict_parser.add_argument('--input', '-i', type=str, required=True, help='Input image file or directory')
+    predict_parser.add_argument('--model-path', type=str, help='Path to trained model')
+    predict_parser.add_argument('--output', '-o', type=str, help='Output file for results (JSON/YAML)')
+    predict_parser.add_argument('--top-k', type=int, default=5, help='Number of top predictions to show')
+    predict_parser.add_argument('--batch-size', type=int, default=32, help='Batch size for processing')
+    
+    # Deploy command
+    deploy_parser = subparsers.add_parser('deploy', help='Deploy model in multiple formats')
+    deploy_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
+    deploy_parser.add_argument('--model-path', type=str, help='Path to trained model')
+    deploy_parser.add_argument('--formats', nargs='+', choices=['onnx', 'tflite', 'tfjs', 'keras'], 
+                              default=['onnx', 'tflite'], help='Output formats')
+    deploy_parser.add_argument('--quantize', action='store_true', help='Apply quantization (ONNX/TFLite)')
+    deploy_parser.add_argument('--encrypt', action='store_true', help='Encrypt model files')
+    deploy_parser.add_argument('--encryption-key', type=str, help='Encryption key for model files')
     
     # Models command
     models_parser = subparsers.add_parser('models', help='List available models')
@@ -568,7 +1054,22 @@ def main():
             sys.exit(0 if success else 1)
         
         elif args.command == 'evaluate':
-            success = cli.run_evaluation(args.config, args.model_path)
+            # Handle new evaluation parameters
+            data_path = getattr(args, 'data_path', None)
+            output_format = getattr(args, 'output_format', 'yaml')
+            save_results = not getattr(args, 'no_save', False)
+            
+            success = cli.run_evaluation(args.config, args.model_path, data_path, output_format, save_results)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == 'predict':
+            success = cli.run_prediction(args.config, args.input, args.model_path, 
+                                       getattr(args, 'output', None), args.top_k, args.batch_size)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == 'deploy':
+            success = cli.run_deployment(args.config, args.model_path, args.formats,
+                                       args.quantize, args.encrypt, getattr(args, 'encryption_key', None))
             sys.exit(0 if success else 1)
         
         elif args.command == 'models':
