@@ -555,10 +555,10 @@ class RefactoredEnhancedTrainer:
             self.model.save(final_model_path)
             print(f"💾 Final model saved: {final_model_path}")
             
-            # Also save in SavedModel format for deployment
-            savedmodel_path = os.path.join(model_dir, 'savedmodel')
-            self.model.save(savedmodel_path, save_format='tf')
-            print(f"💾 SavedModel saved: {savedmodel_path}")
+            # # Also save in SavedModel format for deployment
+            # savedmodel_path = os.path.join(model_dir, 'savedmodel')
+            # self.model.export(savedmodel_path,verbose=0)
+            # print(f"💾 SavedModel saved: {savedmodel_path}")
             
         except Exception as e:
             print(f"⚠️  Error saving model: {str(e)}")

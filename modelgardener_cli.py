@@ -128,15 +128,16 @@ class ModelGardenerCLI:
             )
             
             # Run training
-            print("\n🏃 Starting training...")
-            success = trainer.train()
+            trainer.train()
+            # print("\n🏃 Starting training...")
+            # success = trainer.train()
             
-            if success:
-                print("✅ Training completed successfully!")
-                return True
-            else:
-                print("❌ Training failed")
-                return False
+            # if success:
+            #     print("✅ Training completed successfully!")
+            #     return True
+            # else:
+            #     print("❌ Training failed")
+            #     return False
                 
         except Exception as e:
             print(f"❌ Error during training: {str(e)}")

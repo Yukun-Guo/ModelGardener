@@ -1334,7 +1334,7 @@ class ModelConfigCLI:
                             "save_weights_only": False,
                             "mode": "min",
                             "save_freq": "epoch",
-                            "filepath": "best_model.h5"
+                            "filepath": "best_model.keras"
                         },
                         "TensorBoard": {
                             "enabled": True,

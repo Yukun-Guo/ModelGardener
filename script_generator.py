@@ -1511,8 +1511,8 @@ def create_evaluation_dataset(data_path, batch_size=32, img_height=224, img_widt
 def load_model_with_fallback(model_dir):
     """Load model with multiple fallback options."""
     model_patterns = [
-        'best_model.keras', 'best_model.h5', 'final_model.keras', 'final_model.h5',
-        'model.keras', 'model.h5', 'saved_model'
+        'best_model.keras', 'final_model.keras', 
+        'model.keras', 'saved_model'
     ]
     
     for pattern in model_patterns:
@@ -1778,74 +1778,6 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-        return
-    
-    # Create test generator
-    if not os.path.exists(test_dir):
-        print(f"❌ Test directory not found: {test_dir}")
-        return
-    
-    print("📁 Creating test data generator...")
-    test_gen = create_test_generator(test_dir, batch_size, img_height, img_width)
-    
-    # Evaluate model
-    print("📊 Evaluating model...")
-    
-    # Get predictions
-    predictions = model.predict(test_gen, verbose=1)
-    predicted_classes = np.argmax(predictions, axis=1)
-    
-    # Get true labels
-    true_classes = test_gen.classes
-    class_labels = list(test_gen.class_indices.keys())
-    
-    # Calculate accuracy
-    accuracy = np.mean(predicted_classes == true_classes)
-    print(f"🎯 Test Accuracy: {accuracy:.4f}")
-    
-    # Classification report
-    print("\\n📋 Classification Report:")
-    report = classification_report(true_classes, predicted_classes, target_names=class_labels)
-    print(report)
-    
-    # Confusion matrix
-    print("🔄 Generating confusion matrix...")
-    cm = confusion_matrix(true_classes, predicted_classes)
-    
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                xticklabels=class_labels, yticklabels=class_labels)
-    plt.title('Confusion Matrix')
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    
-    # Save confusion matrix
-    cm_path = os.path.join(model_dir, 'confusion_matrix.png')
-    plt.savefig(cm_path, dpi=300, bbox_inches='tight')
-    print(f"💾 Confusion matrix saved to: {cm_path}")
-    plt.show()
-    
-    # Save evaluation results
-    results = {
-        'accuracy': float(accuracy),
-        'classification_report': report,
-        'model_file': model_file,
-        'test_directory': test_dir,
-        'num_samples': len(true_classes),
-        'num_classes': len(class_labels),
-        'class_labels': class_labels
-    }
-    
-    results_path = os.path.join(model_dir, 'evaluation_results.yaml')
-    with open(results_path, 'w') as f:
-        yaml.dump(results, f, default_flow_style=False)
-    print(f"💾 Evaluation results saved to: {results_path}")
-    
-    print("✅ Evaluation completed!")
-
-if __name__ == "__main__":
-    evaluate_model()
-'''
     
     def _get_prediction_template(self) -> str:
         """Get the enhanced prediction script template."""
@@ -1894,8 +1826,8 @@ def setup_tensorflow():
 def load_model_with_fallback(model_dir):
     """Load model with multiple fallback options."""
     model_patterns = [
-        'best_model.keras', 'best_model.h5', 'final_model.keras', 'final_model.h5',
-        'model.keras', 'model.h5', 'saved_model'
+        'best_model.keras', 'final_model.keras',
+        'model.keras', 'saved_model'
     ]
     
     for pattern in model_patterns:
@@ -2289,175 +2221,7 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-        print(f"No images found in {image_dir}")
-        return results
-    
-    print(f"Found {len(image_files)} images")
-    
-    # Process each image
-    for image_file in image_files:
-        predicted_class, confidence, probabilities = predict_single_image(
-            model, str(image_file), class_labels, target_size
-        )
-        
-        if predicted_class is not None:
-            result = {
-                'image_path': str(image_file),
-                'predicted_class': predicted_class,
-                'confidence': confidence,
-                'probabilities': probabilities.tolist()
-            }
-            results.append(result)
-            print(f"📷 {image_file.name}: {predicted_class} ({confidence:.3f})")
-        else:
-            print(f"❌ Failed to process: {image_file.name}")
-    
-    return results
 
-def main():
-    """Main prediction function."""
-    
-    parser = argparse.ArgumentParser(description='Make predictions using trained ModelGardener model')
-    parser.add_argument('--input', '-i', required=True, 
-                       help='Input image file or directory containing images')
-    parser.add_argument('--model', '-m', 
-                       help='Path to model file (if not specified, will search in model directory)')
-    parser.add_argument('--output', '-o', 
-                       help='Output file to save results (JSON format)')
-    parser.add_argument('--top-k', '-k', type=int, default=5,
-                       help='Show top K predictions (default: 5)')
-    
-    args = parser.parse_args()
-    
-    # Configuration
-    config_file = "{{CONFIG_FILE}}"
-    model_dir = "{{MODEL_DIR}}"
-    img_height = {{IMG_HEIGHT}}
-    img_width = {{IMG_WIDTH}}
-    target_size = (img_height, img_width)
-    
-    # Load configuration if available
-    class_labels = []
-    if os.path.exists(config_file):
-        try:
-            config = load_config(config_file)
-            print(f"✅ Loaded configuration from {config_file}")
-        except Exception as e:
-            print(f"⚠️  Could not load configuration: {e}")
-            config = {}
-    else:
-        print(f"⚠️  Configuration file {config_file} not found, using defaults")
-        config = {}
-    
-    {{CUSTOM_LOADER_CALLS}}
-    
-    # Find model file
-    model_file = args.model
-    if not model_file:
-        model_files = []
-        if os.path.exists(model_dir):
-            for file in os.listdir(model_dir):
-                if file.endswith('.h5') and ('best' in file or 'final' in file):
-                    model_files.append(os.path.join(model_dir, file))
-        
-        if not model_files:
-            print(f"❌ No model files found in {model_dir}")
-            return
-        
-        # Use the best model if available
-        for file in model_files:
-            if 'best' in os.path.basename(file):
-                model_file = file
-                break
-        if not model_file:
-            model_file = model_files[0]
-    
-    if not os.path.exists(model_file):
-        print(f"❌ Model file not found: {model_file}")
-        return
-    
-    print(f"📥 Loading model from: {model_file}")
-    
-    # Load model
-    try:
-        model = keras.models.load_model(model_file)
-        print("✅ Model loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading model: {e}")
-        return
-    
-    # Try to get class labels from training directory structure
-    if not class_labels:
-        train_dir = "{{TRAIN_DIR}}"
-        if os.path.exists(train_dir):
-            class_labels = [d for d in os.listdir(train_dir) 
-                          if os.path.isdir(os.path.join(train_dir, d))]
-            class_labels.sort()
-            print(f"📋 Detected class labels from training data: {class_labels}")
-    
-    # Default class labels if none found
-    if not class_labels:
-        num_classes = {{NUM_CLASSES}}
-        class_labels = [f"class_{i}" for i in range(num_classes)]
-        print(f"⚠️  Using default class labels: {class_labels}")
-    
-    # Check input
-    input_path = args.input
-    if not os.path.exists(input_path):
-        print(f"❌ Input path not found: {input_path}")
-        return
-    
-    # Make predictions
-    results = []
-    
-    if os.path.isfile(input_path):
-        # Single image prediction
-        print(f"🔍 Predicting single image: {input_path}")
-        predicted_class, confidence, probabilities = predict_single_image(
-            model, input_path, class_labels, target_size
-        )
-        
-        if predicted_class is not None:
-            print(f"\\n🎯 Prediction: {predicted_class}")
-            print(f"🎲 Confidence: {confidence:.4f}")
-            
-            # Show top-k predictions
-            top_k_indices = np.argsort(probabilities)[::-1][:args.top_k]
-            print(f"\\n📊 Top-{args.top_k} predictions:")
-            for i, idx in enumerate(top_k_indices, 1):
-                print(f"  {i}. {class_labels[idx]}: {probabilities[idx]:.4f}")
-            
-            results.append({
-                'image_path': input_path,
-                'predicted_class': predicted_class,
-                'confidence': confidence,
-                'top_predictions': [
-                    {'class': class_labels[idx], 'probability': float(probabilities[idx])}
-                    for idx in top_k_indices
-                ]
-            })
-    
-    elif os.path.isdir(input_path):
-        # Batch prediction
-        print(f"📁 Predicting batch of images in: {input_path}")
-        results = predict_batch(model, input_path, class_labels, target_size)
-    
-    else:
-        print(f"❌ Invalid input path: {input_path}")
-        return
-    
-    # Save results if requested
-    if args.output and results:
-        import json
-        with open(args.output, 'w') as f:
-            json.dump(results, f, indent=2)
-        print(f"💾 Results saved to: {args.output}")
-    
-    print("✅ Prediction completed!")
-
-if __name__ == "__main__":
-    main()
-'''
     
     def _get_deploy_template(self) -> str:
         """Get the enhanced deployment script template with multiple format support."""
@@ -2727,7 +2491,7 @@ def load_model_with_format(model_dir, preferred_format='keras'):
             return True
     
     # Fallback to Keras/TensorFlow
-    model_patterns = ['model.keras', 'best_model.keras', 'model.h5', 'best_model.h5']
+    model_patterns = ['model.keras', 'best_model.keras']
     for pattern in model_patterns:
         model_path = os.path.join(model_dir, pattern)
         if os.path.exists(model_path):
@@ -3052,211 +2816,6 @@ def main():
 if __name__ == "__main__":
     main()
 '''
-def predict():
-    """Prediction endpoint."""
-    try:
-        # Check if model is loaded
-        if model is None:
-            return jsonify({'error': 'Model not loaded'}), 500
-        
-        # Get image from request
-        if 'image' not in request.files:
-            # Try to get base64 encoded image from JSON
-            data = request.get_json()
-            if data and 'image' in data:
-                image_data = data['image']
-            else:
-                return jsonify({'error': 'No image provided'}), 400
-        else:
-            image_file = request.files['image']
-            image_data = image_file.read()
-        
-        # Preprocess image
-        img_array = preprocess_image(image_data, target_size)
-        if img_array is None:
-            return jsonify({'error': 'Failed to preprocess image'}), 400
-        
-        # Make prediction
-        predictions = model.predict(img_array, verbose=0)
-        predicted_class_idx = np.argmax(predictions[0])
-        confidence = float(predictions[0][predicted_class_idx])
-        predicted_class = class_labels[predicted_class_idx] if class_labels else f"class_{predicted_class_idx}"
-        
-        # Get top 5 predictions
-        top_5_indices = np.argsort(predictions[0])[::-1][:5]
-        top_5_predictions = [
-            {
-                'class': class_labels[idx] if class_labels else f"class_{idx}",
-                'probability': float(predictions[0][idx])
-            }
-            for idx in top_5_indices
-        ]
-        
-        return jsonify({
-            'predicted_class': predicted_class,
-            'confidence': confidence,
-            'top_predictions': top_5_predictions
-        })
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/classes', methods=['GET'])
-def get_classes():
-    """Get available classes."""
-    return jsonify({'classes': class_labels})
-
-def load_model_and_classes():
-    """Load model and class labels."""
-    global model, class_labels, target_size
-    
-    # Configuration
-    config_file = "{{CONFIG_FILE}}"
-    model_dir = "{{MODEL_DIR}}"
-    img_height = {{IMG_HEIGHT}}
-    img_width = {{IMG_WIDTH}}
-    target_size = (img_height, img_width)
-    
-    # Load configuration if available
-    if os.path.exists(config_file):
-        try:
-            config = load_config(config_file)
-            print(f"✅ Loaded configuration from {config_file}")
-        except Exception as e:
-            print(f"⚠️  Could not load configuration: {e}")
-            config = {}
-    else:
-        print(f"⚠️  Configuration file {config_file} not found, using defaults")
-        config = {}
-    
-    {{CUSTOM_LOADER_CALLS}}
-    
-    # Find model file
-    model_files = []
-    if os.path.exists(model_dir):
-        for file in os.listdir(model_dir):
-            if file.endswith('.h5') and ('best' in file or 'final' in file):
-                model_files.append(os.path.join(model_dir, file))
-    
-    if not model_files:
-        print(f"❌ No model files found in {model_dir}")
-        return False
-    
-    # Use the best model if available
-    model_file = None
-    for file in model_files:
-        if 'best' in os.path.basename(file):
-            model_file = file
-            break
-    if not model_file:
-        model_file = model_files[0]
-    
-    print(f"📥 Loading model from: {model_file}")
-    
-    # Load model
-    try:
-        model = keras.models.load_model(model_file)
-        print("✅ Model loaded successfully")
-    except Exception as e:
-        print(f"❌ Error loading model: {e}")
-        return False
-    
-    # Try to get class labels from training directory structure
-    train_dir = "{{TRAIN_DIR}}"
-    if os.path.exists(train_dir):
-        class_labels = [d for d in os.listdir(train_dir) 
-                      if os.path.isdir(os.path.join(train_dir, d))]
-        class_labels.sort()
-        print(f"📋 Detected class labels: {class_labels}")
-    
-    # Default class labels if none found
-    if not class_labels:
-        num_classes = {{NUM_CLASSES}}
-        class_labels = [f"class_{i}" for i in range(num_classes)]
-        print(f"⚠️  Using default class labels: {class_labels}")
-    
-    return True
-
-@app.route('/', methods=['GET'])
-def home():
-    """Home page with API documentation."""
-    docs = """
-    <h1>ModelGardener Model API</h1>
-    <p>Generated on: {{GENERATION_DATE}}</p>
-    
-    <h2>Endpoints:</h2>
-    <ul>
-        <li><strong>GET /health</strong> - Health check</li>
-        <li><strong>POST /predict</strong> - Make prediction on uploaded image</li>
-        <li><strong>GET /classes</strong> - Get available classes</li>
-    </ul>
-    
-    <h2>Usage Examples:</h2>
-    
-    <h3>Python requests:</h3>
-    <pre>
-import requests
-
-# Predict with file upload
-with open('image.jpg', 'rb') as f:
-    response = requests.post('http://localhost:5000/predict', files={'image': f})
-    result = response.json()
-    print(result)
-
-# Predict with base64 encoded image
-import base64
-with open('image.jpg', 'rb') as f:
-    image_b64 = base64.b64encode(f.read()).decode()
-
-response = requests.post('http://localhost:5000/predict', 
-                        json={'image': image_b64})
-result = response.json()
-print(result)
-    </pre>
-    
-    <h3>cURL:</h3>
-    <pre>
-# Upload file
-curl -X POST -F "image=@image.jpg" http://localhost:5000/predict
-
-# Health check
-curl http://localhost:5000/health
-
-# Get classes
-curl http://localhost:5000/classes
-    </pre>
-    """
-    return docs
-
-def main():
-    """Main deployment function."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Deploy ModelGardener model as REST API')
-    parser.add_argument('--host', default='0.0.0.0', help='Host address (default: 0.0.0.0)')
-    parser.add_argument('--port', type=int, default=5000, help='Port number (default: 5000)')
-    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-    
-    args = parser.parse_args()
-    
-    print("🚀 Starting ModelGardener Model API...")
-    print("=" * 50)
-    
-    # Load model and classes
-    if not load_model_and_classes():
-        print("❌ Failed to load model")
-        sys.exit(1)
-    
-    print(f"🌐 Starting server on {args.host}:{args.port}")
-    print("📖 API documentation available at: http://localhost:{}/".format(args.port))
-    print("💡 Use Ctrl+C to stop the server")
-    
-    # Start Flask app
-    app.run(host=args.host, port=args.port, debug=args.debug)
-
-if __name__ == "__main__":
-    main()
-'''
     
     def _generate_requirements_txt(self, config: Dict[str, Any], output_dir: str):
         """Generate requirements.txt file."""
@@ -3288,7 +2847,7 @@ if __name__ == "__main__":
                 f.write(f"{req}\n")
         
         print(f"✅ Generated: {requirements_path}")
-    
+
     def _generate_scripts_readme(self, config: Dict[str, Any], output_dir: str):
         """Generate README file for the scripts."""
         
@@ -3499,7 +3058,7 @@ Refer to the ModelGardener documentation for more details on custom functions.
         readme_path = os.path.join(custom_modules_dir, 'README.md')
         with open(readme_path, 'w') as f:
             f.write(readme_content)
-        
+    
         print(f"✅ Generated: {readme_path}")
 
     def _get_custom_models_template(self) -> str:

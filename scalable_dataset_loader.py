@@ -20,6 +20,8 @@ class ScalableDatasetLoader:
         self.config = config
         self.custom_functions = custom_functions or {}
         self.data_config = config.get('data', {})
+        # Cache for datasets when custom loader returns both train/val
+        self._cached_datasets = {}
     
     def load_dataset(self, split: str = 'train') -> tf.data.Dataset:
         """
@@ -68,6 +70,12 @@ class ScalableDatasetLoader:
         if not custom_loader_info:
             raise ValueError(f"Custom data loader {selected_loader} not found")
         
+        # Check if we already have cached datasets from this loader
+        cache_key = f"{selected_loader}_{hash(str(sorted(loader_config.items())))}"
+        if cache_key in self._cached_datasets:
+            BRIDGE.log(f"Using cached {split} dataset from custom loader: {selected_loader}")
+            return self._cached_datasets[cache_key][split]
+        
         loader_func = custom_loader_info['loader']
         loader_type = custom_loader_info['type']
         
@@ -82,6 +90,13 @@ class ScalableDatasetLoader:
                 if isinstance(result, tuple) and len(result) == 2:
                     # Custom loader returns (train_dataset, val_dataset)
                     train_ds, val_ds = result
+                    
+                    # Cache both datasets to avoid loading data twice
+                    self._cached_datasets[cache_key] = {
+                        'train': train_ds,
+                        'val': val_ds
+                    }
+                    
                     dataset = train_ds if split == 'train' else val_ds
                 else:
                     # Custom loader returns single dataset
