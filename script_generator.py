@@ -1139,367 +1139,260 @@ if __name__ == "__main__":
         return custom_functions
     
     def _generate_custom_imports(self, custom_functions: Dict[str, Any]) -> str:
-        """Generate import statements for custom functions."""
+        """Generate import statements for the RefactoredEnhancedTrainer approach."""
         imports = []
-        if custom_functions:
-            imports.append("# Custom functions imports")
-            imports.append("import sys")
-            imports.append("from pathlib import Path")
-            imports.append("sys.path.append(str(Path(__file__).parent / 'src'))")
-            
-            for func_type, functions in custom_functions.items():
-                if functions:
-                    imports.append(f"# Custom {func_type}")
-                    for func_info in functions:
-                        if isinstance(func_info, dict):
-                            module_name = func_info.get('relative_file_path', '').replace('.py', '')
-                            if module_name:
-                                imports.append(f"# from {module_name} import {func_info.get('function_name', 'custom_function')}")
         
-        return '\n'.join(imports) if imports else "# No custom functions"
+        # Always include these core imports for the new trainer
+        imports.append("# Core ModelGardener imports")
+        imports.append("# These imports enable the RefactoredEnhancedTrainer to work")
+        imports.append("# try:")
+        imports.append("#     from refactored_enhanced_trainer import RefactoredEnhancedTrainer")
+        imports.append("#     from runtime_configurator import RuntimeConfigurator")
+        imports.append("#     from scalable_dataset_loader import ScalableDatasetLoader")
+        imports.append("#     from enhanced_model_builder import EnhancedModelBuilder")
+        imports.append("#     from training_components_builder import TrainingComponentsBuilder")
+        imports.append("#     from bridge_callback import BRIDGE")
+        imports.append("# except ImportError as e:")
+        imports.append("#     print(f'Warning: Could not import core components: {e}')")
+        imports.append("")
+        
+        if custom_functions:
+            imports.append("# Custom functions directory setup")
+            imports.append("# The RefactoredEnhancedTrainer will auto-discover custom functions")
+            imports.append("# from the custom_modules directory or via custom_functions_loader")
+        else:
+            imports.append("# No custom functions specified - using built-in functions only")
+        
+        return '\n'.join(imports)
     
     def _generate_custom_loader_calls(self, custom_functions: Dict[str, Any]) -> str:
-        """Generate custom function loader calls."""
-        if not custom_functions:
-            return """    # No custom functions to load
-    custom_functions = None"""
-        
-        return """
-    # Load custom functions if available
-    custom_functions = {}
-    try:
-        from custom_functions_loader import CustomFunctionsLoader
-        loader = CustomFunctionsLoader()
-        custom_functions = loader.load_from_directory('src')
-    except ImportError:
-        print("Custom functions loader not found, using built-in functions only")
-    except Exception as e:
-        print(f"Error loading custom functions: {e}")
-"""
+        """Generate custom function loader calls for RefactoredEnhancedTrainer approach."""
+        # The RefactoredEnhancedTrainer handles custom function loading internally
+        # so we don't need template placeholders for this anymore
+        return """    # Custom functions loading is handled by RefactoredEnhancedTrainer
+    # The trainer will auto-discover and load custom functions from:
+    # 1. custom_modules directory (if available)
+    # 2. Custom functions passed during initialization  
+    # 3. Auto-loading from example_funcs directory (fallback)"""
 
     def _generate_data_loading_code(self, config: Dict[str, Any], custom_functions: Dict[str, Any]) -> str:
-        """Generate appropriate data loading code based on configuration."""
-        data_config = config.get('data', {})
-        data_loader_config = data_config.get('data_loader', {})
-        selected_loader = data_loader_config.get('selected_data_loader', None)
-        
-        # If a custom data loader is specified, use it
-        if selected_loader and selected_loader != 'default':
-            return f"""    # Using custom data loader: {selected_loader}
-    print("📁 Loading data with custom loader: {selected_loader}")
-    try:
-        from custom_modules.custom_data_loaders import {selected_loader}
-        
-        # Get data loader parameters
-        loader_params = config.get('configuration', {{}}).get('data', {{}}).get('data_loader', {{}}).get('parameters', {{}})
-        
-        # Load training and validation data
-        train_gen, val_gen = {selected_loader}(
-            train_dir=train_dir,
-            val_dir=val_dir,
-            **loader_params
-        )
-        
-        print("✅ Custom data loader loaded successfully")
-        
-    except ImportError as e:
-        print(f"❌ Failed to import custom data loader {selected_loader}: {{e}}")
-        print("🔄 Falling back to default data generators...")
-        train_gen, val_gen = create_data_generators(
-            train_dir, val_dir, batch_size, img_height, img_width
-        )
-    except Exception as e:
-        print(f"❌ Error using custom data loader: {{e}}")
-        print("🔄 Falling back to default data generators...")
-        train_gen, val_gen = create_data_generators(
-            train_dir, val_dir, batch_size, img_height, img_width
-        )"""
-        else:
-            # Use default directory-based data generators
-            return """    # Using default directory-based data generators
-    print("📁 Creating data generators...")
-    train_gen, val_gen = create_data_generators(
-        train_dir, val_dir, batch_size, img_height, img_width
-    )"""
+        """Generate data loading code for RefactoredEnhancedTrainer approach."""
+        # The RefactoredEnhancedTrainer handles all data loading through its modular components
+        return """    # Data loading is handled by RefactoredEnhancedTrainer's ScalableDatasetLoader
+    # The trainer will automatically:
+    # 1. Detect and use custom data loaders from configuration
+    # 2. Apply preprocessing and augmentation as specified
+    # 3. Handle different data formats (directories, NPZ files, etc.)
+    # 4. Set up proper batching and optimization"""
     
     def _get_train_template(self) -> str:
-        """Get the training script template."""
+        """Get the training script template using RefactoredEnhancedTrainer."""
         return '''#!/usr/bin/env python3
 """
 Training Script for ModelGardener
 Generated on: {{GENERATION_DATE}}
 Configuration: {{CONFIG_FILE}}
+
+This script uses the RefactoredEnhancedTrainer for consistent training 
+with the CLI train command functionality.
 """
 
 import os
 import sys
 import yaml
 import tensorflow as tf
-import keras
-from sklearn.model_selection import StratifiedKFold
-import numpy as np
 from pathlib import Path
+from typing import Dict, Any, Optional
+
+# Add current directory to path for custom modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 {{CUSTOM_IMPORTS}}
 
-def load_config(config_path):
-    """Load configuration from YAML file."""
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+def load_config(config_path: str) -> Dict[str, Any]:
+    """
+    Load configuration from YAML file.
+    
+    Args:
+        config_path: Path to the YAML configuration file
+        
+    Returns:
+        Configuration dictionary
+    """
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        print(f"✅ Loaded configuration from: {config_path}")
+        return config
+    except Exception as e:
+        print(f"❌ Error loading configuration: {str(e)}")
+        raise
 
-def create_data_generators(train_dir, val_dir, batch_size=32, img_height=224, img_width=224):
-    """Create data generators for training and validation."""
+def load_custom_functions() -> Dict[str, Any]:
+    """
+    Load custom functions from the custom_modules directory.
+    This mirrors the CLI functionality for loading custom functions.
     
-    # Data augmentation and preprocessing
-    train_datagen = tf.keras.preprocessing.image.ImageDataGenerator(
-        rescale=1./255,
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        horizontal_flip=True,
-        fill_mode='nearest'
-    )
+    Returns:
+        Dictionary of loaded custom functions
+    """
+    custom_functions = {}
     
-    val_datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
-    
-    train_generator = train_datagen.flow_from_directory(
-        train_dir,
-        target_size=(img_height, img_width),
-        batch_size=batch_size,
-        class_mode='categorical'
-    )
-    
-    validation_generator = val_datagen.flow_from_directory(
-        val_dir,
-        target_size=(img_height, img_width),
-        batch_size=batch_size,
-        class_mode='categorical'
-    )
-    
-    return train_generator, validation_generator
-
-def build_model(model_family, model_name, input_shape, num_classes, custom_functions=None):
-    """Build model based on configuration."""
-    
-    # Check for custom model first
-    if custom_functions and 'models' in custom_functions:
-        for model_info in custom_functions['models']:
-            if model_info.get('name') == model_name:
-                return model_info['function'](input_shape=input_shape, num_classes=num_classes)
-    
-    # Built-in models
-    if model_family.lower() == 'resnet':
-        base_model = tf.keras.applications.ResNet50(
-            weights='imagenet' if input_shape[-1] == 3 else None,
-            include_top=False,
-            input_shape=input_shape
-        )
-    elif model_family.lower() == 'efficientnet':
-        base_model = tf.keras.applications.EfficientNetB0(
-            weights='imagenet' if input_shape[-1] == 3 else None,
-            include_top=False,
-            input_shape=input_shape
-        )
-    else:
-        # Default to a simple CNN
-        base_model = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(32, 3, activation='relu', input_shape=input_shape),
-            tf.keras.layers.MaxPooling2D(),
-            tf.keras.layers.Conv2D(64, 3, activation='relu'),
-            tf.keras.layers.MaxPooling2D(),
-            tf.keras.layers.Conv2D(64, 3, activation='relu'),
-        ])
-    
-    # Add classification head
-    model = tf.keras.Sequential([
-        base_model,
-        tf.keras.layers.GlobalAveragePooling2D(),
-        tf.keras.layers.Dense(128, activation='relu'),
-        tf.keras.layers.Dropout(0.2),
-        tf.keras.layers.Dense(num_classes, activation='softmax')
-    ])
-    
-    return model
-
-def compile_model(model, optimizer='{{OPTIMIZER}}', learning_rate={{LEARNING_RATE}}, 
-                  loss='{{LOSS_FUNCTION}}', metrics=['{{METRICS}}']):
-    """Compile the model with specified parameters."""
-    
-    # Create optimizer
-    if optimizer.lower() == 'adam':
-        opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    elif optimizer.lower() == 'sgd':
-        opt = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
-    else:
-        opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    
-    # Convert loss function name
-    if loss.lower() in ['categorical crossentropy', 'categorical_crossentropy']:
-        loss_fn = 'categorical_crossentropy'
-    elif loss.lower() in ['sparse categorical crossentropy', 'sparse_categorical_crossentropy']:
-        loss_fn = 'sparse_categorical_crossentropy'
-    else:
-        loss_fn = 'categorical_crossentropy'
-    
-    # Convert metrics
-    metrics_list = []
-    if isinstance(metrics, list):
-        for metric in metrics:
-            if metric.lower() == 'accuracy':
-                metrics_list.append('accuracy')
-            else:
-                metrics_list.append(metric.lower())
-    else:
-        if metrics.lower() == 'accuracy':
-            metrics_list = ['accuracy']
+    try:
+        # Import custom functions loader if available
+        from custom_functions_loader import CustomFunctionsLoader
+        loader = CustomFunctionsLoader()
+        custom_functions = loader.load_from_directory('./custom_modules')
+        print(f"✅ Loaded custom functions: {list(custom_functions.keys())}")
+    except ImportError:
+        print("⚠️ CustomFunctionsLoader not found, checking for custom_modules directory...")
+        
+        # Fallback: Try to load from custom_modules directory structure
+        custom_modules_dir = Path('./custom_modules')
+        if custom_modules_dir.exists():
+            custom_functions = load_custom_modules_fallback(custom_modules_dir)
+            print(f"✅ Loaded custom modules: {list(custom_functions.keys())}")
         else:
-            metrics_list = [metrics.lower()]
+            print("⚠️ No custom_modules directory found, using built-in functions only")
+    except Exception as e:
+        print(f"⚠️ Error loading custom functions: {str(e)}")
     
-    model.compile(optimizer=opt, loss=loss_fn, metrics=metrics_list)
-    return model
+    return custom_functions
 
-def create_callbacks(model_dir):
-    """Create training callbacks."""
-    callbacks = []
+
+def load_custom_modules_fallback(modules_dir: Path) -> Dict[str, Any]:
+    """
+    Fallback method to load custom modules when CustomFunctionsLoader is not available.
     
-    # Model checkpoint
-    checkpoint_path = os.path.join(model_dir, 'best_model.h5')
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-        checkpoint_path,
-        monitor='val_loss',
-        save_best_only=True,
-        save_weights_only=False,
-        mode='min'
-    ))
+    Args:
+        modules_dir: Path to custom modules directory
+        
+    Returns:
+        Dictionary of custom functions
+    """
+    import importlib.util
+    import inspect
     
-    # Early stopping
-    callbacks.append(tf.keras.callbacks.EarlyStopping(
-        monitor='val_loss',
-        patience=10,
-        restore_best_weights=True
-    ))
+    custom_functions = {
+        'data_loaders': {},
+        'models': {},
+        'loss_functions': {},
+        'metrics': {},
+        'callbacks': {},
+        'optimizers': {},
+        'augmentations': {},
+        'preprocessing': {},
+        'training_loops': {}
+    }
     
-    # Reduce learning rate on plateau
-    callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(
-        monitor='val_loss',
-        factor=0.5,
-        patience=5,
-        min_lr=1e-7
-    ))
+    # Map file names to categories
+    file_mapping = {
+        'custom_data_loaders.py': 'data_loaders',
+        'custom_models.py': 'models',
+        'custom_loss_functions.py': 'loss_functions',
+        'custom_metrics.py': 'metrics',
+        'custom_callbacks.py': 'callbacks',
+        'custom_optimizers.py': 'optimizers',
+        'custom_augmentations.py': 'augmentations',
+        'custom_preprocessing.py': 'preprocessing',
+        'custom_training_loops.py': 'training_loops'
+    }
     
-    return callbacks
+    for file_name, category in file_mapping.items():
+        file_path = modules_dir / file_name
+        if file_path.exists():
+            try:
+                spec = importlib.util.spec_from_file_location(f"custom_{category}", file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                # Extract functions and classes
+                for name, obj in inspect.getmembers(module):
+                    if inspect.isfunction(obj) or inspect.isclass(obj):
+                        if not name.startswith('_'):  # Skip private members
+                            custom_functions[category][name] = obj
+                            
+            except Exception as e:
+                print(f"⚠️ Error loading {file_name}: {str(e)}")
+    
+    return custom_functions
 
 def train_model():
-    """Main training function."""
+    """
+    Main training function using RefactoredEnhancedTrainer.
+    This provides the same functionality as the CLI train command.
+    """
     
-    # Configuration
+    # Configuration parameters (from template)
     config_file = "{{CONFIG_FILE}}"
-    train_dir = "{{TRAIN_DIR}}"
-    val_dir = "{{VAL_DIR}}"
-    batch_size = {{BATCH_SIZE}}
-    epochs = {{EPOCHS}}
-    model_dir = "{{MODEL_DIR}}"
-    img_height = {{IMG_HEIGHT}}
-    img_width = {{IMG_WIDTH}}
-    channels = {{CHANNELS}}
-    num_classes = {{NUM_CLASSES}}
     
-    # Load configuration if available
-    if os.path.exists(config_file):
-        try:
-            config = load_config(config_file)
-            print(f"✅ Loaded configuration from {config_file}")
-        except Exception as e:
-            print(f"⚠️  Could not load configuration: {e}")
-            config = {}
-    else:
-        print(f"⚠️  Configuration file {config_file} not found, using defaults")
-        config = {}
+    print("🚀 Starting ModelGardener Training")
+    print("=" * 50)
     
-    # Create output directory
-    os.makedirs(model_dir, exist_ok=True)
+    # Load configuration
+    if not os.path.exists(config_file):
+        print(f"❌ Configuration file not found: {config_file}")
+        return False
     
-    {{CUSTOM_LOADER_CALLS}}
+    try:
+        config = load_config(config_file)
+    except Exception as e:
+        print(f"❌ Failed to load configuration: {str(e)}")
+        return False
     
-    {{DATA_LOADING_CODE}}
+    # Load custom functions
+    print("📦 Loading custom functions...")
+    custom_functions = load_custom_functions()
     
-    input_shape = (img_height, img_width, channels)
-    
-    # Update num_classes from data if possible
-    if hasattr(train_gen, 'num_classes'):
-        num_classes = train_gen.num_classes
-        print(f"📊 Detected {num_classes} classes from data")
-    
-    # Build model
-    print("🏗️  Building model...")
-    model = build_model(
-        "{{MODEL_FAMILY}}", "{{MODEL_NAME}}", 
-        input_shape, num_classes, custom_functions
-    )
-    
-    # Compile model
-    print("⚙️  Compiling model...")
-    model = compile_model(model)
-    
-    # Create callbacks
-    callbacks = create_callbacks(model_dir)
-    
-    # Print model summary
-    print("📋 Model Summary:")
-    model.summary()
-    
-    # Cross-validation training
-    cv_enabled = {{CV_ENABLED}}
-    if cv_enabled:
-        print("🔄 Cross-validation training enabled")
-        k_folds = {{K_FOLDS}}
+    # Import and initialize the RefactoredEnhancedTrainer
+    try:
+        from refactored_enhanced_trainer import RefactoredEnhancedTrainer
         
-        # Get data for cross-validation
-        # Note: This is a simplified version - real implementation would need proper data handling
-        print(f"Training with {k_folds}-fold cross-validation")
+        print("🏗️ Initializing RefactoredEnhancedTrainer...")
+        trainer = RefactoredEnhancedTrainer(config, custom_functions)
         
-        # For now, train normally but save multiple models
-        for fold in range(k_folds):
-            print(f"📊 Training fold {fold + 1}/{k_folds}")
-            fold_model_dir = os.path.join(model_dir, f"fold_{fold + 1}")
-            os.makedirs(fold_model_dir, exist_ok=True)
-            
-            fold_callbacks = create_callbacks(fold_model_dir)
-            
-            history = model.fit(
-                train_gen,
-                validation_data=val_gen,
-                epochs=epochs,
-                callbacks=fold_callbacks,
-                verbose=1
-            )
-            
-            # Save fold model
-            model.save(os.path.join(fold_model_dir, 'model.h5'))
-            
-            # Reset model weights for next fold (simplified)
-            # In real implementation, you'd rebuild the model or reset weights properly
-            pass
-    else:
-        # Regular training
-        print("🚀 Starting training...")
-        history = model.fit(
-            train_gen,
-            validation_data=val_gen,
-            epochs=epochs,
-            callbacks=callbacks,
-            verbose=1
-        )
+        # Run the 4-phase training pipeline
+        print("🚀 Starting 4-phase training pipeline...")
+        success = trainer.train()
         
-        # Save final model
-        final_model_path = os.path.join(model_dir, 'final_model.h5')
-        model.save(final_model_path)
-        print(f"💾 Model saved to: {final_model_path}")
-    
-    print("✅ Training completed!")
+        if success:
+            print("✅ Training completed successfully!")
+            return True
+        else:
+            print("❌ Training failed!")
+            return False
+            
+    except ImportError as e:
+        print(f"❌ Failed to import RefactoredEnhancedTrainer: {str(e)}")
+        print("💡 Make sure all required trainer components are available:")
+        print("   - refactored_enhanced_trainer.py")
+        print("   - runtime_configurator.py") 
+        print("   - scalable_dataset_loader.py")
+        print("   - enhanced_model_builder.py")
+        print("   - training_components_builder.py")
+        return False
+    except Exception as e:
+        print(f"❌ Training error: {str(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        return False
+
+
+def main():
+    """Main entry point for the training script."""
+    try:
+        success = train_model()
+        exit_code = 0 if success else 1
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        print("\\n⏹️ Training interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\\n❌ Unexpected error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    train_model()
+    main()
 '''
     
     def _get_evaluation_template(self) -> str:
