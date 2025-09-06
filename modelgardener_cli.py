@@ -855,6 +855,367 @@ You can customize any aspect of the training pipeline by creating your own Pytho
                 traceback.print_exc()
             return False
 
+    def preview_data(self, config_file: str, num_samples: int = 8, split: str = 'train', 
+                     save_plot: bool = False, output_path: str = None):
+        """Preview data samples with visualization including preprocessing and augmentation."""
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import tensorflow as tf
+        from pathlib import Path
+        
+        print(f"🔍 Previewing data from configuration: {config_file}")
+        
+        if not os.path.exists(config_file):
+            print(f"❌ Configuration file not found: {config_file}")
+            return False
+        
+        try:
+            # Load configuration
+            config = self.config_cli.load_config(config_file)
+            if not config:
+                print("❌ Failed to load configuration file")
+                return False
+            
+            main_config = config.get('configuration', {})
+            data_config = main_config.get('data', {})
+            
+            # Get data loader configuration
+            data_loader_config = data_config.get('data_loader', {})
+            selected_loader = data_loader_config.get('selected_data_loader', 'Default')
+            
+            # Get preprocessing and augmentation configs
+            preprocessing_config = data_config.get('preprocessing', {})
+            augmentation_config = data_config.get('augmentation', {})
+            
+            print(f"📊 Data loader: {selected_loader}")
+            print(f"🎯 Split: {split}")
+            print(f"📈 Number of samples to preview: {num_samples}")
+            print(f"🔧 Preprocessing enabled: {any(v.get('enabled', False) for v in preprocessing_config.values() if isinstance(v, dict))}")
+            print(f"🎨 Augmentation enabled: {any(v.get('enabled', False) for v in augmentation_config.values() if isinstance(v, dict))}")
+            
+            # Load raw data first
+            preview_images_raw = None
+            preview_labels = None
+            class_names = None
+            
+            if selected_loader == 'Custom_load_cifar10_npz_data':
+                # Handle CIFAR-10 NPZ data loader
+                npz_file_path = data_loader_config.get('parameters', {}).get('npz_file_path', './data/cifar10.npz')
+                
+                print(f"📂 Loading data from: {npz_file_path}")
+                
+                if not os.path.exists(npz_file_path):
+                    print(f"❌ NPZ file not found: {npz_file_path}")
+                    return False
+                
+                # Load NPZ data directly (raw, unnormalized)
+                data = np.load(npz_file_path)
+                x_data = data['x'].astype(np.float32)  # Keep raw 0-255 values initially
+                y_data = data['y']
+                
+                print(f"📊 Loaded data shape: {x_data.shape}")
+                print(f"🎯 Labels shape: {y_data.shape}")
+                print(f"🏷️ Unique classes: {np.unique(y_data)}")
+                
+                # Get subset for preview
+                indices = np.random.choice(len(x_data), min(num_samples, len(x_data)), replace=False)
+                preview_images_raw = x_data[indices] / 255.0  # Normalize for display
+                preview_labels = y_data[indices]
+                
+                # CIFAR-10 class names
+                class_names = ['airplane', 'automobile', 'bird', 'cat', 'deer', 
+                              'dog', 'frog', 'horse', 'ship', 'truck']
+                              
+            elif selected_loader in ['ImageDataLoader', 'Default']:
+                # Handle directory-based image data
+                train_dir = data_config.get('train_dir', './data/train')
+                val_dir = data_config.get('val_dir', './data/val')
+                
+                data_dir = train_dir if split == 'train' else val_dir
+                print(f"📂 Loading images from directory: {data_dir}")
+                
+                if not os.path.exists(data_dir):
+                    print(f"❌ Data directory not found: {data_dir}")
+                    return False
+                
+                # Get class directories
+                class_dirs = [d for d in os.listdir(data_dir) 
+                             if os.path.isdir(os.path.join(data_dir, d))]
+                class_dirs.sort()
+                
+                if not class_dirs:
+                    print(f"⚠️ No class directories found in {data_dir}")
+                    return False
+                
+                print(f"🏷️ Found classes: {class_dirs}")
+                
+                # Collect sample images
+                sample_files = []
+                sample_labels = []
+                
+                for class_idx, class_name in enumerate(class_dirs):
+                    class_path = os.path.join(data_dir, class_name)
+                    image_files = [f for f in os.listdir(class_path) 
+                                  if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+                    
+                    # Take a few samples from each class
+                    samples_per_class = max(1, num_samples // len(class_dirs))
+                    selected_files = np.random.choice(image_files, 
+                                                    min(samples_per_class, len(image_files)), 
+                                                    replace=False)
+                    
+                    for img_file in selected_files:
+                        sample_files.append(os.path.join(class_path, img_file))
+                        sample_labels.append(class_idx)
+                
+                # Shuffle and limit to num_samples
+                combined = list(zip(sample_files, sample_labels))
+                np.random.shuffle(combined)
+                combined = combined[:num_samples]
+                sample_files, sample_labels = zip(*combined) if combined else ([], [])
+                
+                # Load images
+                preview_images_list = []
+                preview_labels = list(sample_labels)
+                
+                for img_path in sample_files:
+                    try:
+                        from PIL import Image
+                        img = Image.open(img_path)
+                        img = img.convert('RGB')
+                        img_array = np.array(img) / 255.0
+                        preview_images_list.append(img_array)
+                    except Exception as e:
+                        print(f"⚠️ Failed to load image {img_path}: {e}")
+                        continue
+                
+                preview_images_raw = np.array(preview_images_list) if preview_images_list else None
+                class_names = class_dirs
+                
+            else:
+                print(f"⚠️ Data loader '{selected_loader}' preview not yet implemented")
+                print("💡 Currently supported: Custom_load_cifar10_npz_data, ImageDataLoader, Default")
+                return False
+            
+            if preview_images_raw is None or len(preview_images_raw) == 0:
+                print("❌ No images found to preview")
+                return False
+            
+            # Apply preprocessing and augmentation to create processed images
+            print(f"🔄 Applying preprocessing and augmentation...")
+            preview_images_processed = self._apply_preprocessing_and_augmentation(
+                preview_images_raw.copy(), preprocessing_config, augmentation_config, split == 'train'
+            )
+            
+            # Create visualization showing both original and processed images
+            print(f"🎨 Creating comparison visualization...")
+            
+            # Calculate grid size - we'll show original and processed side by side
+            actual_samples = len(preview_images_raw)
+            cols = min(4, actual_samples)  # Number of sample pairs per row
+            rows = (actual_samples + cols - 1) // cols
+            
+            # Create subplots: 2 rows for each sample row (original + processed)
+            fig, axes = plt.subplots(rows * 2, cols, figsize=(cols * 3, rows * 5))
+            
+            # Handle single sample case
+            if rows == 1 and cols == 1:
+                axes = np.array([[axes[0]], [axes[1]]])
+            elif rows == 1:
+                axes = axes.reshape(2, cols)
+            elif cols == 1:
+                axes = axes.reshape(rows * 2, 1)
+            
+            for i in range(actual_samples):
+                row = i // cols
+                col = i % cols
+                
+                # Original image (top row for this sample)
+                orig_ax = axes[row * 2, col]
+                if len(preview_images_raw[i].shape) == 3:  # RGB image
+                    orig_ax.imshow(np.clip(preview_images_raw[i], 0, 1))
+                else:  # Grayscale
+                    orig_ax.imshow(np.clip(preview_images_raw[i], 0, 1), cmap='gray')
+                
+                # Add label information
+                label_idx = preview_labels[i]
+                if class_names and label_idx < len(class_names):
+                    label_text = f"{class_names[label_idx]}"
+                else:
+                    label_text = f"Class {label_idx}"
+                
+                orig_ax.set_title(f"Original: {label_text}", fontsize=9)
+                orig_ax.axis('off')
+                
+                # Processed image (bottom row for this sample)
+                proc_ax = axes[row * 2 + 1, col]
+                if len(preview_images_processed[i].shape) == 3:  # RGB image
+                    proc_ax.imshow(np.clip(preview_images_processed[i], 0, 1))
+                else:  # Grayscale
+                    proc_ax.imshow(np.clip(preview_images_processed[i], 0, 1), cmap='gray')
+                
+                proc_ax.set_title(f"Processed: {label_text}", fontsize=9)
+                proc_ax.axis('off')
+                
+                # Print label to terminal as well
+                print(f"Sample {i+1}: {label_text}")
+            
+            # Hide empty subplots
+            total_plots = rows * 2 * cols
+            for i in range(actual_samples, cols * rows):
+                row = i // cols
+                col = i % cols
+                axes[row * 2, col].axis('off')
+                axes[row * 2 + 1, col].axis('off')
+            
+            plt.tight_layout()
+            plt.suptitle(f'Data Preview: Original vs Processed - {split.capitalize()} Set ({selected_loader})', 
+                        fontsize=12, y=0.98)
+            
+            # Save or show plot
+            if save_plot:
+                if output_path is None:
+                    output_path = f"data_preview_{split}_{selected_loader}_comparison.png"
+                plt.savefig(output_path, dpi=150, bbox_inches='tight')
+                print(f"💾 Plot saved to: {output_path}")
+            else:
+                plt.show()
+            
+            print("✅ Data preview completed!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error previewing data: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def _apply_preprocessing_and_augmentation(self, images: np.ndarray, preprocessing_config: dict, 
+                                            augmentation_config: dict, apply_augmentation: bool = True) -> np.ndarray:
+        """Apply preprocessing and augmentation to images."""
+        import tensorflow as tf
+        
+        processed_images = images.copy()
+        
+        try:
+            # Convert to TensorFlow tensors for processing
+            tf_images = tf.constant(processed_images, dtype=tf.float32)
+            
+            # Apply preprocessing
+            print("  🔧 Applying preprocessing...")
+            
+            # Resizing
+            resizing_config = preprocessing_config.get('Resizing', {})
+            if resizing_config.get('enabled', False):
+                target_size = resizing_config.get('target_size', {})
+                if target_size:
+                    height = target_size.get('height', 224)
+                    width = target_size.get('width', 224)
+                    print(f"    📐 Resizing to {width}x{height}")
+                    tf_images = tf.image.resize(tf_images, [height, width])
+            
+            # Normalization
+            normalization_config = preprocessing_config.get('Normalization', {})
+            if normalization_config.get('enabled', False):
+                method = normalization_config.get('method', 'zero-center')
+                print(f"    🔢 Applying {method} normalization")
+                
+                if method == 'min-max':
+                    min_val = normalization_config.get('min_value', 0.0)
+                    max_val = normalization_config.get('max_value', 1.0)
+                    tf_images = tf_images * (max_val - min_val) + min_val
+                elif method == 'zero-center':
+                    # Apply ImageNet statistics if available
+                    mean = [normalization_config.get('mean', {}).get(c, 0.5) for c in ['r', 'g', 'b']]
+                    std = [normalization_config.get('std', {}).get(c, 0.5) for c in ['r', 'g', 'b']]
+                    tf_images = (tf_images - mean) / std
+            
+            # Apply augmentations only for training split
+            if apply_augmentation:
+                print("  🎨 Applying augmentations...")
+                
+                # Horizontal flip
+                hflip_config = augmentation_config.get('Horizontal Flip', {})
+                if hflip_config.get('enabled', False):
+                    prob = hflip_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        print(f"    🔄 Horizontal flip (prob: {prob})")
+                        tf_images = tf.image.flip_left_right(tf_images)
+                
+                # Vertical flip
+                vflip_config = augmentation_config.get('Vertical Flip', {})
+                if vflip_config.get('enabled', False):
+                    prob = vflip_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        print(f"    🔄 Vertical flip (prob: {prob})")
+                        tf_images = tf.image.flip_up_down(tf_images)
+                
+                # Rotation
+                rotation_config = augmentation_config.get('Rotation', {})
+                if rotation_config.get('enabled', False):
+                    prob = rotation_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        angle_range = rotation_config.get('angle_range', 15.0)
+                        angle = np.random.uniform(-angle_range, angle_range) * np.pi / 180
+                        print(f"    🔄 Rotation by {angle * 180 / np.pi:.1f}° (prob: {prob})")
+                        tf_images = self._rotate_images(tf_images, angle)
+                
+                # Brightness
+                brightness_config = augmentation_config.get('Brightness', {})
+                if brightness_config.get('enabled', False):
+                    prob = brightness_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        delta_range = brightness_config.get('delta_range', 0.2)
+                        delta = np.random.uniform(-delta_range, delta_range)
+                        print(f"    💡 Brightness adjustment: {delta:+.2f} (prob: {prob})")
+                        tf_images = tf.image.adjust_brightness(tf_images, delta)
+                
+                # Contrast
+                contrast_config = augmentation_config.get('Contrast', {})
+                if contrast_config.get('enabled', False):
+                    prob = contrast_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        factor_range = contrast_config.get('factor_range', [0.8, 1.2])
+                        factor = np.random.uniform(factor_range[0], factor_range[1])
+                        print(f"    🌈 Contrast adjustment: {factor:.2f}x (prob: {prob})")
+                        tf_images = tf.image.adjust_contrast(tf_images, factor)
+                
+                # Gaussian Noise
+                noise_config = augmentation_config.get('Gaussian Noise', {})
+                if noise_config.get('enabled', False):
+                    prob = noise_config.get('probability', 0.5)
+                    if np.random.random() < prob:
+                        std_dev = noise_config.get('std_dev', 0.1)
+                        print(f"    🎲 Gaussian noise: std={std_dev} (prob: {prob})")
+                        noise = tf.random.normal(shape=tf.shape(tf_images), stddev=std_dev)
+                        tf_images = tf_images + noise
+            
+            # Convert back to numpy and ensure valid range
+            processed_images = tf_images.numpy()
+            
+            return processed_images
+            
+        except Exception as e:
+            print(f"⚠️ Error applying preprocessing/augmentation: {str(e)}")
+            return images  # Return original images if processing fails
+
+    def _rotate_images(self, images, angle):
+        """Rotate images by the given angle in radians."""
+        import tensorflow as tf
+        
+        # Simple rotation using tf.contrib.image.rotate if available, 
+        # otherwise use identity (no rotation)
+        try:
+            # For newer TensorFlow versions
+            rotated = tf.keras.utils.image_utils.apply_affine_transform(
+                images, theta=angle, fill_mode='nearest'
+            )
+            return rotated
+        except:
+            # Fallback: return original images if rotation not available
+            print(f"    ⚠️ Rotation not available, skipping...")
+            return images
+
 
 def create_main_argument_parser():
     """Create the main argument parser."""
@@ -871,6 +1232,7 @@ Commands:
   models      List available models
   create      Create a new project template
   check       Check configuration files
+  preview     Preview data samples with preprocessing and augmentation visualization
 
 Examples:
   # Create a new project with interactive setup
@@ -887,6 +1249,12 @@ Examples:
   # Check configuration files
   modelgardener_cli.py check config.yaml
   modelgardener_cli.py check config.json --verbose
+  
+  # Preview data samples
+  modelgardener_cli.py preview --config config.yaml
+  modelgardener_cli.py preview --config config.yaml --num-samples 12 --split val
+  modelgardener_cli.py preview --config config.yaml --save --output data_samples.png
+  modelgardener_cli.py preview --config config.yaml --split train --num-samples 16
   
   # Train a model
   modelgardener_cli.py train --config config.yaml
@@ -989,6 +1357,14 @@ Examples:
     check_parser = subparsers.add_parser('check', help='Check configuration file')
     check_parser.add_argument('config_file', help='Configuration file to check')
     check_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed validation results')
+    
+    # Preview command
+    preview_parser = subparsers.add_parser('preview', help='Preview data samples with preprocessing and augmentation visualization')
+    preview_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
+    preview_parser.add_argument('--num-samples', '-n', type=int, default=8, help='Number of samples to preview (default: 8)')
+    preview_parser.add_argument('--split', '-s', choices=['train', 'val', 'test'], default='train', help='Data split to preview (default: train)')
+    preview_parser.add_argument('--save', action='store_true', help='Save plot to file instead of displaying')
+    preview_parser.add_argument('--output', '-o', type=str, help='Output file path for saved plot')
     
     return parser
 
@@ -1109,6 +1485,11 @@ def main():
         
         elif args.command == 'check':
             success = cli.check_configuration(args.config_file, args.verbose)
+            sys.exit(0 if success else 1)
+        
+        elif args.command == 'preview':
+            success = cli.preview_data(args.config, args.num_samples, args.split, 
+                                     args.save, getattr(args, 'output', None))
             sys.exit(0 if success else 1)
     
     except KeyboardInterrupt:
