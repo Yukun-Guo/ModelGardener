@@ -46,6 +46,10 @@ class ScriptGenerator:
             # Extract configuration for script generation
             config = config_data.get('configuration', config_data)
             
+            # Generate custom_modules directory first
+            print("📦 Generating custom modules...")
+            self.generate_custom_modules_templates(output_dir)
+            
             # Generate each script
             for script_name, template in self.templates.items():
                 script_content = self._fill_template(template, config, config_file_name)
@@ -119,9 +123,8 @@ class ScriptGenerator:
         Generate individual custom function files based on example_funcs structure.
         Each file will contain only one custom function.
         """
-        # Define the example_funcs directory path
-        # Go up two levels from src/modelgardener to reach project root
-        example_funcs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'example_funcs')
+        # Define the example_funcs directory path - now located in src/modelgardener
+        example_funcs_dir = os.path.join(os.path.dirname(__file__), 'example_funcs')
         
         # Map of example files to their function extraction patterns
         function_extractions = {
@@ -1388,48 +1391,56 @@ def load_config(config_path):
         return yaml.safe_load(f)
 
 def auto_load_custom_functions():
-    """Auto-load custom functions from example_funcs directory."""
+    """Auto-load custom functions from custom_modules directory."""
     custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
     
     try:
         import importlib.util
         import inspect
         
-        # Load data loaders from example_funcs directory
-        data_loader_file = "./example_funcs/example_custom_data_loaders.py"
-        if os.path.exists(data_loader_file):
-            spec = importlib.util.spec_from_file_location("example_data_loaders", data_loader_file)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            # Find data loader functions
-            for name, obj in inspect.getmembers(module):
-                if inspect.isfunction(obj) and (name.startswith('load_') or name.startswith('Custom_')):
-                    custom_functions['data_loaders'][name] = {
-                        'loader': obj,
-                        'type': 'function',
-                        'file_path': data_loader_file,
-                        'original_name': name
-                    }
+        # Load custom functions from custom_modules directory
+        custom_modules_dir = "./custom_modules"
+        if not os.path.exists(custom_modules_dir):
+            print("⚠️ Custom modules directory not found. Creating template modules...")
+            return custom_functions
         
-        # Load other custom functions (models, losses, etc.)
-        custom_files = {
-            'models': "./example_funcs/example_custom_models.py",
-            'loss_functions': "./example_funcs/example_custom_loss.py",
-            'metrics': "./example_funcs/example_custom_metrics.py",
-            'callbacks': "./example_funcs/example_custom_callbacks.py",
-            'optimizers': "./example_funcs/example_custom_optimizers.py"
+        # Map custom module files to function types
+        custom_files_map = {
+            'custom_data_loaders.py': 'data_loaders',
+            'custom_models.py': 'models',
+            'custom_loss_functions.py': 'loss_functions',
+            'custom_metrics.py': 'metrics',
+            'custom_callbacks.py': 'callbacks',
+            'custom_optimizers.py': 'optimizers',
+            'custom_augmentations.py': 'augmentations',
+            'custom_preprocessing.py': 'preprocessing',
+            'custom_training_loops.py': 'training_loops'
         }
         
-        for func_type, file_path in custom_files.items():
-            if os.path.exists(file_path):
-                spec = importlib.util.spec_from_file_location(f"custom_{func_type}", file_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                
-                for name, obj in inspect.getmembers(module):
-                    if (inspect.isfunction(obj) or inspect.isclass(obj)) and not name.startswith('_'):
-                        custom_functions[func_type][name] = obj
+        for custom_file, func_type in custom_files_map.items():
+            custom_file_path = os.path.join(custom_modules_dir, custom_file)
+            if os.path.exists(custom_file_path):
+                try:
+                    spec = importlib.util.spec_from_file_location(f"custom_{func_type}", custom_file_path)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    
+                    # Find all functions and classes in the module
+                    for name, obj in inspect.getmembers(module):
+                        if not name.startswith('_'):  # Skip private functions
+                            if inspect.isfunction(obj) or inspect.isclass(obj):
+                                if func_type not in custom_functions:
+                                    custom_functions[func_type] = {}
+                                
+                                custom_functions[func_type][name] = {
+                                    'function': obj,
+                                    'type': 'function' if inspect.isfunction(obj) else 'class',
+                                    'file_path': custom_file_path,
+                                    'original_name': name
+                                }
+                                print(f"✅ Loaded {func_type}: {name}")
+                except Exception as e:
+                    print(f"⚠️ Error loading {custom_file}: {str(e)}")
                         
     except Exception as e:
         print(f"Warning: Could not load custom functions: {str(e)}")

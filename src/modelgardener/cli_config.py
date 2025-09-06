@@ -1964,8 +1964,9 @@ class ModelConfigCLI:
             print(f"❌ Error loading configuration: {str(e)}")
             return {}
 
-    def save_config(self, config: Dict[str, Any], file_path: str, format_type: str = 'json') -> bool:
-        """Save configuration to file and generate Python scripts."""
+    def save_config(self, config: Dict[str, Any], file_path: str, format_type: str = 'json', 
+                   generate_scripts: bool = True) -> bool:
+        """Save configuration to file and optionally generate Python scripts."""
         try:
             # Ensure directory exists
             os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
@@ -1990,8 +1991,9 @@ class ModelConfigCLI:
             
             print(f"✅ Configuration saved to: {file_path}")
             
-            # Generate Python scripts
-            hf.generate_python_scripts(config, file_path)
+            # Generate Python scripts only if requested
+            if generate_scripts:
+                hf.generate_python_scripts(config, file_path)
             
             return True
         except Exception as e:
@@ -2138,10 +2140,10 @@ class ModelConfigCLI:
         hf.copy_example_data(project_dir)
         
         # Create the improved template with custom functions and parameters
-        # Note: Custom modules and scripts will be generated when save_config is called
+        # Note: Custom modules and scripts will be generated separately by CLI
         template_config = hf.create_improved_template_config(config, project_dir)
         
-        if self.save_config(template_config, template_path, format_type):
+        if self.save_config(template_config, template_path, format_type, generate_scripts=False):
             print(f"✅ Template created at: {template_path}")
             print(" Sample data copied to: ./data/")
             print("🚀 Ready to train! The template includes working custom functions and sample data")

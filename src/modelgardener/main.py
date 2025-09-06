@@ -12,7 +12,7 @@ def main():
     """Main entry point for ModelGardener CLI."""
     try:
         # Import and run CLI interface
-        from .modelgardener_cli from . import main as cli_main
+        from .modelgardener_cli import main as cli_main
         
         # Run CLI main function
         cli_main()

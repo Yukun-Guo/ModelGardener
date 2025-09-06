@@ -767,7 +767,7 @@ class ModelGardenerCLI:
                 print(f"  • {model}")
 
     def create_project_template(self, project_name: str = None, project_dir: str = ".", 
-                               interactive: bool = False, generate_scripts: bool = True,
+                               interactive: bool = False, auto_generate_scripts: bool = True,
                                use_pyproject: bool = True, **kwargs):
         """Create a new project template with CLI configuration."""
         
@@ -809,7 +809,7 @@ class ModelGardenerCLI:
                 config_file_relative = "config.yaml"
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
-                    if self.config_cli.save_config(config, config_file_relative, 'yaml'):
+                    if self.config_cli.save_config(config, config_file_relative, 'yaml', generate_scripts=False):
                         print(f"✅ Configuration saved to {config_file}")
                 else:
                     print("❌ Configuration validation failed, using default template")
@@ -825,7 +825,7 @@ class ModelGardenerCLI:
                 config_data = config
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
-                    if self.config_cli.save_config(config, str(config_file), 'yaml'):
+                    if self.config_cli.save_config(config, str(config_file), 'yaml', generate_scripts=False):
                         print(f"✅ Configuration saved to {config_file}")
                     else:
                         print("❌ Failed to save configuration, using default template")
@@ -839,7 +839,7 @@ class ModelGardenerCLI:
                 self.config_cli.create_template(str(config_file), 'yaml')
         
         # Generate scripts if requested
-        if generate_scripts:
+        if auto_generate_scripts:
             print(f"\n📜 Generating training scripts...")
             try:
                 from .script_generator import ScriptGenerator
@@ -875,7 +875,7 @@ class ModelGardenerCLI:
         
         # Update README content based on what was actually generated
         package_file = "pyproject.toml" if use_pyproject else "requirements.txt"
-        scripts_note = "auto-generated" if generate_scripts else "can be generated with --generate-scripts"
+        scripts_note = "auto-generated" if auto_generate_scripts else "can be generated with --auto-generate-scripts"
         
         # Create README
         readme_content = f"""# {project_name} - ModelGardener Project
@@ -1522,8 +1522,8 @@ Examples:
     create_parser.add_argument('project_name', nargs='?', default=None, help='Name of the project (optional - uses current directory name if not provided)')
     create_parser.add_argument('--dir', '-d', default='.', help='Directory to create project in (ignored if no project_name provided)')
     create_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive project creation mode')
-    create_parser.add_argument('--generate-scripts', action='store_true', default=True, help='Generate training scripts (default: True)')
-    create_parser.add_argument('--no-generate-scripts', action='store_false', dest='generate_scripts', help='Do not generate training scripts')
+    create_parser.add_argument('--auto-generate-scripts', action='store_true', default=True, help='Enable auto-generation of training scripts (default: True)')
+    create_parser.add_argument('--no-auto-generate-scripts', action='store_false', dest='auto_generate_scripts', help='Disable auto-generation of training scripts')
     create_parser.add_argument('--use-pyproject', action='store_true', default=True, help='Generate pyproject.toml instead of requirements.txt (default: True)')
     create_parser.add_argument('--use-requirements', action='store_false', dest='use_pyproject', help='Generate requirements.txt instead of pyproject.toml')
     # Add configuration arguments for batch mode (same as config)
@@ -1670,12 +1670,12 @@ def main():
                 kwargs['num_gpus'] = args.num_gpus
             
             # Get script generation options
-            generate_scripts = getattr(args, 'generate_scripts', True)
+            auto_generate_scripts = getattr(args, 'auto_generate_scripts', True)
             use_pyproject = getattr(args, 'use_pyproject', True)
             
             cli.create_project_template(
                 args.project_name, args.dir, args.interactive, 
-                generate_scripts, use_pyproject, **kwargs
+                auto_generate_scripts, use_pyproject, **kwargs
             )
         
         elif args.command == 'check':

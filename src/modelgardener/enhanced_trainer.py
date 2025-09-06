@@ -117,7 +117,120 @@ class EnhancedTrainer:
             self._cleanup_resources()
     
     def _auto_load_custom_functions(self) -> Dict[str, Any]:
-        """Auto-load custom functions from example_funcs directory."""
+        """Auto-load custom functions from custom_modules directory (compatible with package structure)."""
+        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
+        
+        try:
+            import importlib.util
+            import inspect
+            
+            # First try to load from custom_modules directory (for generated projects)
+            custom_modules_dir = "./custom_modules"
+            if os.path.exists(custom_modules_dir):
+                print("🔧 Loading custom functions from custom_modules directory...")
+                return self._load_from_custom_modules(custom_modules_dir)
+            
+            # Fallback: try to load from package example_funcs (for development)
+            try:
+                from modelgardener.example_funcs import example_custom_data_loaders
+                print("🔧 Loading custom functions from package example_funcs...")
+                return self._load_from_package_examples()
+            except ImportError:
+                pass
+            
+            # Final fallback: try relative path to example_funcs
+            example_funcs_dir = os.path.join(os.path.dirname(__file__), 'example_funcs')
+            if os.path.exists(example_funcs_dir):
+                print("🔧 Loading custom functions from example_funcs directory...")
+                return self._load_from_example_funcs(example_funcs_dir)
+                        
+        except Exception as e:
+            print(f"Warning: Could not auto-load custom functions: {str(e)}")
+            
+        return custom_functions
+    
+    def _load_from_custom_modules(self, custom_modules_dir: str) -> Dict[str, Any]:
+        """Load custom functions from custom_modules directory."""
+        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
+        
+        try:
+            import importlib.util
+            import inspect
+            
+            # Map custom module files to function types
+            custom_files_map = {
+                'custom_data_loaders.py': 'data_loaders',
+                'custom_models.py': 'models',
+                'custom_loss_functions.py': 'loss_functions',
+                'custom_metrics.py': 'metrics',
+                'custom_callbacks.py': 'callbacks',
+                'custom_optimizers.py': 'optimizers',
+                'custom_augmentations.py': 'augmentations',
+                'custom_preprocessing.py': 'preprocessing'
+            }
+            
+            for custom_file, func_type in custom_files_map.items():
+                custom_file_path = os.path.join(custom_modules_dir, custom_file)
+                if os.path.exists(custom_file_path):
+                    try:
+                        spec = importlib.util.spec_from_file_location(f"custom_{func_type}", custom_file_path)
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        
+                        # Find all functions and classes in the module
+                        for name, obj in inspect.getmembers(module):
+                            if not name.startswith('_'):  # Skip private functions
+                                if inspect.isfunction(obj) or inspect.isclass(obj):
+                                    if func_type not in custom_functions:
+                                        custom_functions[func_type] = {}
+                                    
+                                    custom_functions[func_type][name] = {
+                                        'loader': obj,
+                                        'type': 'function' if inspect.isfunction(obj) else 'class',
+                                        'file_path': custom_file_path,
+                                        'original_name': name
+                                    }
+                                    print(f"Auto-loaded {func_type}: {name}")
+                    except Exception as e:
+                        print(f"Warning: Error loading {custom_file}: {str(e)}")
+        except Exception as e:
+            print(f"Warning: Error in _load_from_custom_modules: {str(e)}")
+        
+        return custom_functions
+    
+    def _load_from_package_examples(self) -> Dict[str, Any]:
+        """Load custom functions from package example_funcs."""
+        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
+        
+        try:
+            import inspect
+            from modelgardener.example_funcs import example_custom_data_loaders
+            
+            # Load data loaders
+            for name, obj in inspect.getmembers(example_custom_data_loaders):
+                if inspect.isfunction(obj) and (name.startswith('load_') or name.startswith('Custom_')):
+                    custom_functions['data_loaders'][name] = {
+                        'loader': obj,
+                        'type': 'function',
+                        'file_path': 'modelgardener.example_funcs.example_custom_data_loaders',
+                        'original_name': name
+                    }
+                    print(f"Auto-loaded data loader: {name}")
+                elif inspect.isclass(obj) and 'DataLoader' in name:
+                    custom_functions['data_loaders'][f"Custom_{name}"] = {
+                        'loader': obj,
+                        'type': 'class',
+                        'file_path': 'modelgardener.example_funcs.example_custom_data_loaders',
+                        'original_name': name
+                    }
+                    print(f"Auto-loaded data loader class: {name}")
+        except Exception as e:
+            print(f"Warning: Error loading from package examples: {str(e)}")
+        
+        return custom_functions
+    
+    def _load_from_example_funcs(self, example_funcs_dir: str) -> Dict[str, Any]:
+        """Load custom functions from example_funcs directory."""
         custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
         
         try:
@@ -125,7 +238,7 @@ class EnhancedTrainer:
             import inspect
             
             # Load data loaders from example_funcs directory
-            data_loader_file = "./example_funcs/example_custom_data_loaders.py"
+            data_loader_file = os.path.join(example_funcs_dir, "example_custom_data_loaders.py")
             if os.path.exists(data_loader_file):
                 spec = importlib.util.spec_from_file_location("example_data_loaders", data_loader_file)
                 module = importlib.util.module_from_spec(spec)
@@ -149,9 +262,8 @@ class EnhancedTrainer:
                             'original_name': name
                         }
                         print(f"Auto-loaded data loader class: {name}")
-                        
         except Exception as e:
-            print(f"Warning: Could not auto-load custom functions: {str(e)}")
+            print(f"Warning: Error loading from example_funcs: {str(e)}")
             
         return custom_functions
     
