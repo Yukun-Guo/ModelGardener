@@ -5,7 +5,7 @@ The `preview` command in ModelGardener CLI allows you to visualize data samples 
 ## Usage
 
 ```bash
-modelgardener_cli.py preview --config <config_file> [options]
+mg preview --config <config_file> [options]
 ```
 
 ## Options
@@ -38,19 +38,19 @@ modelgardener_cli.py preview --config <config_file> [options]
 ### Basic Preview
 ```bash
 # Preview with preprocessing only
-modelgardener_cli.py preview --config config.yaml
+mg preview --config config.yaml
 
 # Preview validation data (no augmentation)
-modelgardener_cli.py preview --config config.yaml --split val
+mg preview --config config.yaml --split val
 ```
 
 ### Advanced Usage
 ```bash
 # Preview with more samples
-modelgardener_cli.py preview --config config.yaml --num-samples 12
+mg preview --config config.yaml --num-samples 12
 
 # Save comparison plot
-modelgardener_cli.py preview --config config.yaml --save --output data_processing_comparison.png
+mg preview --config config.yaml --save --output data_processing_comparison.png
 ```
 
 ## Supported Data Loaders

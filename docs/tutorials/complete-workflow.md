@@ -19,10 +19,10 @@ Before starting, ensure ModelGardener is properly installed and configured:
 
 ```bash
 # Verify installation
-modelgardener_cli.py check --all
+mg check --all
 
 # Check available models
-modelgardener_cli.py models --list
+mg models --list
 ```
 
 ## Complete Workflow Example
@@ -33,7 +33,7 @@ Create a new image classification project with interactive setup:
 
 ```bash
 # Create project with interactive configuration
-modelgardener_cli.py create image_classifier \
+mg create image_classifier \
     --dir ./projects/image_classifier \
     --interactive \
     --model-family efficientnet \
@@ -66,14 +66,14 @@ Validate and optimize the project configuration:
 
 ```bash
 # Validate configuration with optimization suggestions
-modelgardener_cli.py config \
+mg config \
     --file config.yaml \
     --validate \
     --strict \
     --suggest-optimizations
 
 # Interactive configuration editing if needed
-modelgardener_cli.py config \
+mg config \
     --file config.yaml \
     --edit
 ```
@@ -84,7 +84,7 @@ Perform comprehensive system validation before training:
 
 ```bash
 # Complete system and project check
-modelgardener_cli.py check \
+mg check \
     --all \
     --project . \
     --performance \
@@ -92,7 +92,7 @@ modelgardener_cli.py check \
     --output pre_training_check.html
 
 # Fix any detected issues automatically
-modelgardener_cli.py check \
+mg check \
     --all \
     --fix
 ```
@@ -120,7 +120,7 @@ Train the model with comprehensive monitoring:
 
 ```bash
 # Start training with GPU acceleration and mixed precision
-modelgardener_cli.py train \
+mg train \
     --config config.yaml \
     --gpus 2 \
     --mixed-precision \
@@ -145,7 +145,7 @@ Comprehensive model evaluation with detailed analysis:
 
 ```bash
 # Detailed evaluation with all features
-modelgardener_cli.py evaluate \
+mg evaluate \
     --config config.yaml \
     --model ./logs/models/best_model.keras \
     --per-class \
@@ -172,7 +172,7 @@ Test the model with new data:
 
 ```bash
 # Single image prediction with visualization
-modelgardener_cli.py predict \
+mg predict \
     --config config.yaml \
     --model ./logs/models/best_model.keras \
     --input test_image.jpg \
@@ -182,7 +182,7 @@ modelgardener_cli.py predict \
     --detailed-output
 
 # Batch prediction on directory
-modelgardener_cli.py predict \
+mg predict \
     --config config.yaml \
     --model ./logs/models/best_model.keras \
     --input ./test_images/ \
@@ -197,7 +197,7 @@ Deploy the model to multiple formats:
 
 ```bash
 # Multi-format deployment with optimization
-modelgardener_cli.py deploy \
+mg deploy \
     --config config.yaml \
     --model ./logs/models/best_model.keras \
     --format all \
@@ -221,14 +221,14 @@ curl -X POST \
 
 ```bash
 # 5-fold cross-validation with hyperparameter tuning
-modelgardener_cli.py train \
+mg train \
     --config config.yaml \
     --cross-validation 5 \
     --hyperparameter-tuning \
     --epochs 200
 
 # Evaluate cross-validation results
-modelgardener_cli.py evaluate \
+mg evaluate \
     --config config.yaml \
     --model ./logs/cross_validation/best_fold_model.keras \
     --detailed-report
@@ -238,14 +238,14 @@ modelgardener_cli.py evaluate \
 
 ```bash
 # Create transfer learning project
-modelgardener_cli.py create transfer_learning_project \
+mg create transfer_learning_project \
     --model-family efficientnet \
     --model-name EfficientNet-B0 \
     --num-classes 3 \
     --epochs 50
 
 # Fine-tune with frozen base layers
-modelgardener_cli.py train \
+mg train \
     --config config.yaml \
     --fine-tune \
     --pretrained \
@@ -257,7 +257,7 @@ modelgardener_cli.py train \
 
 ```bash
 # Comprehensive production deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --config config.yaml \
     --model ./logs/models/production_model.keras \
     --format onnx,tflite \
@@ -270,7 +270,7 @@ modelgardener_cli.py deploy \
     --documentation
 
 # Performance validation
-modelgardener_cli.py predict \
+mg predict \
     --model ./deployment/models/model.onnx \
     --input ./validation_set/ \
     --benchmark \
@@ -285,7 +285,7 @@ modelgardener_cli.py predict \
 # Train multiple model architectures
 for model in "ResNet-50" "EfficientNet-B0" "MobileNet-V2"; do
     # Create configuration for each model
-    modelgardener_cli.py config \
+    mg config \
         --template advanced \
         --output config_${model}.yaml
     
@@ -293,7 +293,7 @@ for model in "ResNet-50" "EfficientNet-B0" "MobileNet-V2"; do
     sed -i "s/selected_model_name:.*/selected_model_name: \"${model}\"/" config_${model}.yaml
     
     # Train model
-    modelgardener_cli.py train \
+    mg train \
         --config config_${model}.yaml \
         --output-dir ./experiments/${model}/
 done
@@ -304,7 +304,7 @@ done
 ```bash
 # Evaluate all models
 for model in "ResNet-50" "EfficientNet-B0" "MobileNet-V2"; do
-    modelgardener_cli.py evaluate \
+    mg evaluate \
         --config config_${model}.yaml \
         --model ./experiments/${model}/models/best_model.keras \
         --output-dir ./evaluations/${model}/ \
@@ -331,11 +331,11 @@ def create_attention_cnn(input_shape, num_classes, **kwargs):
 
 ```bash
 # Register and use custom model
-modelgardener_cli.py models \
+mg models \
     --register ./custom_modules/custom_models.py
 
 # Update configuration to use custom model
-modelgardener_cli.py config \
+mg config \
     --file config.yaml \
     --edit  # Select custom model family
 ```
@@ -359,7 +359,7 @@ def custom_training_with_adversarial(model, train_data, val_data, **kwargs):
 # ci_ml_pipeline.sh
 
 # Environment validation
-modelgardener_cli.py check \
+mg check \
     --environment \
     --critical-only \
     --format json \
@@ -371,12 +371,12 @@ if [ $? -ne 0 ]; then
 fi
 
 # Model training
-modelgardener_cli.py train \
+mg train \
     --config production_config.yaml \
     --epochs 100
 
 # Model validation
-modelgardener_cli.py evaluate \
+mg evaluate \
     --config production_config.yaml \
     --model ./logs/models/best_model.keras \
     --format json \
@@ -389,7 +389,7 @@ python scripts/validate_performance.py \
 
 # Deployment if validation passes
 if [ $? -eq 0 ]; then
-    modelgardener_cli.py deploy \
+    mg deploy \
         --config production_config.yaml \
         --model ./logs/models/best_model.keras \
         --format onnx \
@@ -409,7 +409,7 @@ for dataset in dataset1 dataset2 dataset3; do
     echo "Processing ${dataset}..."
     
     # Create project
-    modelgardener_cli.py create ${dataset}_project \
+    mg create ${dataset}_project \
         --dir ./projects/${dataset} \
         --template advanced
     
@@ -420,12 +420,12 @@ for dataset in dataset1 dataset2 dataset3; do
     ln -s ../../datasets/${dataset}/val ./data/val
     
     # Train model
-    modelgardener_cli.py train \
+    mg train \
         --config config.yaml \
         --epochs 50
     
     # Evaluate model
-    modelgardener_cli.py evaluate \
+    mg evaluate \
         --config config.yaml \
         --model ./logs/models/best_model.keras \
         --output-dir ../results/${dataset}/
@@ -448,13 +448,13 @@ python scripts/batch_comparison.py \
 # health_monitor.sh
 
 # Daily health check
-modelgardener_cli.py check \
+mg check \
     --all \
     --format json \
     --output /var/log/modelgardener/health_$(date +%Y%m%d).json
 
 # Performance tracking
-modelgardener_cli.py check \
+mg check \
     --performance \
     --benchmark \
     --output /var/log/modelgardener/performance_$(date +%Y%m%d).json
@@ -469,7 +469,7 @@ python scripts/health_alerting.py \
 
 ```bash
 # Monitor deployed model performance
-modelgardener_cli.py predict \
+mg predict \
     --model production_model.onnx \
     --input /data/daily_samples/ \
     --benchmark \
@@ -511,15 +511,15 @@ python scripts/drift_detection.py \
 
 ```bash
 # Memory issues
-modelgardener_cli.py check --performance --memory-usage
+mg check --performance --memory-usage
 # Solution: Reduce batch size or enable mixed precision
 
 # GPU not detected
-modelgardener_cli.py check --hardware --gpu
+mg check --hardware --gpu
 # Solution: Check CUDA installation and drivers
 
 # Slow training
-modelgardener_cli.py check --performance --benchmark
+mg check --performance --benchmark
 # Solution: Optimize data pipeline or use distributed training
 ```
 
@@ -527,11 +527,11 @@ modelgardener_cli.py check --performance --benchmark
 
 ```bash
 # Model conversion errors
-modelgardener_cli.py models --validate ./models/model.keras
+mg models --validate ./models/model.keras
 # Solution: Check model compatibility with target format
 
 # API server issues
-modelgardener_cli.py deploy --serve --test-endpoints
+mg deploy --serve --test-endpoints
 # Solution: Check port availability and permissions
 ```
 
@@ -539,11 +539,11 @@ modelgardener_cli.py deploy --serve --test-endpoints
 
 ```bash
 # Dependency conflicts
-modelgardener_cli.py check --dependencies --verbose
+mg check --dependencies --verbose
 # Solution: Create fresh virtual environment
 
 # Permission errors
-modelgardener_cli.py check --permissions --fix
+mg check --permissions --fix
 # Solution: Adjust file and directory permissions
 ```
 

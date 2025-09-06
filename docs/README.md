@@ -45,11 +45,11 @@ Welcome to the comprehensive documentation for ModelGardener - a powerful deep l
 
 | Task | Command | Documentation |
 |------|---------|---------------|
-| Create new project | `modelgardener_cli.py create` | [create command](cli/create.md) |
-| Train model | `modelgardener_cli.py train` | [train command](cli/train.md) |
-| Evaluate model | `modelgardener_cli.py evaluate` | [evaluate command](cli/evaluate.md) |
-| Make predictions | `modelgardener_cli.py predict` | [predict command](cli/predict.md) |
-| Deploy model | `modelgardener_cli.py deploy` | [deploy command](cli/deploy.md) |
+| Create new project | `mg create` | [create command](cli/create.md) |
+| Train model | `mg train` | [train command](cli/train.md) |
+| Evaluate model | `mg evaluate` | [evaluate command](cli/evaluate.md) |
+| Make predictions | `mg predict` | [predict command](cli/predict.md) |
+| Deploy model | `mg deploy` | [deploy command](cli/deploy.md) |
 
 ### Generated Scripts
 

@@ -5,7 +5,7 @@ Generate predictions on new data using trained models with support for batch pro
 ## Synopsis
 
 ```bash
-modelgardener_cli.py predict [OPTIONS]
+mg predict [OPTIONS]
 ```
 
 ## Description
@@ -80,13 +80,13 @@ The `predict` command enables comprehensive prediction capabilities including:
 
 ```bash
 # Predict single image
-modelgardener_cli.py predict --input image.jpg
+mg predict --input image.jpg
 
 # Predict with model specification
-modelgardener_cli.py predict --model ./logs/models/best_model.keras --input image.jpg
+mg predict --model ./logs/models/best_model.keras --input image.jpg
 
 # Detailed prediction with visualization
-modelgardener_cli.py predict \
+mg predict \
     --input image.jpg \
     --visualize \
     --grad-cam \
@@ -98,17 +98,17 @@ modelgardener_cli.py predict \
 
 ```bash
 # Predict entire directory
-modelgardener_cli.py predict --input ./test_images/
+mg predict --input ./test_images/
 
 # Batch prediction with custom settings
-modelgardener_cli.py predict \
+mg predict \
     --input ./large_dataset/ \
     --batch-size 64 \
     --confidence-threshold 0.8 \
     --output-format csv
 
 # Optimized batch processing
-modelgardener_cli.py predict \
+mg predict \
     --input ./images/ \
     --optimize \
     --parallel \
@@ -119,19 +119,19 @@ modelgardener_cli.py predict \
 
 ```bash
 # Uncertainty quantification
-modelgardener_cli.py predict \
+mg predict \
     --input image.jpg \
     --uncertainty \
     --top-k 5
 
 # Ensemble prediction
-modelgardener_cli.py predict \
+mg predict \
     --input ./test_set/ \
     --ensemble \
     --uncertainty
 
 # Performance benchmarking
-modelgardener_cli.py predict \
+mg predict \
     --input ./benchmark_set/ \
     --benchmark \
     --output-format json,html
@@ -141,7 +141,7 @@ modelgardener_cli.py predict \
 
 ```bash
 # Comprehensive visualization
-modelgardener_cli.py predict \
+mg predict \
     --input image.jpg \
     --visualize \
     --grad-cam \
@@ -150,7 +150,7 @@ modelgardener_cli.py predict \
     --save-images
 
 # Batch visualization
-modelgardener_cli.py predict \
+mg predict \
     --input ./images/ \
     --visualize \
     --output-dir ./predictions_with_viz
@@ -169,9 +169,9 @@ modelgardener_cli.py predict \
 
 ```bash
 # Examples
-modelgardener_cli.py predict --input photo.jpg
-modelgardener_cli.py predict --input scan.png
-modelgardener_cli.py predict --input image.tiff
+mg predict --input photo.jpg
+mg predict --input scan.png
+mg predict --input image.tiff
 ```
 
 ### Directory Input
@@ -190,7 +190,7 @@ input_directory/
 
 ```bash
 # Recursive directory processing
-modelgardener_cli.py predict --input ./input_directory/
+mg predict --input ./input_directory/
 ```
 
 ### CSV Input
@@ -205,7 +205,7 @@ image_path,metadata
 
 ```bash
 # CSV-based prediction
-modelgardener_cli.py predict --input predictions_list.csv --input-format csv
+mg predict --input predictions_list.csv --input-format csv
 ```
 
 ## Configuration File Structure
@@ -443,7 +443,7 @@ Generated HTML report includes:
 
 ```bash
 # Enable uncertainty quantification
-modelgardener_cli.py predict --input images/ --uncertainty
+mg predict --input images/ --uncertainty
 ```
 
 **Uncertainty Methods:**
@@ -462,7 +462,7 @@ modelgardener_cli.py predict --input images/ --uncertainty
 
 ```bash
 # Ensemble prediction with multiple models
-modelgardener_cli.py predict \
+mg predict \
     --input test_set/ \
     --ensemble \
     --model model1.keras,model2.keras,model3.keras
@@ -478,7 +478,7 @@ modelgardener_cli.py predict \
 
 ```bash
 # Generate Grad-CAM visualizations
-modelgardener_cli.py predict \
+mg predict \
     --input image.jpg \
     --grad-cam \
     --visualize \
@@ -526,7 +526,7 @@ modelgardener_cli.py predict \
 
 ```bash
 # Performance benchmarking
-modelgardener_cli.py predict \
+mg predict \
     --input benchmark_set/ \
     --benchmark \
     --optimize
@@ -538,8 +538,8 @@ modelgardener_cli.py predict \
 
 ```bash
 # Train and predict pipeline
-modelgardener_cli.py train --config config.yaml
-modelgardener_cli.py predict \
+mg train --config config.yaml
+mg predict \
     --config config.yaml \
     --model ./logs/models/best_model.keras \
     --input ./test_data/
@@ -549,7 +549,7 @@ modelgardener_cli.py predict \
 
 ```bash
 # Comprehensive prediction testing
-modelgardener_cli.py predict \
+mg predict \
     --input production_test_set/ \
     --benchmark \
     --uncertainty \
@@ -560,7 +560,7 @@ modelgardener_cli.py predict \
 
 ```bash
 # Large-scale prediction processing
-modelgardener_cli.py predict \
+mg predict \
     --input ./large_dataset/ \
     --batch-size 128 \
     --parallel \
@@ -628,25 +628,25 @@ def confidence_calibration(predictions, **kwargs):
 **Memory Errors:**
 ```bash
 # Reduce batch size
-modelgardener_cli.py predict --input images/ --batch-size 16
+mg predict --input images/ --batch-size 16
 
 # Limit GPU memory
-modelgardener_cli.py predict --input images/ --gpu-memory-limit 4096
+mg predict --input images/ --gpu-memory-limit 4096
 ```
 
 **Slow Processing:**
 ```bash
 # Enable optimization
-modelgardener_cli.py predict --input images/ --optimize --parallel
+mg predict --input images/ --optimize --parallel
 
 # Increase batch size
-modelgardener_cli.py predict --input images/ --batch-size 64
+mg predict --input images/ --batch-size 64
 ```
 
 **Input Format Issues:**
 ```bash
 # Specify input format explicitly
-modelgardener_cli.py predict --input data.csv --input-format csv
+mg predict --input data.csv --input-format csv
 
 # Check supported formats
 ```
@@ -655,10 +655,10 @@ modelgardener_cli.py predict --input data.csv --input-format csv
 
 ```bash
 # Verbose output
-modelgardener_cli.py predict --input images/ --detailed-output
+mg predict --input images/ --detailed-output
 
 # Save intermediate results
-modelgardener_cli.py predict --input images/ --save-images
+mg predict --input images/ --save-images
 ```
 
 ## See Also

@@ -24,7 +24,9 @@ class ScriptGenerator:
         }
     
     def generate_scripts(self, config_data: Dict[str, Any], output_dir: str, 
-                        config_file_name: str = "model_config.yaml") -> bool:
+                        config_file_name: str = "model_config.yaml",
+                        generate_pyproject: bool = True,
+                        generate_requirements: bool = False) -> bool:
         """
         Generate all Python scripts based on configuration.
         
@@ -32,6 +34,8 @@ class ScriptGenerator:
             config_data: The configuration dictionary
             output_dir: Directory where scripts should be saved
             config_file_name: Name of the configuration file
+            generate_pyproject: Whether to generate pyproject.toml (default: True)
+            generate_requirements: Whether to generate requirements.txt (default: False)
             
         Returns:
             bool: True if all scripts generated successfully
@@ -56,16 +60,24 @@ class ScriptGenerator:
                 
                 print(f"✅ Generated: {script_path}")
             
-            # Generate requirements.txt
-            self._generate_requirements_txt(config, output_dir)
+            # Generate pyproject.toml by default
+            if generate_pyproject:
+                self._generate_pyproject_toml(config, output_dir)
+            
+            # Generate requirements.txt if specifically requested
+            if generate_requirements:
+                self._generate_requirements_txt(config, output_dir)
             
             # Generate README for scripts
             self._generate_scripts_readme(config, output_dir)
             
+            print(f"🎉 All scripts generated successfully in: {output_dir}")
             return True
             
         except Exception as e:
             print(f"❌ Error generating scripts: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def generate_custom_modules_templates(self, output_dir: str) -> bool:
@@ -1348,8 +1360,24 @@ import keras
 import numpy as np
 from pathlib import Path
 
-# Add current directory to path for ModelGardener imports
+# Setup paths for ModelGardener imports
 current_dir = Path(__file__).parent
+project_root = current_dir
+
+# Try to find ModelGardener installation or source
+modelgardener_paths = [
+    current_dir / "src",  # If in project root
+    current_dir.parent / "src",  # If in subdirectory
+    current_dir / "venv" / "lib" / "python3.10" / "site-packages",  # Virtual env
+    Path.home() / ".local" / "lib" / "python3.10" / "site-packages",  # User install
+]
+
+# Add paths to sys.path
+for path in modelgardener_paths:
+    if path.exists():
+        sys.path.insert(0, str(path))
+
+# Also add current directory for custom modules
 sys.path.insert(0, str(current_dir))
 
 {{CUSTOM_IMPORTS}}
@@ -1441,11 +1469,52 @@ def train_model():
         
         # Use the enhanced trainer approach (same as CLI)
         try:
-            # Import the enhanced trainer
-            from .enhanced_trainer import EnhancedTrainer
+            # Try multiple import strategies
+            enhanced_trainer = None
+            
+            # Strategy 1: Direct import from modelgardener package
+            try:
+                from modelgardener.enhanced_trainer import EnhancedTrainer
+                enhanced_trainer = EnhancedTrainer
+                print("✅ Imported EnhancedTrainer from installed package")
+            except ImportError:
+                pass
+            
+            # Strategy 2: Relative import (if running from project structure)
+            if enhanced_trainer is None:
+                try:
+                    from .enhanced_trainer import EnhancedTrainer
+                    enhanced_trainer = EnhancedTrainer
+                    print("✅ Imported EnhancedTrainer with relative import")
+                except ImportError:
+                    pass
+            
+            # Strategy 3: Direct file import (fallback)
+            if enhanced_trainer is None:
+                try:
+                    import importlib.util
+                    trainer_paths = [
+                        current_dir / "src" / "modelgardener" / "enhanced_trainer.py",
+                        current_dir.parent / "src" / "modelgardener" / "enhanced_trainer.py",
+                        current_dir / "enhanced_trainer.py"
+                    ]
+                    
+                    for trainer_path in trainer_paths:
+                        if trainer_path.exists():
+                            spec = importlib.util.spec_from_file_location("enhanced_trainer", trainer_path)
+                            trainer_module = importlib.util.module_from_spec(spec)
+                            spec.loader.exec_module(trainer_module)
+                            enhanced_trainer = trainer_module.EnhancedTrainer
+                            print(f"✅ Imported EnhancedTrainer from {trainer_path}")
+                            break
+                except Exception as e:
+                    print(f"⚠️ Error in direct file import: {e}")
+            
+            if enhanced_trainer is None:
+                raise ImportError("Could not import EnhancedTrainer")
             
             # Initialize trainer with same approach as CLI
-            trainer = EnhancedTrainer(
+            trainer = enhanced_trainer(
                 config=main_config,
                 custom_functions=custom_functions_data
             )
@@ -1463,8 +1532,8 @@ def train_model():
                 print("❌ Training failed")
                 return False
             
-        except ImportError:
-            print("⚠️  Enhanced trainer not available, falling back to basic trainer...")
+        except ImportError as e:
+            print(f"⚠️ Enhanced trainer not available ({e}), falling back to basic training...")
             return _fallback_training(main_config, custom_functions_data)
             
     except Exception as e:
@@ -1476,19 +1545,48 @@ def train_model():
 def _fallback_training(config, custom_functions):
     """Fallback training method if enhanced trainer is not available."""
     try:
-        # Import the enhanced trainer (this should always be available now)
-        from .enhanced_trainer import EnhancedTrainer
+        # Try the same import strategies for fallback
+        enhanced_trainer = None
+        
+        try:
+            from modelgardener.enhanced_trainer import EnhancedTrainer
+            enhanced_trainer = EnhancedTrainer
+        except ImportError:
+            try:
+                from .enhanced_trainer import EnhancedTrainer
+                enhanced_trainer = EnhancedTrainer
+            except ImportError:
+                # Try direct import from source files
+                import importlib.util
+                trainer_paths = [
+                    Path(__file__).parent / "src" / "modelgardener" / "enhanced_trainer.py",
+                    Path(__file__).parent.parent / "src" / "modelgardener" / "enhanced_trainer.py",
+                    Path(__file__).parent / "enhanced_trainer.py"
+                ]
+                
+                for trainer_path in trainer_paths:
+                    if trainer_path.exists():
+                        spec = importlib.util.spec_from_file_location("enhanced_trainer", trainer_path)
+                        trainer_module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(trainer_module)
+                        enhanced_trainer = trainer_module.EnhancedTrainer
+                        break
+        
+        if enhanced_trainer is None:
+            print("❌ Cannot import trainer modules from any source")
+            print("💡 Make sure ModelGardener is properly installed or run from the project directory")
+            return False
         
         # Initialize trainer
-        trainer = EnhancedTrainer(
+        trainer = enhanced_trainer(
             config=config,
             custom_functions=custom_functions
         )
         
-        print("✅ Basic trainer initialized")
+        print("✅ Fallback trainer initialized")
         
         # Run training
-        print("🏃 Starting basic training...")
+        print("🏃 Starting fallback training...")
         success = trainer.train()
         
         if success:
@@ -1498,9 +1596,10 @@ def _fallback_training(config, custom_functions):
             print("❌ Training failed")
             return False
             
-    except ImportError as e:
-        print(f"❌ Cannot import trainer modules: {str(e)}")
-        print("💡 Make sure you're running from the ModelGardener directory")
+    except Exception as e:
+        print(f"❌ Error in fallback training: {str(e)}")
+        print("💡 Please ensure ModelGardener is properly installed")
+        return False
 if __name__ == "__main__":
     success = train_model()
     if success:
@@ -2893,6 +2992,134 @@ if __name__ == "__main__":
     main()
 '''
     
+    def _generate_pyproject_toml(self, config: Dict[str, Any], output_dir: str):
+        """Generate pyproject.toml file for better project management."""
+        
+        # Extract project information
+        data_config = config.get('data', {})
+        model_config = config.get('model', {})
+        runtime_config = config.get('runtime', {})
+        
+        project_name = runtime_config.get('project_name', 'ml-project')
+        model_name = model_config.get('model_name', 'Custom Model')
+        
+        # Base dependencies
+        dependencies = [
+            "tensorflow>=2.10.0",
+            "numpy>=1.21.0", 
+            "Pillow>=8.3.0",
+            "matplotlib>=3.5.0",
+            "seaborn>=0.11.0",
+            "scikit-learn>=1.0.0",
+            "PyYAML>=6.0",
+            "Flask>=2.2.0",  # For deployment script
+        ]
+        
+        # Add custom dependencies based on configuration
+        custom_functions = self._extract_custom_functions_info(config)
+        if custom_functions:
+            for func_type, functions in custom_functions.items():
+                for func_info in functions:
+                    if isinstance(func_info, dict):
+                        custom_deps = func_info.get('dependencies', [])
+                        for dep in custom_deps:
+                            if dep not in dependencies:
+                                dependencies.append(dep)
+        
+        # Format dependencies for TOML
+        deps_formatted = ",\\n".join(f'    "{dep}"' for dep in sorted(dependencies))
+        
+        pyproject_content = f"""[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{project_name}"
+version = "0.1.0"
+description = "Machine Learning project using ModelGardener - {model_name}"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {{text = "MIT"}}
+authors = [
+    {{name = "ModelGardener User", email = "user@example.com"}},
+]
+keywords = ["machine-learning", "deep-learning", "tensorflow", "keras", "computer-vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research", 
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+{deps_formatted}
+]
+
+[project.optional-dependencies]
+onnx = ["tf2onnx", "onnx", "onnxruntime"]
+tfjs = ["tensorflowjs"]
+quantization = ["onnxruntime", "tensorflow-model-optimization"]
+encryption = ["cryptography"]
+dev = ["pytest", "black", "flake8", "mypy"]
+jupyter = ["jupyter", "ipykernel", "ipywidgets"]
+
+[project.urls]
+"Homepage" = "https://github.com/Yukun-Guo/ModelGardener"
+"Bug Tracker" = "https://github.com/your-username/{project_name}/issues"
+"Repository" = "https://github.com/your-username/{project_name}"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["custom_modules*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.yml", "*.json", "*.txt", "*.md"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\\\\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["custom_modules"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tensorflow.*",
+    "keras.*",
+    "numpy.*",
+    "matplotlib.*",
+    "seaborn.*",
+    "sklearn.*",
+    "PIL.*",
+    "cv2.*",
+]
+ignore_missing_imports = true
+"""
+        
+        pyproject_path = os.path.join(output_dir, 'pyproject.toml')
+        with open(pyproject_path, 'w') as f:
+            f.write(pyproject_content)
+        
+        print(f"✅ Generated: {pyproject_path}")
+
     def _generate_requirements_txt(self, config: Dict[str, Any], output_dir: str):
         """Generate requirements.txt file."""
         requirements = [

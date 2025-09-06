@@ -5,7 +5,7 @@ Comprehensive model evaluation with detailed metrics, visualizations, and perfor
 ## Synopsis
 
 ```bash
-modelgardener_cli.py evaluate [OPTIONS]
+mg evaluate [OPTIONS]
 ```
 
 ## Description
@@ -80,33 +80,33 @@ The `evaluate` command provides comprehensive model assessment including:
 
 ```bash
 # Evaluate with default settings
-modelgardener_cli.py evaluate
+mg evaluate
 
 # Evaluate specific model
-modelgardener_cli.py evaluate --model ./logs/models/best_model.keras
+mg evaluate --model ./logs/models/best_model.keras
 
 # Evaluate with custom config
-modelgardener_cli.py evaluate --config evaluation_config.yaml
+mg evaluate --config evaluation_config.yaml
 ```
 
 ### Custom Data Evaluation
 
 ```bash
 # Evaluate on specific test set
-modelgardener_cli.py evaluate --test-dir ./custom_test_data
+mg evaluate --test-dir ./custom_test_data
 
 # Evaluate on validation set
-modelgardener_cli.py evaluate --subset val
+mg evaluate --subset val
 
 # Evaluate with custom batch size
-modelgardener_cli.py evaluate --batch-size 64
+mg evaluate --batch-size 64
 ```
 
 ### Comprehensive Analysis
 
 ```bash
 # Full evaluation with all features
-modelgardener_cli.py evaluate \
+mg evaluate \
     --per-class \
     --confusion-matrix \
     --roc-curves \
@@ -116,30 +116,30 @@ modelgardener_cli.py evaluate \
     --benchmark
 
 # Quick evaluation with basic metrics
-modelgardener_cli.py evaluate --metrics accuracy,precision,recall,f1
+mg evaluate --metrics accuracy,precision,recall,f1
 ```
 
 ### Visualization and Reporting
 
 ```bash
 # Generate detailed HTML report
-modelgardener_cli.py evaluate --detailed-report --format html,pdf
+mg evaluate --detailed-report --format html,pdf
 
 # Save individual predictions
-modelgardener_cli.py evaluate --save-predictions --format csv
+mg evaluate --save-predictions --format csv
 
 # Custom output directory
-modelgardener_cli.py evaluate --output-dir ./experiment_1/evaluation
+mg evaluate --output-dir ./experiment_1/evaluation
 ```
 
 ### Performance Benchmarking
 
 ```bash
 # Performance benchmarking
-modelgardener_cli.py evaluate --benchmark --timing --memory-usage
+mg evaluate --benchmark --timing --memory-usage
 
 # Interpretability analysis
-modelgardener_cli.py evaluate --interpretability --grad-cam --feature-maps
+mg evaluate --interpretability --grad-cam --feature-maps
 ```
 
 ## Available Metrics
@@ -362,19 +362,19 @@ evaluation_results/
 **Grad-CAM Visualization:**
 ```bash
 # Generate Grad-CAM heatmaps
-modelgardener_cli.py evaluate --grad-cam --interpretability
+mg evaluate --grad-cam --interpretability
 ```
 
 **Feature Map Analysis:**
 ```bash
 # Visualize intermediate feature maps
-modelgardener_cli.py evaluate --feature-maps
+mg evaluate --feature-maps
 ```
 
 **LIME Explanations:**
 ```bash
 # Local interpretable model explanations
-modelgardener_cli.py evaluate --interpretability
+mg evaluate --interpretability
 ```
 
 ### Performance Benchmarking
@@ -431,15 +431,15 @@ modelgardener_cli.py evaluate --interpretability
 
 ```bash
 # Evaluate immediately after training
-modelgardener_cli.py train --config config.yaml
-modelgardener_cli.py evaluate --config config.yaml --model ./logs/models/best_model.keras
+mg train --config config.yaml
+mg evaluate --config config.yaml --model ./logs/models/best_model.keras
 ```
 
 ### Before Deployment
 
 ```bash
 # Comprehensive evaluation before deployment
-modelgardener_cli.py evaluate \
+mg evaluate \
     --model production_model.keras \
     --benchmark \
     --detailed-report \
@@ -450,8 +450,8 @@ modelgardener_cli.py evaluate \
 
 ```bash
 # Compare multiple models
-modelgardener_cli.py evaluate --model model_1.keras --output-dir ./eval_model_1
-modelgardener_cli.py evaluate --model model_2.keras --output-dir ./eval_model_2
+mg evaluate --model model_1.keras --output-dir ./eval_model_1
+mg evaluate --model model_2.keras --output-dir ./eval_model_2
 ```
 
 ## Custom Metrics Integration
@@ -521,16 +521,16 @@ metadata:
 **Model Loading Errors:**
 ```bash
 # Verify model path and format
-modelgardener_cli.py evaluate --model ./correct/path/model.keras
+mg evaluate --model ./correct/path/model.keras
 ```
 
 **Memory Issues:**
 ```bash
 # Reduce batch size
-modelgardener_cli.py evaluate --batch-size 16
+mg evaluate --batch-size 16
 
 # Disable memory-intensive features
-modelgardener_cli.py evaluate --no-interpretability --no-grad-cam
+mg evaluate --no-interpretability --no-grad-cam
 ```
 
 **Visualization Errors:**
@@ -539,7 +539,7 @@ modelgardener_cli.py evaluate --no-interpretability --no-grad-cam
 chmod 755 ./evaluation_results
 
 # Disable problematic visualizations
-modelgardener_cli.py evaluate --no-plots
+mg evaluate --no-plots
 ```
 
 ## See Also

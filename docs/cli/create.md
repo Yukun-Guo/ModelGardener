@@ -5,7 +5,7 @@ Create new ModelGardener projects with customizable templates, sample data, and 
 ## Synopsis
 
 ```bash
-modelgardener_cli.py create [PROJECT_NAME] [OPTIONS]
+mg create [PROJECT_NAME] [OPTIONS]
 ```
 
 ## Description
@@ -73,30 +73,30 @@ The `create` command initializes a new machine learning project with:
 
 ```bash
 # Create project in current directory
-modelgardener_cli.py create
+mg create
 
 # Create named project in current directory
-modelgardener_cli.py create my_classifier
+mg create my_classifier
 
 # Create project in specific directory
-modelgardener_cli.py create image_classifier --dir /path/to/workspace
+mg create image_classifier --dir /path/to/workspace
 ```
 
 ### Interactive Mode
 
 ```bash
 # Interactive project creation with guided setup
-modelgardener_cli.py create my_project --interactive
+mg create my_project --interactive
 
 # Interactive mode in specific directory
-modelgardener_cli.py create --interactive --dir ./projects/new_project
+mg create --interactive --dir ./projects/new_project
 ```
 
 ### Batch Mode with Parameters
 
 ```bash
 # Create project with specific configuration
-modelgardener_cli.py create advanced_classifier \
+mg create advanced_classifier \
     --model-family resnet \
     --model-name ResNet-50 \
     --num-classes 100 \
@@ -106,7 +106,7 @@ modelgardener_cli.py create advanced_classifier \
     --optimizer Adam
 
 # Create GPU-optimized project
-modelgardener_cli.py create gpu_project \
+mg create gpu_project \
     --num-gpus 2 \
     --batch-size 128 \
     --model-family efficientnet
@@ -116,13 +116,13 @@ modelgardener_cli.py create gpu_project \
 
 ```bash
 # Create project with custom data paths
-modelgardener_cli.py create custom_data_project \
+mg create custom_data_project \
     --train-dir /dataset/custom_train \
     --val-dir /dataset/custom_val \
     --num-classes 50
 
 # Create project for specific dataset structure
-modelgardener_cli.py create cifar_project \
+mg create cifar_project \
     --num-classes 10 \
     --batch-size 32 \
     --model-family resnet
@@ -344,7 +344,7 @@ def dice_loss(y_true, y_pred):
 
 ### Computer Vision Projects
 ```bash
-modelgardener_cli.py create vision_project \
+mg create vision_project \
     --model-family efficientnet \
     --num-classes 1000 \
     --batch-size 64 \
@@ -353,7 +353,7 @@ modelgardener_cli.py create vision_project \
 
 ### Small Dataset Projects
 ```bash
-modelgardener_cli.py create small_dataset \
+mg create small_dataset \
     --num-classes 3 \
     --batch-size 16 \
     --epochs 50 \
@@ -362,7 +362,7 @@ modelgardener_cli.py create small_dataset \
 
 ### Research Projects
 ```bash
-modelgardener_cli.py create research_project \
+mg create research_project \
     --interactive \
     --model-family custom \
     --epochs 1000
@@ -397,8 +397,8 @@ After creating a project:
 1. **Review Configuration**: Check `config.yaml` for your specific needs
 2. **Prepare Data**: Add your training data to the `data/` directories
 3. **Customize Functions**: Modify custom functions in `custom_modules/`
-4. **Train Model**: Run `modelgardener_cli.py train --config config.yaml`
-5. **Evaluate Results**: Use `modelgardener_cli.py evaluate --config config.yaml`
+4. **Train Model**: Run `mg train --config config.yaml`
+5. **Evaluate Results**: Use `mg evaluate --config config.yaml`
 
 ## See Also
 

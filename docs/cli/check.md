@@ -5,7 +5,7 @@ Perform comprehensive system checks, environment validation, and health monitori
 ## Synopsis
 
 ```bash
-modelgardener_cli.py check [OPTIONS]
+mg check [OPTIONS]
 ```
 
 ## Description
@@ -65,26 +65,26 @@ The `check` command provides thorough system and environment validation includin
 
 ```bash
 # Run all standard checks
-modelgardener_cli.py check --all
+mg check --all
 
 # Check system and hardware only
-modelgardener_cli.py check --system --hardware
+mg check --system --hardware
 
 # Check software environment
-modelgardener_cli.py check --environment --dependencies
+mg check --environment --dependencies
 ```
 
 ### Project-Specific Checks
 
 ```bash
 # Check specific project
-modelgardener_cli.py check --project ./my_ml_project/
+mg check --project ./my_ml_project/
 
 # Check configuration file
-modelgardener_cli.py check --config ./config.yaml
+mg check --config ./config.yaml
 
 # Comprehensive project validation
-modelgardener_cli.py check \
+mg check \
     --project ./my_project/ \
     --level comprehensive \
     --performance
@@ -94,27 +94,27 @@ modelgardener_cli.py check \
 
 ```bash
 # Hardware capabilities only
-modelgardener_cli.py check --hardware --performance
+mg check --hardware --performance
 
 # Dependencies and permissions
-modelgardener_cli.py check --dependencies --permissions
+mg check --dependencies --permissions
 
 # Critical issues only
-modelgardener_cli.py check --all --critical-only
+mg check --all --critical-only
 ```
 
 ### Output and Reporting
 
 ```bash
 # Generate detailed HTML report
-modelgardener_cli.py check \
+mg check \
     --all \
     --format html \
     --output health_report.html \
     --verbose
 
 # JSON output for automation
-modelgardener_cli.py check \
+mg check \
     --all \
     --format json \
     --output check_results.json
@@ -124,10 +124,10 @@ modelgardener_cli.py check \
 
 ```bash
 # Attempt to fix detected issues
-modelgardener_cli.py check --all --fix
+mg check --all --fix
 
 # Fix specific category
-modelgardener_cli.py check --permissions --fix
+mg check --permissions --fix
 ```
 
 ## Check Categories
@@ -149,7 +149,7 @@ modelgardener_cli.py check --permissions --fix
 
 ```bash
 # Comprehensive system check
-modelgardener_cli.py check --system --verbose
+mg check --system --verbose
 ```
 
 **Example Output:**
@@ -191,7 +191,7 @@ Network:
 
 ```bash
 # Environment validation
-modelgardener_cli.py check --environment --dependencies
+mg check --environment --dependencies
 ```
 
 **Example Output:**
@@ -240,7 +240,7 @@ Custom Modules:
 
 ```bash
 # Project structure validation
-modelgardener_cli.py check --project ./ml_project/ --verbose
+mg check --project ./ml_project/ --verbose
 ```
 
 **Example Output:**
@@ -290,7 +290,7 @@ Data Validation:
 
 ```bash
 # Performance benchmarking
-modelgardener_cli.py check --performance --verbose
+mg check --performance --verbose
 ```
 
 **Example Output:**
@@ -350,7 +350,7 @@ ML Framework Performance:
 
 ```bash
 # Comprehensive health check
-modelgardener_cli.py check \
+mg check \
     --all \
     --level comprehensive \
     --format html \
@@ -396,7 +396,7 @@ Estimated Performance Impact:
 **GPU Not Detected:**
 ```bash
 # Check GPU availability
-modelgardener_cli.py check --hardware --gpu
+mg check --hardware --gpu
 
 # Suggested fixes:
 # 1. Update NVIDIA drivers
@@ -407,10 +407,10 @@ modelgardener_cli.py check --hardware --gpu
 **Memory Issues:**
 ```bash
 # Check memory requirements
-modelgardener_cli.py check --project ./project/ --performance
+mg check --project ./project/ --performance
 
 # Automatic fixes:
-modelgardener_cli.py check --project ./project/ --fix
+mg check --project ./project/ --fix
 # - Reduces batch size automatically
 # - Enables memory growth
 # - Suggests model optimizations
@@ -419,7 +419,7 @@ modelgardener_cli.py check --project ./project/ --fix
 **Dependency Conflicts:**
 ```bash
 # Check for dependency issues
-modelgardener_cli.py check --dependencies --verbose
+mg check --dependencies --verbose
 
 # Suggested resolution steps provided
 # Automatic virtual environment setup offered
@@ -436,7 +436,7 @@ modelgardener_cli.py check --dependencies --verbose
 
 ```bash
 # Apply automatic fixes
-modelgardener_cli.py check --all --fix --verbose
+mg check --all --fix --verbose
 ```
 
 **Fix Report:**
@@ -465,7 +465,7 @@ Backup files created with .backup extension.
 
 ```bash
 # Lightweight check for CI/CD
-modelgardener_cli.py check \
+mg check \
     --environment \
     --critical-only \
     --format json \
@@ -481,7 +481,7 @@ modelgardener_cli.py check \
 
 ```bash
 # Scheduled health monitoring
-modelgardener_cli.py check \
+mg check \
     --all \
     --format json \
     --output /var/log/modelgardener/health_$(date +%Y%m%d).json
@@ -528,7 +528,7 @@ modelgardener_cli.py check \
 **Permission Denied Errors:**
 ```bash
 # Check and fix permissions
-modelgardener_cli.py check --permissions --fix
+mg check --permissions --fix
 
 # Manual permission fix
 sudo chown -R $USER:$USER /path/to/project/
@@ -538,7 +538,7 @@ chmod -R 755 /path/to/project/
 **GPU Detection Issues:**
 ```bash
 # Detailed GPU diagnostics
-modelgardener_cli.py check --hardware --gpu --verbose
+mg check --hardware --gpu --verbose
 
 # Check NVIDIA installation
 nvidia-smi
@@ -548,7 +548,7 @@ nvcc --version
 **Dependency Resolution:**
 ```bash
 # Clean dependency check
-modelgardener_cli.py check --dependencies --verbose
+mg check --dependencies --verbose
 
 # Fresh environment setup
 python -m venv fresh_env

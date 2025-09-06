@@ -5,7 +5,7 @@ Manage and validate ModelGardener configuration files with comprehensive validat
 ## Synopsis
 
 ```bash
-modelgardener_cli.py config [OPTIONS]
+mg config [OPTIONS]
 ```
 
 ## Description
@@ -64,13 +64,13 @@ The `config` command provides comprehensive configuration management including:
 
 ```bash
 # Validate default configuration
-modelgardener_cli.py config --validate
+mg config --validate
 
 # Validate specific configuration file
-modelgardener_cli.py config --file custom_config.yaml --validate
+mg config --file custom_config.yaml --validate
 
 # Strict validation with path checking
-modelgardener_cli.py config \
+mg config \
     --file config.yaml \
     --validate \
     --strict \
@@ -82,16 +82,16 @@ modelgardener_cli.py config \
 
 ```bash
 # Generate basic configuration template
-modelgardener_cli.py config --template basic --output basic_config.yaml
+mg config --template basic --output basic_config.yaml
 
 # Generate advanced configuration
-modelgardener_cli.py config --template advanced --output advanced_config.yaml
+mg config --template advanced --output advanced_config.yaml
 
 # Interactive configuration builder
-modelgardener_cli.py config --interactive --output my_config.yaml
+mg config --interactive --output my_config.yaml
 
 # Use case specific template
-modelgardener_cli.py config \
+mg config \
     --use-case image_classification \
     --output classification_config.yaml
 ```
@@ -100,13 +100,13 @@ modelgardener_cli.py config \
 
 ```bash
 # Interactive configuration editing
-modelgardener_cli.py config --file config.yaml --edit
+mg config --file config.yaml --edit
 
 # Show current configuration
-modelgardener_cli.py config --file config.yaml --show
+mg config --file config.yaml --show
 
 # Generate config from existing model
-modelgardener_cli.py config \
+mg config \
     --from-model ./models/trained_model.keras \
     --output inferred_config.yaml
 ```
@@ -115,13 +115,13 @@ modelgardener_cli.py config \
 
 ```bash
 # Migrate old configuration format
-modelgardener_cli.py config \
+mg config \
     --file old_config.yaml \
     --migrate \
     --output new_config.yaml
 
 # Batch validation
-modelgardener_cli.py config \
+mg config \
     --validate-batch ./configs/ \
     --output validation_report.json
 ```
@@ -579,7 +579,7 @@ environments:
 
 ```bash
 # Migrate from v1.0 to v2.0 format
-modelgardener_cli.py config \
+mg config \
     --file old_config.yaml \
     --migrate \
     --from-version 1.0 \
@@ -591,12 +591,12 @@ modelgardener_cli.py config \
 
 ```bash
 # Validate multiple configurations
-modelgardener_cli.py config \
+mg config \
     --validate-batch ./project_configs/ \
     --output batch_validation.json
 
 # Migrate multiple configurations
-modelgardener_cli.py config \
+mg config \
     --migrate-batch ./old_configs/ \
     --output-dir ./new_configs/
 ```
@@ -607,16 +607,16 @@ modelgardener_cli.py config \
 
 ```bash
 # Train with validated configuration
-modelgardener_cli.py config --file config.yaml --validate
-modelgardener_cli.py train --config config.yaml
+mg config --file config.yaml --validate
+mg train --config config.yaml
 ```
 
 ### Configuration Templates for Projects
 
 ```bash
 # Create project with specific configuration
-modelgardener_cli.py config --template advanced --output advanced.yaml
-modelgardener_cli.py create my_project --config advanced.yaml
+mg config --template advanced --output advanced.yaml
+mg create my_project --config advanced.yaml
 ```
 
 ## Best Practices
@@ -662,29 +662,29 @@ modelgardener_cli.py create my_project --config advanced.yaml
 **YAML Syntax Errors:**
 ```bash
 # Validate YAML syntax
-modelgardener_cli.py config --file config.yaml --validate --strict
+mg config --file config.yaml --validate --strict
 ```
 
 **Path Issues:**
 ```bash
 # Check all paths
-modelgardener_cli.py config --file config.yaml --check-paths
+mg config --file config.yaml --check-paths
 ```
 
 **Dependency Issues:**
 ```bash
 # Verify dependencies
-modelgardener_cli.py config --file config.yaml --check-dependencies
+mg config --file config.yaml --check-dependencies
 ```
 
 ### Debugging Configuration
 
 ```bash
 # Show detailed configuration
-modelgardener_cli.py config --file config.yaml --show --verbose
+mg config --file config.yaml --show --verbose
 
 # Dry run validation
-modelgardener_cli.py config --file config.yaml --validate --dry-run
+mg config --file config.yaml --validate --dry-run
 ```
 
 ## See Also

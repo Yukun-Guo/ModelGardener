@@ -5,7 +5,7 @@ Manage and inspect available model architectures, view model details, and perfor
 ## Synopsis
 
 ```bash
-modelgardener_cli.py models [OPTIONS]
+mg models [OPTIONS]
 ```
 
 ## Description
@@ -64,45 +64,45 @@ The `models` command provides comprehensive model management capabilities includ
 
 ```bash
 # List all available models
-modelgardener_cli.py models --list
+mg models --list
 
 # List models by family
-modelgardener_cli.py models --list --family resnet
+mg models --list --family resnet
 
 # Search for specific models
-modelgardener_cli.py models --search "efficient"
+mg models --search "efficient"
 
 # Show detailed information
-modelgardener_cli.py models --show-details ResNet-50
+mg models --show-details ResNet-50
 ```
 
 ### Model Analysis
 
 ```bash
 # Show model architecture
-modelgardener_cli.py models --info ResNet-50 --architecture
+mg models --info ResNet-50 --architecture
 
 # Show parameter details
-modelgardener_cli.py models --info EfficientNet-B0 --parameters
+mg models --info EfficientNet-B0 --parameters
 
 # Show performance benchmarks
-modelgardener_cli.py models --info MobileNet-V2 --performance
+mg models --info MobileNet-V2 --performance
 ```
 
 ### Model Filtering
 
 ```bash
 # Filter by task type
-modelgardener_cli.py models --list --task classification
+mg models --list --task classification
 
 # Filter by memory requirements
-modelgardener_cli.py models --list --memory-limit 1GB
+mg models --list --memory-limit 1GB
 
 # Filter by accuracy threshold
-modelgardener_cli.py models --list --accuracy-threshold 0.8
+mg models --list --accuracy-threshold 0.8
 
 # Combined filtering
-modelgardener_cli.py models \
+mg models \
     --list \
     --family efficientnet \
     --task classification \
@@ -113,16 +113,16 @@ modelgardener_cli.py models \
 
 ```bash
 # Download pre-trained weights
-modelgardener_cli.py models --download ResNet-50
+mg models --download ResNet-50
 
 # Register custom model
-modelgardener_cli.py models --register ./custom_models/my_model.py
+mg models --register ./custom_models/my_model.py
 
 # Validate model definition
-modelgardener_cli.py models --validate ./models/custom_architecture.py
+mg models --validate ./models/custom_architecture.py
 
 # Export model list
-modelgardener_cli.py models --export-list ./available_models.json
+mg models --export-list ./available_models.json
 ```
 
 ## Available Model Families
@@ -142,10 +142,10 @@ modelgardener_cli.py models --export-list ./available_models.json
 
 ```bash
 # List ResNet models
-modelgardener_cli.py models --list --family resnet
+mg models --list --family resnet
 
 # ResNet-50 details
-modelgardener_cli.py models --info ResNet-50 --parameters --performance
+mg models --info ResNet-50 --parameters --performance
 ```
 
 ### EfficientNet Family
@@ -162,11 +162,11 @@ modelgardener_cli.py models --info ResNet-50 --parameters --performance
 
 ```bash
 # List EfficientNet models
-modelgardener_cli.py models --list --family efficientnet
+mg models --list --family efficientnet
 
 # Compare EfficientNet variants
-modelgardener_cli.py models --info EfficientNet-B0 --performance
-modelgardener_cli.py models --info EfficientNet-B7 --performance
+mg models --info EfficientNet-B0 --performance
+mg models --info EfficientNet-B7 --performance
 ```
 
 ### MobileNet Family
@@ -182,10 +182,10 @@ modelgardener_cli.py models --info EfficientNet-B7 --performance
 
 ```bash
 # List MobileNet models
-modelgardener_cli.py models --list --family mobilenet
+mg models --list --family mobilenet
 
 # MobileNet memory analysis
-modelgardener_cli.py models --info MobileNet-V2 --parameters
+mg models --info MobileNet-V2 --parameters
 ```
 
 ### Other Model Families
@@ -344,15 +344,15 @@ MODEL_INFO = {
 
 ```bash
 # Register custom model
-modelgardener_cli.py models \
+mg models \
     --register ./custom_models/my_custom_model.py \
     --validate
 
 # Verify registration
-modelgardener_cli.py models --list --family custom
+mg models --list --family custom
 
 # Test custom model
-modelgardener_cli.py models --info "My Custom Model" --architecture
+mg models --info "My Custom Model" --architecture
 ```
 
 ## Model Comparison
@@ -361,7 +361,7 @@ modelgardener_cli.py models --info "My Custom Model" --architecture
 
 ```bash
 # Compare multiple models
-modelgardener_cli.py models \
+mg models \
     --compare ResNet-50,EfficientNet-B0,MobileNet-V2 \
     --output comparison_report.json
 ```
@@ -401,7 +401,7 @@ For balanced performance: ResNet-50
 
 ```bash
 # Get model recommendations
-modelgardener_cli.py models \
+mg models \
     --recommend \
     --task classification \
     --target-accuracy 0.8 \
@@ -415,7 +415,7 @@ modelgardener_cli.py models \
 
 ```bash
 # Validate model definition
-modelgardener_cli.py models --validate ./models/custom_model.py
+mg models --validate ./models/custom_model.py
 ```
 
 **Validation Report:**
@@ -526,28 +526,28 @@ metadata:
 **Model Not Found:**
 ```bash
 # Check available models
-modelgardener_cli.py models --list --search "model_name"
+mg models --list --search "model_name"
 
 # Update model list
-modelgardener_cli.py models --refresh
+mg models --refresh
 ```
 
 **Custom Model Registration Failed:**
 ```bash
 # Validate model definition
-modelgardener_cli.py models --validate ./path/to/model.py
+mg models --validate ./path/to/model.py
 
 # Check error details
-modelgardener_cli.py models --register ./path/to/model.py --verbose
+mg models --register ./path/to/model.py --verbose
 ```
 
 **Performance Issues:**
 ```bash
 # Check model requirements
-modelgardener_cli.py models --info ModelName --parameters
+mg models --info ModelName --parameters
 
 # Compare alternatives
-modelgardener_cli.py models --recommend --memory-limit 1GB
+mg models --recommend --memory-limit 1GB
 ```
 
 ## See Also

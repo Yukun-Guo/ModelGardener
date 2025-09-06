@@ -95,9 +95,47 @@ class ModelGardenerCLI:
             print("❌ Modified configuration validation failed")
             return False
 
+    def _check_for_generated_script(self, script_name: str, working_dir: str = ".") -> Optional[str]:
+        """Check if a generated script exists in the working directory."""
+        script_path = Path(working_dir) / f"{script_name}.py"
+        if script_path.exists() and script_path.is_file():
+            return str(script_path)
+        return None
+    
+    def _run_generated_script(self, script_path: str, additional_args: List[str] = None) -> bool:
+        """Run a generated Python script with optional additional arguments."""
+        import subprocess
+        import sys
+        
+        try:
+            cmd = [sys.executable, script_path]
+            if additional_args:
+                cmd.extend(additional_args)
+            
+            print(f"🚀 Running generated script: {script_path}")
+            result = subprocess.run(cmd, cwd=Path(script_path).parent)
+            return result.returncode == 0
+        except Exception as e:
+            print(f"❌ Error running generated script: {e}")
+            return False
+
     def run_training(self, config_file: str, **kwargs):
-        """Run training using CLI configuration."""
-        print(f"🚀 Starting ModelGardener training from CLI")
+        """Run training using CLI configuration, preferring generated scripts."""
+        print(f"🚀 Starting ModelGardener training")
+        
+        # Check for generated training script first
+        working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
+        generated_script = self._check_for_generated_script("train", working_dir)
+        
+        if generated_script:
+            print(f"🎯 Found generated training script: {generated_script}")
+            print("📜 Running generated script instead of CLI training...")
+            success = self._run_generated_script(generated_script)
+            return success
+        else:
+            print("📄 No generated training script found, using CLI training procedure...")
+        
+        # Fallback to original CLI training
         print(f"📄 Configuration: {config_file}")
         
         if not os.path.exists(config_file):
@@ -134,27 +172,45 @@ class ModelGardenerCLI:
             )
             
             # Run training
-            trainer.train()
-            # print("\n🏃 Starting training...")
-            # success = trainer.train()
-            
-            # if success:
-            #     print("✅ Training completed successfully!")
-            #     return True
-            # else:
-            #     print("❌ Training failed")
-            #     return False
+            return trainer.train()
                 
         except Exception as e:
             print(f"❌ Error during training: {str(e)}")
             import traceback
             traceback.print_exc()
             return False
+            return False
 
     def run_evaluation(self, config_file: str, model_path: str = None, data_path: str = None, 
                       output_format: str = "yaml", save_results: bool = True):
-        """Run enhanced model evaluation using CLI."""
-        print(f"📊 Starting ModelGardener evaluation from CLI")
+        """Run enhanced model evaluation using CLI, preferring generated scripts."""
+        print(f"📊 Starting ModelGardener evaluation")
+        
+        # Check for generated evaluation script first
+        working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
+        generated_script = self._check_for_generated_script("evaluation", working_dir)
+        
+        if generated_script:
+            print(f"🎯 Found generated evaluation script: {generated_script}")
+            print("📜 Running generated script instead of CLI evaluation...")
+            
+            # Build command line arguments for the generated script
+            args = []
+            if model_path:
+                args.extend(["--model-path", model_path])
+            if data_path:
+                args.extend(["--data-path", data_path])
+            if output_format:
+                args.extend(["--output-format", output_format])
+            if not save_results:
+                args.append("--no-save")
+            
+            success = self._run_generated_script(generated_script, args)
+            return success
+        else:
+            print("📄 No generated evaluation script found, using CLI evaluation procedure...")
+        
+        # Fallback to original CLI evaluation
         print(f"📄 Configuration: {config_file}")
         if model_path:
             print(f"🤖 Model path: {model_path}")
@@ -222,8 +278,34 @@ class ModelGardenerCLI:
 
     def run_prediction(self, config_file: str, input_path: str, model_path: str = None, 
                       output_path: str = None, top_k: int = 5, batch_size: int = 32):
-        """Run prediction using CLI."""
-        print(f"🔮 Starting ModelGardener prediction from CLI")
+        """Run prediction using CLI, preferring generated scripts."""
+        print(f"🔮 Starting ModelGardener prediction")
+        
+        # Check for generated prediction script first
+        working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
+        generated_script = self._check_for_generated_script("prediction", working_dir)
+        
+        if generated_script:
+            print(f"🎯 Found generated prediction script: {generated_script}")
+            print("📜 Running generated script instead of CLI prediction...")
+            
+            # Build command line arguments for the generated script
+            args = ["--input", input_path]
+            if model_path:
+                args.extend(["--model-path", model_path])
+            if output_path:
+                args.extend(["--output", output_path])
+            if top_k != 5:
+                args.extend(["--top-k", str(top_k)])
+            if batch_size != 32:
+                args.extend(["--batch-size", str(batch_size)])
+            
+            success = self._run_generated_script(generated_script, args)
+            return success
+        else:
+            print("📄 No generated prediction script found, using CLI prediction procedure...")
+        
+        # Fallback to original CLI prediction
         print(f"📄 Configuration: {config_file}")
         print(f"📁 Input: {input_path}")
         if model_path:
@@ -288,8 +370,36 @@ class ModelGardenerCLI:
 
     def run_deployment(self, config_file: str, model_path: str = None, output_formats: List[str] = None,
                       quantize: bool = False, encrypt: bool = False, encryption_key: str = None):
-        """Run enhanced model deployment with multiple format support."""
-        print(f"🚀 Starting ModelGardener deployment from CLI")
+        """Run enhanced model deployment with multiple format support, preferring generated scripts."""
+        print(f"🚀 Starting ModelGardener deployment")
+        
+        # Check for generated deployment script first
+        working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
+        generated_script = self._check_for_generated_script("deploy", working_dir)
+        
+        if generated_script:
+            print(f"🎯 Found generated deployment script: {generated_script}")
+            print("📜 Running generated script instead of CLI deployment...")
+            
+            # Build command line arguments for the generated script
+            args = []
+            if model_path:
+                args.extend(["--model-path", model_path])
+            if output_formats:
+                args.extend(["--formats"] + output_formats)
+            if quantize:
+                args.append("--quantize")
+            if encrypt:
+                args.append("--encrypt")
+            if encryption_key:
+                args.extend(["--encryption-key", encryption_key])
+            
+            success = self._run_generated_script(generated_script, args)
+            return success
+        else:
+            print("📄 No generated deployment script found, using CLI deployment procedure...")
+        
+        # Fallback to original CLI deployment
         print(f"📄 Configuration: {config_file}")
         if model_path:
             print(f"🤖 Model path: {model_path}")
@@ -656,7 +766,9 @@ class ModelGardenerCLI:
             for model in models:
                 print(f"  • {model}")
 
-    def create_project_template(self, project_name: str = None, project_dir: str = ".", interactive: bool = False, **kwargs):
+    def create_project_template(self, project_name: str = None, project_dir: str = ".", 
+                               interactive: bool = False, generate_scripts: bool = True,
+                               use_pyproject: bool = True, **kwargs):
         """Create a new project template with CLI configuration."""
         
         # Create project path - if project_name is provided, create a subfolder
@@ -679,6 +791,7 @@ class ModelGardenerCLI:
 
         # Create configuration based on mode
         config_file = project_path / "config.yaml"
+        config_data = None
 
         if interactive:
             print("\n🔧 Interactive project configuration")
@@ -690,6 +803,7 @@ class ModelGardenerCLI:
 
             try:
                 config = self.config_cli.interactive_configuration()
+                config_data = config
 
                 # Validate and save configuration using relative path
                 config_file_relative = "config.yaml"
@@ -708,6 +822,7 @@ class ModelGardenerCLI:
                 # Create a default config first, then apply batch modifications
                 default_config = self.config_cli.create_default_config()
                 config = self.config_cli.batch_configuration_with_existing(default_config, kwargs)
+                config_data = config
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
                     if self.config_cli.save_config(config, str(config_file), 'yaml'):
@@ -720,7 +835,47 @@ class ModelGardenerCLI:
                     self.config_cli.create_template(str(config_file), 'yaml')
             else:
                 # No batch args, create default template
+                config_data = None
                 self.config_cli.create_template(str(config_file), 'yaml')
+        
+        # Generate scripts if requested
+        if generate_scripts:
+            print(f"\n📜 Generating training scripts...")
+            try:
+                from .script_generator import ScriptGenerator
+                
+                # Load config data if available
+                if config_data is None and config_file.exists():
+                    try:
+                        with open(config_file, 'r') as f:
+                            import yaml
+                            config_data = yaml.safe_load(f)
+                    except Exception as e:
+                        print(f"⚠️ Could not load config for script generation: {e}")
+                        config_data = {}
+                
+                generator = ScriptGenerator()
+                success = generator.generate_scripts(
+                    config_data=config_data or {},
+                    output_dir=str(project_path),
+                    config_file_name="config.yaml",
+                    generate_pyproject=use_pyproject,
+                    generate_requirements=not use_pyproject
+                )
+                
+                if success:
+                    print("✅ Training scripts generated successfully!")
+                else:
+                    print("⚠️ Some scripts may not have been generated correctly")
+                    
+            except ImportError as e:
+                print(f"⚠️ Script generator not available: {e}")
+            except Exception as e:
+                print(f"⚠️ Error generating scripts: {e}")
+        
+        # Update README content based on what was actually generated
+        package_file = "pyproject.toml" if use_pyproject else "requirements.txt"
+        scripts_note = "auto-generated" if generate_scripts else "can be generated with --generate-scripts"
         
         # Create README
         readme_content = f"""# {project_name} - ModelGardener Project
@@ -734,11 +889,11 @@ class ModelGardenerCLI:
 ├── logs/               # Training logs and models
 ├── custom_modules/     # Custom functions (models, losses, etc.)
 ├── config.yaml         # Model configuration
-├── train.py           # Training script (auto-generated)
-├── evaluation.py      # Evaluation script (auto-generated)
-├── prediction.py      # Prediction script (auto-generated)
-├── deploy.py          # Deployment script (auto-generated)
-├── requirements.txt   # Python dependencies (auto-generated)
+├── train.py           # Training script ({scripts_note})
+├── evaluation.py      # Evaluation script ({scripts_note})
+├── prediction.py      # Prediction script ({scripts_note})
+├── deploy.py          # Deployment script ({scripts_note})
+├── {package_file}      # Python dependencies ({scripts_note})
 └── README.md          # This file
 ```
 
@@ -751,27 +906,54 @@ Place your training images in `data/train/` and validation images in `data/val/`
 Edit the `config.yaml` file to customize your model settings, or use the interactive configuration:
 ```bash
 # Interactive configuration (overwrites config.yaml)
-python /path/to/ModelGardener/modelgardener_cli.py config --interactive --output config.yaml
+mg config --interactive --output config.yaml
 
 # Or directly edit config.yaml
 ```
 
-### 3. Train Your Model
+### 3. Install Dependencies
+```bash
+# If using pyproject.toml (recommended)
+pip install -e .
+
+# If using requirements.txt
+pip install -r requirements.txt
+```
+
+### 4. Train Your Model
 ```bash
 # Use the generated training script
 python train.py
 
-# Or use the CLI
-python /path/to/ModelGardener/modelgardener_cli.py train --config config.yaml
+# Or use the CLI command
+mg train --config config.yaml
 ```
 
-### 4. Evaluate Your Model
+### 5. Evaluate Your Model
 ```bash
 # Use the generated evaluation script  
 python evaluation.py
 
-# Or use the CLI
-python /path/to/ModelGardener/modelgardener_cli.py evaluate --config config.yaml --model-path logs/final_model.keras
+# Or use the CLI command
+mg evaluate --config config.yaml --model-path logs/final_model.keras
+```
+
+### 6. Make Predictions
+```bash
+# Use the generated prediction script
+python prediction.py --input path/to/image.jpg
+
+# Or use the CLI command
+mg predict --config config.yaml --input path/to/image.jpg
+```
+
+### 7. Deploy Your Model
+```bash
+# Use the generated deployment script
+python deploy.py --port 5000
+
+# Or use the CLI command
+mg deploy --config config.yaml --port 5000
 ```
 
 ## Generated Files
@@ -803,7 +985,7 @@ You can customize any aspect of the training pipeline by creating your own Pytho
 ## Need Help?
 
 - Run ModelGardener CLI with `--help` to see all available options
-- Use interactive mode for guided configuration: `modelgardener_cli.py config --interactive`
+- Use interactive mode for guided configuration: `mg config --interactive`
 - Check the custom_modules/README.md for detailed examples
 - See the ModelGardener documentation for advanced usage
 """
@@ -1237,43 +1419,43 @@ Commands:
 
 Examples:
   # Create a new project with interactive setup
-  modelgardener_cli.py create my_project --interactive
-  modelgardener_cli.py create my_project --dir /path/to/workspace
-  modelgardener_cli.py create --interactive  # Create in current directory
-  modelgardener_cli.py create  # Create basic template in current directory
+  mg create my_project --interactive
+  mg create my_project --dir /path/to/workspace
+  mg create --interactive  # Create in current directory
+  mg create  # Create basic template in current directory
   
   # Modify existing configuration files
-  modelgardener_cli.py config config.yaml --interactive
-  modelgardener_cli.py config --interactive  # Auto-finds config in current dir
-  modelgardener_cli.py config config.yaml --epochs 100 --learning-rate 0.01
+  mg config config.yaml --interactive
+  mg config --interactive  # Auto-finds config in current dir
+  mg config config.yaml --epochs 100 --learning-rate 0.01
   
   # Check configuration files
-  modelgardener_cli.py check config.yaml
-  modelgardener_cli.py check config.json --verbose
+  mg check config.yaml
+  mg check config.json --verbose
   
   # Preview data samples
-  modelgardener_cli.py preview --config config.yaml
-  modelgardener_cli.py preview --config config.yaml --num-samples 12 --split val
-  modelgardener_cli.py preview --config config.yaml --save --output data_samples.png
-  modelgardener_cli.py preview --config config.yaml --split train --num-samples 16
+  mg preview --config config.yaml
+  mg preview --config config.yaml --num-samples 12 --split val
+  mg preview --config config.yaml --save --output data_samples.png
+  mg preview --config config.yaml --split train --num-samples 16
   
   # Train a model
-  modelgardener_cli.py train --config config.yaml
+  mg train --config config.yaml
   
   # Evaluate the trained model
-  modelgardener_cli.py evaluate --config config.yaml --data-path ./test_data
-  modelgardener_cli.py evaluate --config config.yaml --output-format json
+  mg evaluate --config config.yaml --data-path ./test_data
+  mg evaluate --config config.yaml --output-format json
   
   # Run predictions
-  modelgardener_cli.py predict --config config.yaml --input image.jpg
-  modelgardener_cli.py predict --config config.yaml --input ./images/ --output results.json
+  mg predict --config config.yaml --input image.jpg
+  mg predict --config config.yaml --input ./images/ --output results.json
   
   # Deploy models
-  modelgardener_cli.py deploy --config config.yaml --formats onnx tflite
-  modelgardener_cli.py deploy --config config.yaml --formats onnx --quantize --encrypt --encryption-key mykey
+  mg deploy --config config.yaml --formats onnx tflite
+  mg deploy --config config.yaml --formats onnx --quantize --encrypt --encryption-key mykey
   
   # List available models
-  modelgardener_cli.py models
+  mg models
         """
     )
     
@@ -1340,6 +1522,10 @@ Examples:
     create_parser.add_argument('project_name', nargs='?', default=None, help='Name of the project (optional - uses current directory name if not provided)')
     create_parser.add_argument('--dir', '-d', default='.', help='Directory to create project in (ignored if no project_name provided)')
     create_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive project creation mode')
+    create_parser.add_argument('--generate-scripts', action='store_true', default=True, help='Generate training scripts (default: True)')
+    create_parser.add_argument('--no-generate-scripts', action='store_false', dest='generate_scripts', help='Do not generate training scripts')
+    create_parser.add_argument('--use-pyproject', action='store_true', default=True, help='Generate pyproject.toml instead of requirements.txt (default: True)')
+    create_parser.add_argument('--use-requirements', action='store_false', dest='use_pyproject', help='Generate requirements.txt instead of pyproject.toml')
     # Add configuration arguments for batch mode (same as config)
     create_parser.add_argument('--train-dir', type=str, help='Training data directory')
     create_parser.add_argument('--val-dir', type=str, help='Validation data directory')
@@ -1482,7 +1668,15 @@ def main():
                 kwargs['model_dir'] = args.model_dir
             if hasattr(args, 'num_gpus') and args.num_gpus is not None:
                 kwargs['num_gpus'] = args.num_gpus
-            cli.create_project_template(args.project_name, args.dir, args.interactive, **kwargs)
+            
+            # Get script generation options
+            generate_scripts = getattr(args, 'generate_scripts', True)
+            use_pyproject = getattr(args, 'use_pyproject', True)
+            
+            cli.create_project_template(
+                args.project_name, args.dir, args.interactive, 
+                generate_scripts, use_pyproject, **kwargs
+            )
         
         elif args.command == 'check':
             success = cli.check_configuration(args.config_file, args.verbose)

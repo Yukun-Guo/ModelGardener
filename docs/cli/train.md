@@ -5,7 +5,7 @@ Train machine learning models using comprehensive configuration with support for
 ## Synopsis
 
 ```bash
-modelgardener_cli.py train [OPTIONS]
+mg train [OPTIONS]
 ```
 
 ## Description
@@ -79,68 +79,68 @@ The `train` command executes the training pipeline with:
 
 ```bash
 # Train with default configuration
-modelgardener_cli.py train
+mg train
 
 # Train with specific config file
-modelgardener_cli.py train --config my_config.yaml
+mg train --config my_config.yaml
 
 # Train with parameter overrides
-modelgardener_cli.py train --epochs 200 --learning-rate 0.001
+mg train --epochs 200 --learning-rate 0.001
 ```
 
 ### Configuration Override
 
 ```bash
 # Override specific configuration values
-modelgardener_cli.py train --override "training.epochs=300"
-modelgardener_cli.py train --override "model.model_parameters.classes=50"
-modelgardener_cli.py train --override "data.batch_size=64,training.learning_rate=0.001"
+mg train --override "training.epochs=300"
+mg train --override "model.model_parameters.classes=50"
+mg train --override "data.batch_size=64,training.learning_rate=0.001"
 ```
 
 ### Resume Training
 
 ```bash
 # Resume from checkpoint
-modelgardener_cli.py train --resume ./logs/checkpoint_epoch_50.keras
+mg train --resume ./logs/checkpoint_epoch_50.keras
 
 # Resume with different configuration
-modelgardener_cli.py train --resume ./logs/latest_checkpoint.keras --config new_config.yaml
+mg train --resume ./logs/latest_checkpoint.keras --config new_config.yaml
 ```
 
 ### Distributed Training
 
 ```bash
 # Multi-GPU training
-modelgardener_cli.py train --gpus 4 --strategy mirror
+mg train --gpus 4 --strategy mirror
 
 # Mixed precision training
-modelgardener_cli.py train --mixed-precision --gpus 2
+mg train --mixed-precision --gpus 2
 
 # Multi-worker distributed training
-modelgardener_cli.py train --strategy multi_worker --gpus 8
+mg train --strategy multi_worker --gpus 8
 ```
 
 ### Advanced Training Modes
 
 ```bash
 # Cross-validation training
-modelgardener_cli.py train --cross-validation 5
+mg train --cross-validation 5
 
 # Hyperparameter tuning
-modelgardener_cli.py train --hyperparameter-tuning --epochs 100
+mg train --hyperparameter-tuning --epochs 100
 
 # Fine-tuning pre-trained model
-modelgardener_cli.py train --fine-tune --pretrained --learning-rate 0.0001
+mg train --fine-tune --pretrained --learning-rate 0.0001
 ```
 
 ### Monitoring and Logging
 
 ```bash
 # Enable comprehensive logging
-modelgardener_cli.py train --tensorboard --wandb --log-level DEBUG
+mg train --tensorboard --wandb --log-level DEBUG
 
 # Custom output directory
-modelgardener_cli.py train --output-dir ./experiments/run_001
+mg train --output-dir ./experiments/run_001
 ```
 
 ## Configuration File Structure
@@ -300,26 +300,26 @@ metadata:
 **Multi-GPU Support:**
 ```bash
 # Mirror strategy (recommended for single-node)
-modelgardener_cli.py train --gpus 4 --strategy mirror
+mg train --gpus 4 --strategy mirror
 
 # Multi-worker strategy (for multi-node)
-modelgardener_cli.py train --strategy multi_worker
+mg train --strategy multi_worker
 ```
 
 **Mixed Precision Training:**
 ```bash
 # Enable automatic mixed precision
-modelgardener_cli.py train --mixed-precision
+mg train --mixed-precision
 ```
 
 ### Cross-Validation
 
 ```bash
 # 5-fold cross-validation
-modelgardener_cli.py train --cross-validation 5
+mg train --cross-validation 5
 
 # Stratified cross-validation (automatically detected)
-modelgardener_cli.py train --cross-validation 10
+mg train --cross-validation 10
 ```
 
 **Cross-Validation Output:**
@@ -332,7 +332,7 @@ modelgardener_cli.py train --cross-validation 10
 
 ```bash
 # Enable hyperparameter optimization
-modelgardener_cli.py train --hyperparameter-tuning
+mg train --hyperparameter-tuning
 ```
 
 **Tunable Parameters:**
@@ -366,10 +366,10 @@ modelgardener_cli.py train --hyperparameter-tuning
 **Resume Training:**
 ```bash
 # Resume from last checkpoint
-modelgardener_cli.py train --resume ./logs/checkpoint_latest.keras
+mg train --resume ./logs/checkpoint_latest.keras
 
 # Resume with modified config
-modelgardener_cli.py train --resume checkpoint.keras --epochs 200
+mg train --resume checkpoint.keras --epochs 200
 ```
 
 ## Output Structure
@@ -447,17 +447,17 @@ def focal_loss(alpha=1, gamma=2):
 
 ```bash
 # Enable mixed precision for memory efficiency
-modelgardener_cli.py train --mixed-precision
+mg train --mixed-precision
 
 # Optimize batch size for available memory
-modelgardener_cli.py train --batch-size 16  # For limited memory
+mg train --batch-size 16  # For limited memory
 ```
 
 ### Training Speed
 
 ```bash
 # Multi-GPU acceleration
-modelgardener_cli.py train --gpus 4
+mg train --gpus 4
 
 # Parallel data loading (configured in YAML)
 # Set num_workers in data loader configuration
@@ -478,10 +478,10 @@ During training, the system monitors:
 **Out of Memory Errors:**
 ```bash
 # Reduce batch size
-modelgardener_cli.py train --batch-size 16
+mg train --batch-size 16
 
 # Enable mixed precision
-modelgardener_cli.py train --mixed-precision
+mg train --mixed-precision
 ```
 
 **Slow Training:**
@@ -495,7 +495,7 @@ modelgardener_cli.py train --mixed-precision
 **Training Convergence Issues:**
 ```bash
 # Adjust learning rate
-modelgardener_cli.py train --learning-rate 0.0001
+mg train --learning-rate 0.0001
 
 # Enable early stopping
 # Check data quality and preprocessing
@@ -505,10 +505,10 @@ modelgardener_cli.py train --learning-rate 0.0001
 
 ```bash
 # Verbose logging
-modelgardener_cli.py train --log-level DEBUG
+mg train --log-level DEBUG
 
 # Single epoch test
-modelgardener_cli.py train --epochs 1
+mg train --epochs 1
 
 # Small dataset test
 # Modify config to use subset of data
@@ -520,13 +520,13 @@ modelgardener_cli.py train --epochs 1
 
 ```bash
 # Evaluate trained model
-modelgardener_cli.py evaluate --config config.yaml --model ./logs/models/best_model.keras
+mg evaluate --config config.yaml --model ./logs/models/best_model.keras
 
 # Make predictions
-modelgardener_cli.py predict --config config.yaml --model ./logs/models/best_model.keras --input image.jpg
+mg predict --config config.yaml --model ./logs/models/best_model.keras --input image.jpg
 
 # Deploy model
-modelgardener_cli.py deploy --config config.yaml --model ./logs/models/best_model.keras
+mg deploy --config config.yaml --model ./logs/models/best_model.keras
 ```
 
 ## Best Practices

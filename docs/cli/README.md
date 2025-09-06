@@ -19,15 +19,15 @@ ModelGardener provides a comprehensive command-line interface for all machine le
 
 ```bash
 # Get help for any command
-modelgardener_cli.py --help
-modelgardener_cli.py <command> --help
+mg --help
+mg <command> --help
 
 # Basic workflow
-modelgardener_cli.py create my_project --interactive
+mg create my_project --interactive
 cd my_project
-modelgardener_cli.py train --config config.yaml
-modelgardener_cli.py evaluate --config config.yaml
-modelgardener_cli.py predict --config config.yaml --input test_image.jpg
+mg train --config config.yaml
+mg evaluate --config config.yaml
+mg predict --config config.yaml --input test_image.jpg
 ```
 
 ## Global Options
@@ -80,40 +80,40 @@ The CLI provides comprehensive error handling with:
 
 ```bash
 # Create a new project
-modelgardener_cli.py create image_classifier --interactive
+mg create image_classifier --interactive
 
 # Navigate to project directory
 cd image_classifier
 
 # Train the model
-modelgardener_cli.py train --config config.yaml
+mg train --config config.yaml
 
 # Evaluate the model
-modelgardener_cli.py evaluate --config config.yaml --output-format json
+mg evaluate --config config.yaml --output-format json
 
 # Make predictions
-modelgardener_cli.py predict --config config.yaml --input ./test_images/
+mg predict --config config.yaml --input ./test_images/
 ```
 
 ### Advanced Usage
 
 ```bash
 # Create project with specific parameters
-modelgardener_cli.py create advanced_project \
+mg create advanced_project \
     --model-family resnet \
     --num-classes 100 \
     --epochs 200 \
     --learning-rate 0.001
 
 # Evaluate with custom data and format
-modelgardener_cli.py evaluate \
+mg evaluate \
     --config config.yaml \
     --data-path ./custom_test_data \
     --output-format json \
     --model-path ./custom_models/
 
 # Deploy with multiple formats and security
-modelgardener_cli.py deploy \
+mg deploy \
     --config config.yaml \
     --formats onnx tflite tfjs \
     --quantize \
@@ -127,10 +127,10 @@ Each command can also be executed using the generated Python scripts:
 
 ```bash
 # Equivalent operations using generated scripts
-python train.py                    # Same as: modelgardener_cli.py train
-python evaluation.py               # Same as: modelgardener_cli.py evaluate
-python prediction.py --input data/ # Same as: modelgardener_cli.py predict
-python deploy.py --port 8080       # Same as: modelgardener_cli.py deploy
+python train.py                    # Same as: mg train
+python evaluation.py               # Same as: mg evaluate
+python prediction.py --input data/ # Same as: mg predict
+python deploy.py --port 8080       # Same as: mg deploy
 ```
 
 ## Next Steps

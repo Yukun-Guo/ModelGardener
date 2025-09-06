@@ -5,7 +5,7 @@ Deploy trained models to multiple formats and platforms with support for optimiz
 ## Synopsis
 
 ```bash
-modelgardener_cli.py deploy [OPTIONS]
+mg deploy [OPTIONS]
 ```
 
 ## Description
@@ -81,20 +81,20 @@ The `deploy` command provides comprehensive model deployment capabilities includ
 
 ```bash
 # Deploy model to ONNX format
-modelgardener_cli.py deploy --format onnx
+mg deploy --format onnx
 
 # Deploy with optimization
-modelgardener_cli.py deploy --format onnx --optimize --quantize int8
+mg deploy --format onnx --optimize --quantize int8
 
 # Deploy to multiple formats
-modelgardener_cli.py deploy --format all --optimize
+mg deploy --format all --optimize
 ```
 
 ### Edge Deployment
 
 ```bash
 # Mobile/Edge optimized deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format tflite \
     --target-platform mobile \
     --quantize int8 \
@@ -102,7 +102,7 @@ modelgardener_cli.py deploy \
     --compress
 
 # Raspberry Pi deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format tflite \
     --target-platform edge \
     --quantize int8 \
@@ -113,13 +113,13 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Encrypted model deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --encrypt \
     --encryption-key ./keys/model.key
 
 # Secure API deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --serve \
     --secure-serving \
     --api-key ./keys/api.key \
@@ -130,14 +130,14 @@ modelgardener_cli.py deploy \
 
 ```bash
 # REST API server
-modelgardener_cli.py deploy \
+mg deploy \
     --serve \
     --host 0.0.0.0 \
     --port 8080 \
     --workers 4
 
 # Production server with security
-modelgardener_cli.py deploy \
+mg deploy \
     --serve \
     --secure-serving \
     --host 0.0.0.0 \
@@ -150,14 +150,14 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Docker deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --docker \
     --package \
     --serve
 
 # Cloud-ready deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format all \
     --docker \
     --secure-serving \
@@ -177,10 +177,10 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Basic ONNX deployment
-modelgardener_cli.py deploy --format onnx
+mg deploy --format onnx
 
 # Optimized ONNX with quantization
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --optimize \
     --quantize int8 \
@@ -203,10 +203,10 @@ modelgardener_cli.py deploy \
 
 ```bash
 # TensorFlow Lite deployment
-modelgardener_cli.py deploy --format tflite
+mg deploy --format tflite
 
 # Mobile-optimized TFLite
-modelgardener_cli.py deploy \
+mg deploy \
     --format tflite \
     --target-platform mobile \
     --quantize int8 \
@@ -229,10 +229,10 @@ modelgardener_cli.py deploy \
 
 ```bash
 # TensorFlow.js deployment
-modelgardener_cli.py deploy --format tfjs
+mg deploy --format tfjs
 
 # Web-optimized deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --format tfjs \
     --optimize \
     --compress \
@@ -349,7 +349,7 @@ deployment:
 
 ```bash
 # INT8 quantization
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx,tflite \
     --quantize int8 \
     --target-platform cpu
@@ -363,7 +363,7 @@ modelgardener_cli.py deploy \
 
 ```bash
 # FP16 quantization
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --quantize fp16 \
     --target-platform gpu
@@ -402,7 +402,7 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Encrypt model with custom key
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --encrypt \
     --encryption-key ./secure_keys/model.key
@@ -425,7 +425,7 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Secure API deployment
-modelgardener_cli.py deploy \
+mg deploy \
     --serve \
     --secure-serving \
     --api-key ./keys/production.key
@@ -493,7 +493,7 @@ Auto-generated API documentation includes:
 
 ```bash
 # Generate Docker configuration
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --docker \
     --serve \
@@ -543,7 +543,7 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Performance benchmarking
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --target-platform cpu \
     --benchmark
@@ -650,10 +650,10 @@ deployment/
 
 ```bash
 # Full ML pipeline
-modelgardener_cli.py create ml_project
-modelgardener_cli.py train --config config.yaml
-modelgardener_cli.py evaluate --config config.yaml
-modelgardener_cli.py deploy \
+mg create ml_project
+mg train --config config.yaml
+mg evaluate --config config.yaml
+mg deploy \
     --config config.yaml \
     --format all \
     --serve \
@@ -664,7 +664,7 @@ modelgardener_cli.py deploy \
 
 ```bash
 # Automated deployment pipeline
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --optimize \
     --quantize int8 \
@@ -715,19 +715,19 @@ modelgardener_cli.py deploy \
 **Model Conversion Errors:**
 ```bash
 # Check model compatibility
-modelgardener_cli.py deploy --format onnx --validate
+mg deploy --format onnx --validate
 
 # Use specific ONNX opset
-modelgardener_cli.py deploy --format onnx --opset-version 11
+mg deploy --format onnx --opset-version 11
 ```
 
 **Performance Issues:**
 ```bash
 # Profile performance
-modelgardener_cli.py deploy --format onnx --benchmark --profile
+mg deploy --format onnx --benchmark --profile
 
 # Optimize for target platform
-modelgardener_cli.py deploy \
+mg deploy \
     --format onnx \
     --target-platform cpu \
     --optimize
@@ -736,7 +736,7 @@ modelgardener_cli.py deploy \
 **Serving Errors:**
 ```bash
 # Check server logs
-modelgardener_cli.py deploy --serve --log-level DEBUG
+mg deploy --serve --log-level DEBUG
 
 # Test server endpoints
 curl http://localhost:8000/health
@@ -746,10 +746,10 @@ curl http://localhost:8000/health
 
 ```bash
 # Verbose deployment
-modelgardener_cli.py deploy --format onnx --verbose
+mg deploy --format onnx --verbose
 
 # Validate deployment
-modelgardener_cli.py deploy --format onnx --validate --benchmark
+mg deploy --format onnx --validate --benchmark
 ```
 
 ## See Also
