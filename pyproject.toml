@@ -45,7 +45,7 @@ dependencies = [
 "Repository" = "https://github.com/Yukun-Guo/ModelGardener"
 
 [project.scripts]
-mgd = "modelgardener.cli:run_cli"
+mg = "modelgardener.cli:run_cli"
 modelgardener = "modelgardener.main:main"
 
 [tool.setuptools.packages.find]

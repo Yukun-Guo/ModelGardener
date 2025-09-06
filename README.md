@@ -20,7 +20,7 @@ pip install modelgardener
 
 ```bash
 # Run the CLI
-mgd
+mg
 
 # Or use the module directly
 python -m modelgardener
