@@ -20,7 +20,7 @@ This module provides comprehensive model building capabilities with autom       
 import tensorflow as tf
 import keras
 from typing import Dict, Any, Tuple
-from bridge_callback import BRIDGE
+from .bridge_callback import BRIDGE
 
 
 class EnhancedModelBuilder:

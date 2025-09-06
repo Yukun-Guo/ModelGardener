@@ -10,7 +10,7 @@ import importlib.util
 from typing import Dict, Any, Optional, List
 # Import script generator
 try:
-    from script_generator import ScriptGenerator
+    from .script_generator import ScriptGenerator
 except ImportError:
     print("Warning: ScriptGenerator not available")
     ScriptGenerator = None
@@ -537,7 +537,7 @@ class ConfigManager:
         try:
             # Import CustomFunctionsLoader for fallback loading
             try:
-                from custom_functions_loader import CustomFunctionsLoader
+                from .custom_functions_loader import CustomFunctionsLoader
             except ImportError:
                 errors.append("CustomFunctionsLoader not available")
                 return errors

@@ -9,23 +9,16 @@ This module provides the main training orchestrator that coordinates all compone
 """
 
 import os
-from typing import Dict, Any, Optional, Tuple
-from bridge_callback import BRIDGE
-from runtime_configurator import RuntimeConfigurator
-from scalable_dataset_loader import ScalableDatasetLoader
-from enhanced_model_builder import EnhancedModelBuilder
-from training_components_builder import TrainingComponentsBuilder
-
-import os
 import tensorflow as tf
 import keras
 from typing import Dict, Any, Tuple, Optional
 
-# Import our new modular components
-from runtime_configurator import RuntimeConfigurator
-from scalable_dataset_loader import ScalableDatasetLoader
-from enhanced_model_builder import EnhancedModelBuilder
-from training_components_builder import TrainingComponentsBuilder
+# Import our modular components using relative imports
+from .bridge_callback import BRIDGE
+from .runtime_configurator import RuntimeConfigurator
+from .scalable_dataset_loader import ScalableDatasetLoader
+from .enhanced_model_builder import EnhancedModelBuilder
+from .training_components_builder import TrainingComponentsBuilder
 
 
 class EnhancedTrainer:

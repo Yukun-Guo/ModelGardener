@@ -19,12 +19,13 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 try:
-    from cli_config import ModelConfigCLI, create_argument_parser
-    from config_manager import ConfigManager
-    from enhanced_trainer import EnhancedTrainer
+    from .cli_config import ModelConfigCLI, create_argument_parser
+    from .config_manager import ConfigManager
+    from .enhanced_trainer import EnhancedTrainer
 except ImportError as e:
     print(f"❌ Error importing required modules: {e}")
-    print("💡 Make sure you're running from the ModelGardener directory")
+    print("💡 Make sure all CLI dependencies are installed:")
+    print("   uv add inquirer tensorflow")
     sys.exit(1)
 
 

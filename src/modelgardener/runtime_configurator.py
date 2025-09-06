@@ -7,7 +7,7 @@ This module handles GPU detection, distribution strategy setup, and runtime opti
 import os
 import tensorflow as tf
 from typing import Dict, Any, Tuple
-from bridge_callback import BRIDGE
+from .bridge_callback import BRIDGE
 
 
 class RuntimeConfigurator:

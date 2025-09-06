@@ -24,12 +24,12 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import inquirer
 from dataclasses import dataclass
-from config_manager import ConfigManager
-import helper_funcs as hf
+from .config_manager import ConfigManager
+from . import helper_funcs as hf
 
 # Import script generator
 try:
-    from script_generator import ScriptGenerator
+    from .script_generator import ScriptGenerator
 except ImportError:
     print("Warning: ScriptGenerator not available")
     ScriptGenerator = None

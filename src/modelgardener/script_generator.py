@@ -1274,7 +1274,7 @@ if __name__ == "__main__":
     # Load custom functions if available
     custom_functions = {}
     try:
-        from custom_functions_loader import CustomFunctionsLoader
+        from .custom_functions_loader import CustomFunctionsLoader
         loader = CustomFunctionsLoader()
         custom_functions = loader.load_from_directory('src')
     except ImportError:
@@ -1441,7 +1441,7 @@ def train_model():
         # Use the enhanced trainer approach (same as CLI)
         try:
             # Import the enhanced trainer
-            from enhanced_trainer import EnhancedTrainer
+            from .enhanced_trainer import EnhancedTrainer
             
             # Initialize trainer with same approach as CLI
             trainer = EnhancedTrainer(
@@ -1476,7 +1476,7 @@ def _fallback_training(config, custom_functions):
     """Fallback training method if enhanced trainer is not available."""
     try:
         # Import the enhanced trainer (this should always be available now)
-        from enhanced_trainer import EnhancedTrainer
+        from .enhanced_trainer import EnhancedTrainer
         
         # Initialize trainer
         trainer = EnhancedTrainer(

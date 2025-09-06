@@ -5,7 +5,7 @@ import importlib.util
 from typing import Any, Dict, List, Tuple
 # Import script generator
 try:
-    from script_generator import ScriptGenerator
+    from .script_generator import ScriptGenerator
 except ImportError:
     print("Warning: ScriptGenerator not available")
     ScriptGenerator = None
@@ -951,7 +951,7 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
         existing_functions = {}
         
         # Check which custom modules were actually generated
-        from script_generator import ScriptGenerator
+        from .script_generator import ScriptGenerator
         generator = ScriptGenerator()
         
         # These are the functions we know exist based on generated modules with their parameters

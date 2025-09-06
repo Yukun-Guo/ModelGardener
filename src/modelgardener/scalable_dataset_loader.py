@@ -10,7 +10,7 @@ import tensorflow as tf
 import numpy as np
 from typing import Dict, Any, Optional, Callable, Tuple, List
 from pathlib import Path
-from bridge_callback import BRIDGE
+from .bridge_callback import BRIDGE
 
 
 class ScalableDatasetLoader:
