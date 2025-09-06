@@ -1154,7 +1154,7 @@ class ModelConfigCLI:
                 if not add_more:
                     break
             
-            callbacks_config['Custom Callbacks'] = {
+            callbacks_config['Custom Callback'] = {
                 'enabled': len(custom_callbacks) > 0,
                 'callbacks': custom_callbacks
             }
@@ -1409,7 +1409,7 @@ class ModelConfigCLI:
                             "filename": "./logs/training.csv",
                             "append": False
                         },
-                        "Custom Callbacks": {
+                        "Custom Callback": {
                             "enabled": False,
                             "callbacks": []
                         }
@@ -2435,7 +2435,7 @@ class ModelConfigCLI:
         current_checkpoint = current_callbacks_config.get('Model Checkpoint', {}).get('enabled', True)
         current_tensorboard = current_callbacks_config.get('TensorBoard', {}).get('enabled', False)
         current_csv_logger = current_callbacks_config.get('CSV Logger', {}).get('enabled', False)
-        current_custom_callbacks = current_callbacks_config.get('Custom Callbacks', {}).get('enabled', False)
+        current_custom_callbacks = current_callbacks_config.get('Custom Callback', {}).get('enabled', False)
         
         print(f"\n📞 Current Callbacks Configuration:")
         print(f"    Early Stopping: {'Enabled' if current_early_stopping else 'Disabled'}")
@@ -2443,7 +2443,7 @@ class ModelConfigCLI:
         print(f"    Model Checkpoint: {'Enabled' if current_checkpoint else 'Disabled'}")
         print(f"    TensorBoard: {'Enabled' if current_tensorboard else 'Disabled'}")
         print(f"    CSV Logger: {'Enabled' if current_csv_logger else 'Disabled'}")
-        print(f"    Custom Callbacks: {'Enabled' if current_custom_callbacks else 'Disabled'}")
+        print(f"    Custom Callback: {'Enabled' if current_custom_callbacks else 'Disabled'}")
         
         change_callbacks = inquirer.confirm("Change callbacks configuration?", default=False)
         if change_callbacks:
