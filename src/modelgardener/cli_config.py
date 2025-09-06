@@ -2134,7 +2134,7 @@ class ModelConfigCLI:
         # Add custom functions to config
         config = self._add_custom_functions_to_config(config, project_dir)
         
-        # Copy example data to project directory
+        # Copy example data to project directory (fixed 500 samples per class)
         hf.copy_example_data(project_dir)
         
         # Create the improved template with custom functions and parameters

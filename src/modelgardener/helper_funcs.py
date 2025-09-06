@@ -840,45 +840,48 @@ def generate_python_scripts(config: Dict[str, Any], config_file_path: str):
 
 def copy_example_data(project_dir: str):
     """
-    Copy CIFAR-10 NPZ dataset to the project directory.
+    Ensure CIFAR-10 dataset exists and copy it to the project directory.
+    Uses caching and automatic generation for robustness.
+    Fixed to 500 samples per class.
     
     Args:
         project_dir: Target project directory
     """
-    import shutil
+    import tempfile
     
-    # Define source and destination paths
-    source_data_dir = os.path.join(os.path.dirname(__file__), 'example_data')
     dest_data_dir = os.path.join(project_dir, 'data')
-    cifar10_source = os.path.join(source_data_dir, 'cifar10.npz')
     cifar10_dest = os.path.join(dest_data_dir, 'cifar10.npz')
+    
+    # Use system temp directory
+    temp_dir = os.path.join(tempfile.gettempdir(), 'modelgardener_cache')
     
     try:
         # Create data directory
         os.makedirs(dest_data_dir, exist_ok=True)
         
-        # Copy CIFAR-10 NPZ file
-        if os.path.exists(cifar10_source):
-            shutil.copy2(cifar10_source, cifar10_dest)
-            print(f"✅ CIFAR-10 dataset copied to: {dest_data_dir}")
-            
-            # Load and show dataset info
+        # Use robust dataset management with fixed 500 samples per class
+        if ensure_cifar10_dataset(
+            temp_dir=temp_dir,
+            target_path=cifar10_dest,
+            samples_per_class=500,
+            verbose=True
+        ):
+            # Verify the copied dataset
             try:
                 import numpy as np
-                with np.load(cifar10_source) as data:
+                with np.load(cifar10_dest) as data:
                     x_data = data['x']
                     y_data = data['y']
+                    print(f"✅ CIFAR-10 dataset copied to: {dest_data_dir}")
                     print(f"📊 CIFAR-10 dataset: {len(x_data)} samples, {x_data.shape[1:]} shape, {len(np.unique(y_data))} classes")
             except Exception as e:
                 print(f"📊 CIFAR-10 dataset copied (could not read metadata: {e})")
-                
         else:
-            print(f"⚠️ Warning: CIFAR-10 dataset not found at {cifar10_source}")
-            print("� Please run test_generate_subset.py to generate the CIFAR-10 dataset")
+            print(f"❌ Failed to prepare CIFAR-10 dataset")
             
     except Exception as e:
-        print(f"❌ Error copying CIFAR-10 data: {str(e)}")
-        print("💡 Please ensure CIFAR-10 dataset is available in example_data/cifar10.npz")
+        print(f"❌ Error preparing CIFAR-10 data: {str(e)}")
+        print("💡 Please check your internet connection for downloading CIFAR-10 dataset")
 
 def create_improved_template_config(config: Dict[str, Any], project_dir: str = '.') -> Dict[str, Any]:
     """
@@ -1558,3 +1561,231 @@ def extract_augmentation_parameters(func) -> Dict[str, Any]:
         pass
     
     return {}
+
+def generate_cifar10_subset(samples_per_class=500, output_path="example_data/cifar10.npz", 
+                          random_seed=42, verbose=True):
+    """
+    Generate a subset of CIFAR-10 dataset with specified samples per class.
+    
+    Args:
+        samples_per_class (int): Number of samples to include for each class
+        output_path (str): Output path for the generated NPZ file
+        random_seed (int): Random seed for reproducibility
+        verbose (bool): Whether to print detailed information
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import numpy as np
+        import tensorflow as tf
+        
+        # Set random seeds for reproducibility
+        np.random.seed(random_seed)
+        tf.random.set_seed(random_seed)
+        
+        if verbose:
+            print(f"🔄 Generating CIFAR-10 dataset...")
+        
+        # Load CIFAR-10 dataset
+        (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
+        
+        # Combine train and test data
+        x_data = np.concatenate([x_train, x_test], axis=0)
+        y_data = np.concatenate([y_train, y_test], axis=0).flatten()
+        
+        if verbose:
+            print(f"📊 Full CIFAR-10 dataset: {x_data.shape[0]} samples")
+            print(f"🎯 Target: {samples_per_class} samples per class (10 classes)")
+        
+        # Check if we have enough samples for each class
+        for class_id in range(10):
+            class_count = np.sum(y_data == class_id)
+            if class_count < samples_per_class:
+                if verbose:
+                    print(f"❌ Error: Class {class_id} only has {class_count} samples, but {samples_per_class} requested")
+                return False
+        
+        # Initialize arrays for subset
+        subset_x = []
+        subset_y = []
+        
+        # Extract samples for each class
+        for class_id in range(10):
+            class_indices = np.where(y_data == class_id)[0]
+            selected_indices = np.random.choice(class_indices, size=samples_per_class, replace=False)
+            
+            subset_x.append(x_data[selected_indices])
+            subset_y.append(y_data[selected_indices])
+            
+            if verbose:
+                print(f"✅ Class {class_id}: {len(selected_indices)} samples selected")
+        
+        # Combine all selected samples
+        subset_x = np.concatenate(subset_x, axis=0)
+        subset_y = np.concatenate(subset_y, axis=0)
+        
+        # Shuffle the dataset
+        shuffle_indices = np.random.permutation(len(subset_x))
+        subset_x = subset_x[shuffle_indices]
+        subset_y = subset_y[shuffle_indices]
+        
+        if verbose:
+            print(f"📈 Final dataset shape: {subset_x.shape}")
+            print(f"🔢 Final labels shape: {subset_y.shape}")
+            print(f"🎨 Unique classes: {len(np.unique(subset_y))}")
+        
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save as NPZ file
+        np.savez(output_path, x=subset_x, y=subset_y)
+        
+        if verbose:
+            print(f"✅ CIFAR-10 subset saved to: {output_path}")
+        
+        # Verify the saved file
+        if verify_dataset(output_path, expected_samples=samples_per_class * 10, verbose=verbose):
+            return True
+        else:
+            if verbose:
+                print("❌ Dataset verification failed")
+            return False
+            
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error generating dataset: {str(e)}")
+        return False
+
+def verify_dataset(dataset_path, expected_samples=None, verbose=True):
+    """
+    Verify a dataset NPZ file.
+    
+    Args:
+        dataset_path (str): Path to the NPZ file
+        expected_samples (int): Expected total number of samples
+        verbose (bool): Whether to print verification details
+    
+    Returns:
+        bool: True if verification passes, False otherwise
+    """
+    try:
+        import numpy as np
+        
+        if not os.path.exists(dataset_path):
+            if verbose:
+                print(f"❌ Dataset file not found: {dataset_path}")
+            return False
+        
+        loaded_data = np.load(dataset_path)
+        
+        if 'x' not in loaded_data or 'y' not in loaded_data:
+            if verbose:
+                print("❌ Dataset missing required keys 'x' and 'y'")
+            return False
+        
+        x_data = loaded_data['x']
+        y_data = loaded_data['y']
+        
+        if verbose:
+            print(f"🔍 Verification:")
+            print(f"   - X shape: {x_data.shape}")
+            print(f"   - Y shape: {y_data.shape}")
+            print(f"   - Classes: {np.unique(y_data)}")
+            print(f"   - Samples per class: {[np.sum(y_data == i) for i in range(10)]}")
+        
+        # Basic checks
+        if len(x_data) != len(y_data):
+            if verbose:
+                print("❌ Mismatch between X and Y data lengths")
+            return False
+        
+        if expected_samples and len(x_data) != expected_samples:
+            if verbose:
+                print(f"❌ Expected {expected_samples} samples, got {len(x_data)}")
+            return False
+        
+        # Check if we have all 10 classes
+        unique_classes = np.unique(y_data)
+        if len(unique_classes) != 10 or not np.array_equal(unique_classes, np.arange(10)):
+            if verbose:
+                print(f"❌ Expected classes 0-9, got {unique_classes}")
+            return False
+        
+        if verbose:
+            print("✅ Dataset verification passed")
+        
+        return True
+        
+    except Exception as e:
+        if verbose:
+            print(f"❌ Error verifying dataset: {str(e)}")
+        return False
+
+def ensure_cifar10_dataset(temp_dir="temp", target_path="example_data/cifar10.npz", 
+                          samples_per_class=500, force_regenerate=False, verbose=True):
+    """
+    Ensure CIFAR-10 dataset exists, using temp cache or generating new one.
+    
+    Args:
+        temp_dir (str): Temporary directory to cache datasets
+        target_path (str): Target path for the dataset
+        samples_per_class (int): Number of samples per class (fixed to 500)
+        force_regenerate (bool): Force regeneration even if cache exists
+        verbose (bool): Whether to print detailed information
+    
+    Returns:
+        bool: True if dataset is ready, False otherwise
+    """
+    import shutil
+    
+    # Create temp directory if it doesn't exist
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Define cache path in temp directory (fixed filename for 500 samples)
+    cache_filename = "cifar10_500samples_per_class.npz"
+    cache_path = os.path.join(temp_dir, cache_filename)
+    
+    # Check if cached dataset exists and is valid
+    if not force_regenerate and os.path.exists(cache_path):
+        if verbose:
+            print(f"🔍 Checking cached dataset: {cache_path}")
+        
+        if verify_dataset(cache_path, expected_samples=samples_per_class * 10, verbose=False):
+            if verbose:
+                print(f"✅ Valid cached dataset found")
+            
+            # Copy from cache to target
+            target_dir = os.path.dirname(target_path)
+            if target_dir:
+                os.makedirs(target_dir, exist_ok=True)
+            
+            shutil.copy2(cache_path, target_path)
+            if verbose:
+                print(f"📋 Dataset copied to: {target_path}")
+            return True
+        else:
+            if verbose:
+                print(f"⚠️ Cached dataset is invalid, will regenerate")
+    
+    # Generate new dataset
+    if verbose:
+        print(f"🚀 Generating new CIFAR-10 dataset ({samples_per_class} samples per class)")
+    
+    # Generate to cache first
+    if generate_cifar10_subset(samples_per_class, cache_path, verbose=verbose):
+        # Copy to target location
+        target_dir = os.path.dirname(target_path)
+        if target_dir:
+            os.makedirs(target_dir, exist_ok=True)
+        
+        shutil.copy2(cache_path, target_path)
+        if verbose:
+            print(f"📋 Dataset copied to: {target_path}")
+        return True
+    else:
+        if verbose:
+            print("❌ Failed to generate dataset")
+        return False

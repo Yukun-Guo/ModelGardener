@@ -108,7 +108,8 @@ class ScriptGenerator:
         Each file will contain only one custom function.
         """
         # Define the example_funcs directory path
-        example_funcs_dir = os.path.join(os.path.dirname(__file__), 'example_funcs')
+        # Go up two levels from src/modelgardener to reach project root
+        example_funcs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'example_funcs')
         
         # Map of example files to their function extraction patterns
         function_extractions = {
