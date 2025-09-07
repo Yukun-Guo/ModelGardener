@@ -1,11 +1,18 @@
 """
-Example custom optimizer for ModelGardener
+Enhanced custom optimizers for ModelGardener
+
+Supports:
+- Multi-input and multi-output models
+- 2D and 3D data optimization
+- Multiple task types (classification, segmentation, object detection)
 
 This file demonstrates how to create custom optimizers that can be loaded
 into the ModelGardener application.
 """
 
 import keras
+import tensorflow as tf
+from typing import Union, List, Dict, Any
 
 def adaptive_adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, 
                  epsilon=1e-7, decay_factor=0.99):

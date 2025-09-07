@@ -1,5 +1,10 @@
 """
-Example custom data loader functions for ModelGardener
+Enhanced custom data loader functions for ModelGardener
+
+Supports:
+- Multi-input and multi-output models
+- 2D and 3D data
+- Multiple task types (classification, segmentation, object detection)
 
 This file demonstrates how to create custom data loader functions and classes that can be
 dynamically loaded into the ModelGardener application. Data loaders can be either:
@@ -21,63 +26,225 @@ For classes:
 import os
 import numpy as np
 import tensorflow as tf
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Union, Any
 from sklearn.model_selection import train_test_split
+from .utils import TaskType, DataDimension, detect_data_dimension, infer_task_type
 
-def custom_image_data_loader(data_dir: str,
-                           batch_size: int = 32,
-                           image_size: List[int] = [224, 224],
-                           shuffle: bool = True,
-                           buffer_size: int = 10000,
-                           augment: bool = False) -> tf.data.Dataset:
+def enhanced_image_data_loader(data_dir: str,
+                             batch_size: int = 32,
+                             image_size: List[int] = [224, 224],
+                             data_dimension: str = '2d',
+                             task_type: str = 'classification',
+                             shuffle: bool = True,
+                             buffer_size: int = 10000,
+                             augment: bool = False,
+                             label_dir: str = None,
+                             multi_input: bool = False,
+                             input_dirs: List[str] = None) -> tf.data.Dataset:
     """
-    Custom image data loader that loads images from directories.
+    Enhanced image data loader with support for 2D/3D data, multi-inputs, and different tasks.
     
     Args:
         data_dir: Path to directory containing image files
         batch_size: Batch size for the dataset
-        image_size: Target image size [height, width]
+        image_size: Target image size [height, width] or [height, width, depth] for 3D
+        data_dimension: '2d' or '3d'
+        task_type: 'classification', 'segmentation', 'object_detection'
         shuffle: Whether to shuffle the dataset
         buffer_size: Buffer size for shuffling
         augment: Whether to apply data augmentation
+        label_dir: Path to labels (for segmentation/detection tasks)
+        multi_input: Whether to create multi-input dataset
+        input_dirs: List of input directories for multi-input
     
     Returns:
         tf.data.Dataset: Dataset ready for training/validation
     """
-    # Get list of image files
-    image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
-    image_files = []
+    # Determine file extensions based on data dimension
+    if data_dimension == '3d':
+        # Common 3D medical imaging formats
+        image_extensions = ['.nii', '.nii.gz', '.mha', '.mhd', '.nrrd', '.dcm']
+    else:
+        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
     
-    for root, dirs, files in os.walk(data_dir):
-        for file in files:
-            if any(file.lower().endswith(ext) for ext in image_extensions):
-                image_files.append(os.path.join(root, file))
-    
-    if not image_files:
-        raise ValueError(f"No image files found in {data_dir}")
-    
-    # Create dataset from file paths
-    dataset = tf.data.Dataset.from_tensor_slices(image_files)
-    
-    # Load and preprocess images
-    def load_and_preprocess_image(path):
-        image = tf.io.read_file(path)
-        image = tf.image.decode_image(image, channels=3, expand_animations=False)
-        image = tf.image.resize(image, image_size)
-        image = tf.cast(image, tf.float32) / 255.0
+    if multi_input and input_dirs:
+        # Multi-input case
+        all_input_files = []
+        for input_dir in input_dirs:
+            input_files = get_image_files(input_dir, image_extensions)
+            all_input_files.append(input_files)
         
-        # Simple augmentation if requested
-        if augment:
-            image = tf.image.random_flip_left_right(image)
-            image = tf.image.random_brightness(image, max_delta=0.1)
+        # Ensure all input lists have the same length
+        min_length = min(len(files) for files in all_input_files)
+        all_input_files = [files[:min_length] for files in all_input_files]
         
-        return image
+        # Create dataset from multi-input file paths
+        input_datasets = []
+        for input_files in all_input_files:
+            ds = tf.data.Dataset.from_tensor_slices(input_files)
+            input_datasets.append(ds)
+        
+        # Zip datasets together
+        dataset = tf.data.Dataset.zip(tuple(input_datasets))
+        
+        # Load and preprocess multi-input data
+        def load_and_preprocess_multi_input(file_paths):
+            processed_inputs = []
+            for file_path in file_paths:
+                if data_dimension == '3d':
+                    image = load_3d_image(file_path, image_size)
+                else:
+                    image = load_2d_image(file_path, image_size)
+                processed_inputs.append(image)
+            return tuple(processed_inputs)
+        
+        dataset = dataset.map(load_and_preprocess_multi_input, 
+                             num_parallel_calls=tf.data.AUTOTUNE)
+    else:
+        # Single input case
+        image_files = get_image_files(data_dir, image_extensions)
+        if not image_files:
+            raise ValueError(f"No image files found in {data_dir}")
+        
+        dataset = tf.data.Dataset.from_tensor_slices(image_files)
+        
+        # Load and preprocess images
+        def load_and_preprocess_image(path):
+            if data_dimension == '3d':
+                return load_3d_image(path, image_size)
+            else:
+                return load_2d_image(path, image_size)
+        
+        dataset = dataset.map(load_and_preprocess_image, 
+                             num_parallel_calls=tf.data.AUTOTUNE)
     
-    dataset = dataset.map(load_and_preprocess_image, 
-                         num_parallel_calls=tf.data.AUTOTUNE)
+    # Handle labels based on task type
+    if task_type == 'segmentation' and label_dir:
+        # Load segmentation masks
+        label_files = get_image_files(label_dir, image_extensions)
+        label_dataset = tf.data.Dataset.from_tensor_slices(label_files)
+        
+        def load_label_mask(path):
+            if data_dimension == '3d':
+                return load_3d_image(path, image_size, is_label=True)
+            else:
+                return load_2d_image(path, image_size, is_label=True)
+        
+        label_dataset = label_dataset.map(load_label_mask, 
+                                        num_parallel_calls=tf.data.AUTOTUNE)
+        
+        # Combine data and labels
+        dataset = tf.data.Dataset.zip((dataset, label_dataset))
     
+    elif task_type == 'classification':
+        # Extract labels from directory structure or filename
+        if multi_input:
+            # For multi-input, use the first input for label extraction
+            label_source = all_input_files[0] if input_dirs else image_files
+        else:
+            label_source = image_files
+            
+        labels = extract_classification_labels(label_source)
+        label_dataset = tf.data.Dataset.from_tensor_slices(labels)
+        
+        # Combine data and labels
+        dataset = tf.data.Dataset.zip((dataset, label_dataset))
+    
+    elif task_type == 'object_detection':
+        # Load bounding boxes and class labels
+        # This would require annotation files (COCO, YOLO format, etc.)
+        # Simplified implementation
+        dummy_labels = tf.zeros((4,))  # Placeholder for bounding boxes
+        label_dataset = tf.data.Dataset.from_tensor_slices([dummy_labels] * len(image_files))
+        dataset = tf.data.Dataset.zip((dataset, label_dataset))
+    
+    # Apply augmentation if requested
+    if augment:
+        dataset = dataset.map(apply_augmentation, num_parallel_calls=tf.data.AUTOTUNE)
+    
+    # Shuffle and batch
     if shuffle:
         dataset = dataset.shuffle(buffer_size)
+    
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+    return dataset
+
+def get_image_files(directory: str, extensions: List[str]) -> List[str]:
+    """Get list of image files with specified extensions."""
+    image_files = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if any(file.lower().endswith(ext) for ext in extensions):
+                image_files.append(os.path.join(root, file))
+    return sorted(image_files)
+
+def load_2d_image(file_path: tf.Tensor, target_size: List[int], is_label: bool = False) -> tf.Tensor:
+    """Load and preprocess 2D image."""
+    image = tf.io.read_file(file_path)
+    image = tf.image.decode_image(image, channels=3 if not is_label else 1, expand_animations=False)
+    image = tf.image.resize(image, target_size[:2])
+    
+    if is_label:
+        # Keep labels as integers for segmentation
+        image = tf.cast(image, tf.int32)
+    else:
+        # Normalize to [0, 1] for images
+        image = tf.cast(image, tf.float32) / 255.0
+    
+    return image
+
+def load_3d_image(file_path: tf.Tensor, target_size: List[int], is_label: bool = False) -> tf.Tensor:
+    """Load and preprocess 3D image (medical imaging, etc.)."""
+    # This is a placeholder implementation
+    # In practice, you would use libraries like nibabel, SimpleITK, etc.
+    # For now, we'll simulate 3D data by creating a synthetic volume
+    
+    if len(target_size) == 2:
+        target_size = target_size + [32]  # Default depth
+    
+    # Simulate loading 3D data
+    if is_label:
+        volume = tf.random.uniform(target_size + [1], 0, 2, dtype=tf.int32)
+    else:
+        volume = tf.random.normal(target_size + [1], dtype=tf.float32)
+        volume = tf.clip_by_value(volume, 0.0, 1.0)
+    
+    return volume
+
+def extract_classification_labels(file_paths: List[str]) -> List[int]:
+    """Extract classification labels from file paths or directory structure."""
+    # Extract class names from directory structure
+    class_names = []
+    for file_path in file_paths:
+        # Assuming directory structure like: data_dir/class_name/image.jpg
+        class_name = os.path.basename(os.path.dirname(file_path))
+        class_names.append(class_name)
+    
+    # Convert to numerical labels
+    unique_classes = sorted(list(set(class_names)))
+    class_to_label = {cls: idx for idx, cls in enumerate(unique_classes)}
+    labels = [class_to_label[cls] for cls in class_names]
+    
+    return labels
+
+def apply_augmentation(data, label):
+    """Apply simple augmentation to data."""
+    if isinstance(data, tuple):
+        # Multi-input case
+        augmented_data = []
+        for input_data in data:
+            # Apply basic augmentation
+            augmented = tf.image.random_flip_left_right(input_data)
+            augmented = tf.image.random_brightness(augmented, max_delta=0.1)
+            augmented_data.append(augmented)
+        return tuple(augmented_data), label
+    else:
+        # Single input case
+        augmented = tf.image.random_flip_left_right(data)
+        augmented = tf.image.random_brightness(augmented, max_delta=0.1)
+        return augmented, label
     
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
@@ -399,3 +566,200 @@ def simple_cifar10_loader(data_dir: str,
         validation_split=0.2,
         shuffle=True
     )
+
+def multi_input_data_loader(input_data_dirs: List[str],
+                          batch_size: int = 32,
+                          image_sizes: List[List[int]] = None,
+                          task_type: str = 'classification',
+                          label_dir: str = None,
+                          **kwargs) -> tf.data.Dataset:
+    """
+    Data loader for multi-input models.
+    
+    Args:
+        input_data_dirs: List of directories containing different input modalities
+        batch_size: Batch size for the dataset
+        image_sizes: List of target sizes for each input modality
+        task_type: Type of task ('classification', 'segmentation')
+        label_dir: Directory containing labels
+        **kwargs: Additional arguments
+        
+    Returns:
+        tf.data.Dataset: Multi-input dataset
+    """
+    if image_sizes is None:
+        image_sizes = [[224, 224]] * len(input_data_dirs)
+    
+    return enhanced_image_data_loader(
+        data_dir=input_data_dirs[0],  # Primary input directory
+        batch_size=batch_size,
+        image_size=image_sizes[0],
+        task_type=task_type,
+        label_dir=label_dir,
+        multi_input=True,
+        input_dirs=input_data_dirs,
+        **kwargs
+    )
+
+def volumetric_data_loader(data_dir: str,
+                         batch_size: int = 4,  # Smaller batch for 3D data
+                         volume_size: List[int] = [64, 64, 64],
+                         task_type: str = 'classification',
+                         label_dir: str = None,
+                         file_format: str = 'nifti',
+                         **kwargs) -> tf.data.Dataset:
+    """
+    Data loader for 3D volumetric data (medical imaging, etc.).
+    
+    Args:
+        data_dir: Directory containing volumetric data
+        batch_size: Batch size (typically smaller for 3D data)
+        volume_size: Target volume size [height, width, depth]
+        task_type: Type of task ('classification', 'segmentation')
+        label_dir: Directory containing label volumes
+        file_format: File format ('nifti', 'dicom', etc.)
+        **kwargs: Additional arguments
+        
+    Returns:
+        tf.data.Dataset: 3D volumetric dataset
+    """
+    return enhanced_image_data_loader(
+        data_dir=data_dir,
+        batch_size=batch_size,
+        image_size=volume_size,
+        data_dimension='3d',
+        task_type=task_type,
+        label_dir=label_dir,
+        **kwargs
+    )
+
+def segmentation_data_loader(image_dir: str,
+                           mask_dir: str,
+                           batch_size: int = 16,
+                           image_size: List[int] = [256, 256],
+                           num_classes: int = 2,
+                           data_dimension: str = '2d',
+                           **kwargs) -> tf.data.Dataset:
+    """
+    Specialized data loader for segmentation tasks.
+    
+    Args:
+        image_dir: Directory containing input images
+        mask_dir: Directory containing segmentation masks
+        batch_size: Batch size for the dataset
+        image_size: Target image size
+        num_classes: Number of segmentation classes
+        data_dimension: '2d' or '3d'
+        **kwargs: Additional arguments
+        
+    Returns:
+        tf.data.Dataset: Segmentation dataset with images and masks
+    """
+    return enhanced_image_data_loader(
+        data_dir=image_dir,
+        batch_size=batch_size,
+        image_size=image_size,
+        data_dimension=data_dimension,
+        task_type='segmentation',
+        label_dir=mask_dir,
+        **kwargs
+    )
+
+def object_detection_data_loader(image_dir: str,
+                               annotation_file: str,
+                               batch_size: int = 8,
+                               image_size: List[int] = [416, 416],
+                               max_objects: int = 100,
+                               **kwargs) -> tf.data.Dataset:
+    """
+    Data loader for object detection tasks.
+    
+    Args:
+        image_dir: Directory containing images
+        annotation_file: Path to annotations file (COCO format, etc.)
+        batch_size: Batch size for the dataset
+        image_size: Target image size
+        max_objects: Maximum number of objects per image
+        **kwargs: Additional arguments
+        
+    Returns:
+        tf.data.Dataset: Object detection dataset
+    """
+    # This is a simplified implementation
+    # In practice, you would parse COCO annotations, YOLO format, etc.
+    return enhanced_image_data_loader(
+        data_dir=image_dir,
+        batch_size=batch_size,
+        image_size=image_size,
+        task_type='object_detection',
+        **kwargs
+    )
+
+class AdaptiveDataLoader:
+    """
+    Adaptive data loader class that can handle different data types and tasks.
+    """
+    
+    def __init__(self, 
+                 data_config: Dict[str, Any],
+                 task_type: str = 'classification',
+                 data_dimension: str = '2d'):
+        """
+        Initialize adaptive data loader.
+        
+        Args:
+            data_config: Configuration dictionary for data loading
+            task_type: Type of task
+            data_dimension: Data dimension
+        """
+        self.data_config = data_config
+        self.task_type = task_type
+        self.data_dimension = data_dimension
+        
+    def create_dataset(self, split: str = 'train') -> tf.data.Dataset:
+        """
+        Create dataset based on configuration.
+        
+        Args:
+            split: Dataset split ('train', 'val', 'test')
+            
+        Returns:
+            tf.data.Dataset: Configured dataset
+        """
+        config = self.data_config.get(split, self.data_config)
+        
+        if self.task_type == 'segmentation':
+            return segmentation_data_loader(
+                image_dir=config['image_dir'],
+                mask_dir=config['mask_dir'],
+                data_dimension=self.data_dimension,
+                **config.get('loader_params', {})
+            )
+        elif self.task_type == 'object_detection':
+            return object_detection_data_loader(
+                image_dir=config['image_dir'],
+                annotation_file=config['annotation_file'],
+                **config.get('loader_params', {})
+            )
+        elif config.get('multi_input', False):
+            return multi_input_data_loader(
+                input_data_dirs=config['input_dirs'],
+                task_type=self.task_type,
+                **config.get('loader_params', {})
+            )
+        elif self.data_dimension == '3d':
+            return volumetric_data_loader(
+                data_dir=config['data_dir'],
+                task_type=self.task_type,
+                **config.get('loader_params', {})
+            )
+        else:
+            return enhanced_image_data_loader(
+                data_dir=config['data_dir'],
+                task_type=self.task_type,
+                data_dimension=self.data_dimension,
+                **config.get('loader_params', {})
+            )
+
+# Backward compatibility
+custom_image_data_loader = enhanced_image_data_loader

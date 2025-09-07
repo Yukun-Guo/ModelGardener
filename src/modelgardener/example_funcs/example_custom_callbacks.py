@@ -1,5 +1,10 @@
 """
-Example custom callback functions and classes for the Model Gardener application.
+Enhanced custom callback functions and classes for ModelGardener.
+
+Supports:
+- Multi-input and multi-output models
+- 2D and 3D data monitoring
+- Multiple task types (classification, segmentation, object detection)
 
 These callbacks demonstrate how to create custom training callbacks that can be 
 dynamically loaded into the callbacks parameter tree. Callbacks can be either:
@@ -19,6 +24,9 @@ For classes:
 
 import tensorflow as tf
 import keras
+import numpy as np
+from typing import Union, List, Dict, Any
+from .utils import TaskType, DataDimension, infer_task_type
 
 class MemoryUsageMonitor(keras.callbacks.Callback):
     """
