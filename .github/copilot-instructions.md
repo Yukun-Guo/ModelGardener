@@ -121,3 +121,6 @@ Order: Built-in sizing/normalization → Custom preprocessing functions
 - `cli_config.py` - Interactive configuration wizards
 
 When working on this codebase, prioritize understanding the **custom function loading mechanism** and **configuration-to-script generation flow** - these are the unique architectural decisions that differentiate ModelGardener from standard ML frameworks.
+
+### Notes
+python venv is .venv/bin/python， please use this python interpreter test the code.

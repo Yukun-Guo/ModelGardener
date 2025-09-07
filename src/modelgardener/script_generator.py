@@ -205,6 +205,24 @@ class ScriptGenerator:
             else:
                 print(f"⚠️ Example file not found: {example_file_path}, creating basic template")
                 self._create_basic_template(custom_modules_dir, example_file)
+        
+        # Copy utils.py file as-is since it's needed by other modules
+        utils_source_path = os.path.join(example_funcs_dir, 'utils.py')
+        utils_dest_path = os.path.join(custom_modules_dir, 'utils.py')
+        
+        if os.path.exists(utils_source_path):
+            try:
+                with open(utils_source_path, 'r', encoding='utf-8') as f:
+                    utils_content = f.read()
+                
+                with open(utils_dest_path, 'w', encoding='utf-8') as f:
+                    f.write(utils_content)
+                print(f"✅ Generated: {utils_dest_path}")
+            except Exception as e:
+                print(f"❌ Error copying utils.py: {str(e)}")
+        else:
+            print(f"⚠️ utils.py not found in example_funcs, creating basic template")
+            self._create_basic_utils_template(custom_modules_dir)
 
     def _extract_single_function(self, file_content: str, function_name: str, source_file: str) -> str:
         """
@@ -256,6 +274,7 @@ class ScriptGenerator:
         import_lines = []
         in_module_docstring = False
         docstring_quote = None
+        in_multiline_import = False
         
         for line in lines:
             stripped_line = line.strip()
@@ -278,13 +297,27 @@ class ScriptGenerator:
                     docstring_quote = None
                 continue
             
-            # Only keep import statements and essential blank lines
-            if (stripped_line.startswith(('import ', 'from ')) or 
-                (not stripped_line and import_lines and 
-                 import_lines[-1].strip().startswith(('import ', 'from ')))):
+            # Handle multi-line imports
+            if in_multiline_import:
                 import_lines.append(line)
+                # Check if the multi-line import ends (with closing parenthesis)
+                if ')' in stripped_line:
+                    in_multiline_import = False
+                continue
             
-            # Stop at first function/class definition
+            # Only keep import statements and essential blank lines
+            if stripped_line.startswith(('import ', 'from ')):
+                import_lines.append(line)
+                # Check if this is a multi-line import (contains opening parenthesis but no closing)
+                if '(' in stripped_line and ')' not in stripped_line:
+                    in_multiline_import = True
+                continue
+            elif (not stripped_line and import_lines and 
+                  import_lines[-1].strip().startswith(('import ', 'from '))):
+                import_lines.append(line)
+                continue
+            
+            # Stop at first function/class definition, but only if we're not in a multi-line import
             if stripped_line.startswith(('def ', 'class ')):
                 break
         
@@ -314,6 +347,137 @@ class ScriptGenerator:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(template)
             print(f"✅ Generated basic template: {output_path}")
+
+    def _create_basic_utils_template(self, custom_modules_dir: str):
+        """Create basic utils.py template when the original is not available."""
+        utils_template = '''"""
+Utility functions for ModelGardener custom functions.
+
+This module provides common utility functions used across all custom functions
+to support multi-inputs/multi-outputs, 3D data, and different task types.
+"""
+
+import tensorflow as tf
+import numpy as np
+from typing import Union, Tuple, List, Dict, Any
+from enum import Enum
+
+class TaskType(Enum):
+    """Enumeration of supported task types."""
+    CLASSIFICATION = "classification"
+    SEGMENTATION = "segmentation"
+    OBJECT_DETECTION = "object_detection"
+
+class DataDimension(Enum):
+    """Enumeration of data dimensions."""
+    TWO_D = "2d"
+    THREE_D = "3d"
+
+def detect_data_dimension(data: tf.Tensor) -> DataDimension:
+    """
+    Detect if data is 2D or 3D based on tensor shape.
+    
+    Args:
+        data: Input tensor
+        
+    Returns:
+        DataDimension: 2D or 3D
+    """
+    shape = tf.shape(data)
+    rank = len(data.shape)
+    
+    if rank == 3:  # (H, W, C)
+        return DataDimension.TWO_D
+    elif rank == 4:  # (H, W, D, C) or (B, H, W, C)
+        # Check if it's batched 2D or unbatched 3D
+        # This is a heuristic - in practice, context would be needed
+        if data.shape[-1] <= 16:  # Likely channels
+            return DataDimension.THREE_D
+        else:
+            return DataDimension.TWO_D
+    elif rank == 5:  # (B, H, W, D, C)
+        return DataDimension.THREE_D
+    else:
+        return DataDimension.TWO_D  # Default fallback
+
+def infer_task_type(data: tf.Tensor, labels: tf.Tensor = None) -> TaskType:
+    """
+    Infer task type based on data and label characteristics.
+    
+    Args:
+        data: Input data tensor
+        labels: Label tensor (optional)
+        
+    Returns:
+        TaskType: Inferred task type
+    """
+    if labels is not None:
+        label_shape = tf.shape(labels)
+        if len(label_shape) == 1 or (len(label_shape) == 2 and label_shape[-1] == 1):
+            return TaskType.CLASSIFICATION
+        elif len(label_shape) >= 3:
+            return TaskType.SEGMENTATION
+    
+    # Default to classification if unable to determine
+    return TaskType.CLASSIFICATION
+
+def handle_multi_input(inputs):
+    """
+    Handle multiple input types: single tensor, list of tensors, or dict of tensors.
+    
+    Args:
+        inputs: Input data (tensor, list, or dict)
+        
+    Returns:
+        Standardized format for processing
+    """
+    if isinstance(inputs, dict):
+        return inputs
+    elif isinstance(inputs, (list, tuple)):
+        return {f"input_{i}": inp for i, inp in enumerate(inputs)}
+    else:
+        return {"input_0": inputs}
+
+def handle_multi_output(outputs, target_format="single"):
+    """
+    Handle multiple output types and convert to target format.
+    
+    Args:
+        outputs: Output data (tensor, list, or dict)
+        target_format: "single", "list", or "dict"
+        
+    Returns:
+        Outputs in target format
+    """
+    if target_format == "single":
+        if isinstance(outputs, dict):
+            return list(outputs.values())[0] if outputs else None
+        elif isinstance(outputs, (list, tuple)):
+            return outputs[0] if outputs else None
+        else:
+            return outputs
+    elif target_format == "list":
+        if isinstance(outputs, dict):
+            return list(outputs.values())
+        elif isinstance(outputs, (list, tuple)):
+            return outputs
+        else:
+            return [outputs]
+    elif target_format == "dict":
+        if isinstance(outputs, dict):
+            return outputs
+        elif isinstance(outputs, (list, tuple)):
+            return {f"output_{i}": out for i, out in enumerate(outputs)}
+        else:
+            return {"output_0": outputs}
+    
+    return outputs
+'''
+        
+        output_path = os.path.join(custom_modules_dir, 'utils.py')
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(utils_template)
+        print(f"✅ Generated basic utils template: {output_path}")
 
     def _get_basic_models_template(self) -> str:
         """Get basic models template."""
