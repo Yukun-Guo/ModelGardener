@@ -14,6 +14,30 @@ def preprocessing_name(param1=default1, param2=default2):
         return processed_data, label
     return wrapper
 
+The function signature should be: def function_name(param1=default1, param2=default2, ...)
+
+NOTE: With the new preprocessing pipeline, built-in preprocessing (sizing, normalization) 
+is applied BEFORE custom preprocessing functions. This ensures consistent behavior 
+and proper compatibility with 3D data and label preprocessing.
+"""
+
+import numpy as np
+import cv2
+import tensorflow as tf preprocessing functions for the Model Gardener application.
+
+All functions follow the nested wrapper pattern where:
+- Outer function: Accepts configuration parameters (will be set in config.yaml)
+- Inner wrapper function: Accepts (data, label) and returns (processed_data, label)
+- Configuration parameters are set at the outer function level
+
+Example usage pattern:
+def preprocessing_name(param1=default1, param2=default2):
+    def wrapper(data, label):
+        # Apply preprocessing logic here
+        processed_data = apply_preprocessing(data, param1, param2)
+        return processed_data, label
+    return wrapper
+
 The function signature should be: def function_name(param1=default1, param2=default2, ...):
 """
 
@@ -268,5 +292,122 @@ def resize_with_pad(target_height=224, target_width=224, pad_value=0):
             resized = padded
             
         return resized, label
+    
+    return wrapper
+
+
+def volume_slice_normalization(slice_wise=True, method='z_score'):
+    """
+    Apply normalization to 3D volumes on a slice-by-slice basis or globally.
+    Compatible with both 2D images and 3D volumes.
+    
+    Args:
+        slice_wise (bool): If True, normalize each slice separately. If False, normalize globally (default: True)
+        method (str): Normalization method - 'z_score', 'min_max', or 'robust' (default: 'z_score')
+    """
+    def wrapper(data, label):
+        if tf.is_tensor(data):
+            data_tensor = data
+        else:
+            data_tensor = tf.constant(data)
+            
+        original_shape = tf.shape(data_tensor)
+        
+        # Check if data is 3D (has depth dimension)
+        if len(original_shape) >= 4:  # [batch, depth, height, width, channels] or similar
+            if slice_wise:
+                # Process each slice separately
+                processed_slices = []
+                depth_dim = original_shape[1] if len(original_shape) == 5 else original_shape[0]
+                
+                for i in range(depth_dim):
+                    if len(original_shape) == 5:  # [batch, depth, height, width, channels]
+                        slice_data = data_tensor[:, i, :, :, :]
+                    else:  # [depth, height, width, channels]
+                        slice_data = data_tensor[i, :, :, :]
+                    
+                    # Apply normalization to this slice
+                    if method == 'z_score':
+                        mean_val = tf.reduce_mean(slice_data)
+                        std_val = tf.math.reduce_std(slice_data)
+                        std_val = tf.maximum(std_val, 1e-8)  # Avoid division by zero
+                        normalized_slice = (slice_data - mean_val) / std_val
+                    elif method == 'min_max':
+                        min_val = tf.reduce_min(slice_data)
+                        max_val = tf.reduce_max(slice_data)
+                        range_val = tf.maximum(max_val - min_val, 1e-8)
+                        normalized_slice = (slice_data - min_val) / range_val
+                    elif method == 'robust':
+                        # Use percentiles for robust normalization
+                        flattened = tf.reshape(slice_data, [-1])
+                        sorted_data = tf.sort(flattened)
+                        n = tf.shape(sorted_data)[0]
+                        q25 = sorted_data[n // 4]
+                        q75 = sorted_data[3 * n // 4]
+                        median = sorted_data[n // 2]
+                        iqr = tf.maximum(q75 - q25, 1e-8)
+                        normalized_slice = (slice_data - median) / iqr
+                    else:
+                        normalized_slice = slice_data
+                    
+                    processed_slices.append(normalized_slice)
+                
+                # Stack slices back together
+                if len(original_shape) == 5:
+                    normalized = tf.stack(processed_slices, axis=1)
+                else:
+                    normalized = tf.stack(processed_slices, axis=0)
+            else:
+                # Global normalization across entire volume
+                if method == 'z_score':
+                    mean_val = tf.reduce_mean(data_tensor)
+                    std_val = tf.math.reduce_std(data_tensor)
+                    std_val = tf.maximum(std_val, 1e-8)
+                    normalized = (data_tensor - mean_val) / std_val
+                elif method == 'min_max':
+                    min_val = tf.reduce_min(data_tensor)
+                    max_val = tf.reduce_max(data_tensor)
+                    range_val = tf.maximum(max_val - min_val, 1e-8)
+                    normalized = (data_tensor - min_val) / range_val
+                elif method == 'robust':
+                    flattened = tf.reshape(data_tensor, [-1])
+                    sorted_data = tf.sort(flattened)
+                    n = tf.shape(sorted_data)[0]
+                    q25 = sorted_data[n // 4]
+                    q75 = sorted_data[3 * n // 4]
+                    median = sorted_data[n // 2]
+                    iqr = tf.maximum(q75 - q25, 1e-8)
+                    normalized = (data_tensor - median) / iqr
+                else:
+                    normalized = data_tensor
+        else:
+            # 2D data - apply normalization globally
+            if method == 'z_score':
+                mean_val = tf.reduce_mean(data_tensor)
+                std_val = tf.math.reduce_std(data_tensor)
+                std_val = tf.maximum(std_val, 1e-8)
+                normalized = (data_tensor - mean_val) / std_val
+            elif method == 'min_max':
+                min_val = tf.reduce_min(data_tensor)
+                max_val = tf.reduce_max(data_tensor)
+                range_val = tf.maximum(max_val - min_val, 1e-8)
+                normalized = (data_tensor - min_val) / range_val
+            elif method == 'robust':
+                flattened = tf.reshape(data_tensor, [-1])
+                sorted_data = tf.sort(flattened)
+                n = tf.shape(sorted_data)[0]
+                q25 = sorted_data[n // 4]
+                q75 = sorted_data[3 * n // 4]
+                median = sorted_data[n // 2]
+                iqr = tf.maximum(q75 - q25, 1e-8)
+                normalized = (data_tensor - median) / iqr
+            else:
+                normalized = data_tensor
+        
+        # Convert back to original type if needed
+        if not tf.is_tensor(data):
+            normalized = normalized.numpy()
+            
+        return normalized, label
     
     return wrapper

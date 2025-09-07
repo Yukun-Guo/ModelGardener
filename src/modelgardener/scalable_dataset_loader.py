@@ -259,7 +259,9 @@ class ScalableDatasetLoader:
             raise
     
     def _apply_preprocessing(self, dataset: tf.data.Dataset, split: str) -> tf.data.Dataset:
-        """Apply preprocessing transformations."""
+        """Apply preprocessing transformations using the new preprocessing pipeline."""
+        
+        from .preprocessing_pipeline import create_preprocessing_function
         
         preprocessing_config = self.data_config.get('preprocessing', {})
         
@@ -268,52 +270,53 @@ class ScalableDatasetLoader:
             Apply preprocessing to images and labels.
             Supports both single tensors and tuples of tensors for multi-input/output models.
             """
-            def preprocess_single_image(image):
-                """Apply preprocessing to a single image tensor."""
-                # Apply normalization
-                norm_config = preprocessing_config.get('Normalization', {})
-                if norm_config.get('enabled', True):
-                    method = norm_config.get('method', 'zero-center')
-                    if method == 'zero-center':
-                        # Normalize to [-1, 1]
-                        image = (image - 0.5) * 2.0
-                    elif method == 'standardize':
-                        # Standardize using ImageNet statistics
-                        mean = tf.constant([0.485, 0.456, 0.406])
-                        std = tf.constant([0.229, 0.224, 0.225])
-                        image = (image - mean) / std
+            def preprocess_single_tensor(data_tensor, label_tensor):
+                """Apply preprocessing pipeline to a single data and label tensor pair."""
+                # Create preprocessing function using the new pipeline
+                preprocess_func = create_preprocessing_function(
+                    config=self.data_config,
+                    custom_functions=self.custom_functions
+                )
                 
-                # Apply resizing if specified
-                resize_config = preprocessing_config.get('Resizing', {})
-                if resize_config.get('enabled', False):
-                    target_size = resize_config.get('target_size', {})
-                    width = target_size.get('width', 224)
-                    height = target_size.get('height', 224)
-                    image = tf.image.resize(image, [height, width])
+                # Apply preprocessing pipeline (built-in first, then custom)
+                processed_data, processed_labels = preprocess_func(data_tensor, label_tensor)
                 
-                # Apply custom preprocessing functions
-                image = self._apply_custom_preprocessing(image, preprocessing_config)
-                
-                return image
+                return processed_data, processed_labels
             
             # Handle multi-input case (tuple of images)
             if isinstance(images, tuple):
-                processed_images = tuple(preprocess_single_image(img) for img in images)
+                # For multi-input, process each input separately but keep labels consistent
+                processed_images = []
+                processed_labels = labels  # Use original labels
+                
+                for i, img in enumerate(images):
+                    # For multi-input, we only preprocess the data, not duplicate label processing
+                    if i == 0:
+                        # Process first input with labels to get processed labels
+                        proc_img, processed_labels = preprocess_single_tensor(img, labels)
+                        processed_images.append(proc_img)
+                    else:
+                        # Process other inputs with dummy labels, only keep processed data
+                        proc_img, _ = preprocess_single_tensor(img, labels)
+                        processed_images.append(proc_img)
+                
+                processed_images = tuple(processed_images)
             else:
-                processed_images = preprocess_single_image(images)
+                # Single input case
+                processed_images, processed_labels = preprocess_single_tensor(images, labels)
             
-            # Labels can be passed through as-is (preprocessing typically doesn't modify labels)
-            # But we maintain the structure for multi-output support
-            return processed_images, labels
+            return processed_images, processed_labels
         
         if preprocessing_config:
             dataset = dataset.map(preprocess_fn, num_parallel_calls=tf.data.AUTOTUNE)
-            BRIDGE.log("Applied preprocessing transformations")
+            BRIDGE.log("Applied preprocessing transformations using new pipeline")
         
         return dataset
     
-    def _apply_custom_preprocessing(self, image: tf.Tensor, preprocessing_config: Dict[str, Any]) -> tf.Tensor:
-        """Apply custom preprocessing functions to an image."""
+    # NOTE: This method is deprecated in favor of the new preprocessing_pipeline.py
+    # Custom preprocessing is now handled within the preprocessing pipeline
+    def _apply_custom_preprocessing_deprecated(self, image: tf.Tensor, preprocessing_config: Dict[str, Any]) -> tf.Tensor:
+        """DEPRECATED: Apply custom preprocessing functions to an image."""
         
         # Get custom preprocessing functions
         custom_preprocessing = self.custom_functions.get('preprocessing', {})
