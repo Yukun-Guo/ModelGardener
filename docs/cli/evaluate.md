@@ -1,6 +1,6 @@
 # `evaluate` Command
 
-Comprehensive model evaluation with detailed metrics, visualizations, and performance analysis across multiple aspects of model performance.
+Evaluate trained machine learning models using test data and generate comprehensive performance metrics.
 
 ## Synopsis
 
@@ -10,43 +10,34 @@ mg evaluate [OPTIONS]
 
 ## Description
 
-The `evaluate` command provides comprehensive model assessment including:
+The `evaluate` command assesses model performance on evaluation data. It provides:
 
-- Detailed performance metrics and statistical analysis
-- Confusion matrices and classification reports
-- ROC curves and precision-recall analysis
-- Per-class performance breakdown
-- Model interpretability and visualization
-- Performance benchmarking and comparison
-- Export results in multiple formats
+- Model performance metrics calculation
+- Evaluation results in multiple output formats
+- Configurable data paths and model locations
+- Results saving and reporting
 
 ## Options
 
-### Model and Configuration
+### Required Options
 
-| Option | Short | Type | Description | Default |
-|--------|-------|------|-------------|---------|
-| `--config` | `-c` | `str` | Path to YAML configuration file | `config.yaml` |
-| `--model` | `-m` | `str` | Path to trained model file | From config |
-| `--weights` | `-w` | `str` | Path to model weights file | None |
+| Option | Short | Type | Description | Required |
+|--------|-------|------|-------------|----------|
+| `--config` | `-c` | `str` | Configuration file path | Yes |
 
-### Data Options
+### Optional Model and Data
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--test-dir` | `str` | Test dataset directory | From config |
-| `--batch-size` | `int` | Evaluation batch size | From config |
-| `--subset` | `str` | Data subset to evaluate (train/val/test) | `test` |
+| `--model-path` | `str` | Path to trained model file | From config |
+| `--data-path` | `str` | Path to evaluation data | From config |
 
-### Evaluation Scope
+### Output Options
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--metrics` | `str` | Comma-separated list of metrics to compute | `all` |
-| `--per-class` | `flag` | Include per-class analysis | True |
-| `--confusion-matrix` | `flag` | Generate confusion matrix | True |
-| `--roc-curves` | `flag` | Generate ROC curves | True |
-| `--precision-recall` | `flag` | Generate precision-recall curves | True |
+| `--output-format` | `str` | Output format (yaml, json) | `yaml` |
+| `--no-save` | `flag` | Do not save evaluation results | False |
 
 ### Visualization Options
 
@@ -56,107 +47,209 @@ The `evaluate` command provides comprehensive model assessment including:
 | `--interpretability` | `flag` | Include model interpretability analysis | False |
 | `--grad-cam` | `flag` | Generate Grad-CAM visualizations | False |
 | `--feature-maps` | `flag` | Visualize feature maps | False |
-
-### Output Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--output-dir` | `str` | Directory for evaluation outputs | `./evaluation_results` |
-| `--format` | `str` | Output format (json, csv, html, pdf) | `json,html` |
-| `--detailed-report` | `flag` | Generate detailed HTML report | True |
-| `--save-predictions` | `flag` | Save individual predictions | False |
-
-### Performance Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--benchmark` | `flag` | Include performance benchmarking | False |
-| `--timing` | `flag` | Measure inference timing | True |
-| `--memory-usage` | `flag` | Monitor memory usage | True |
-
 ## Usage Examples
 
 ### Basic Evaluation
 
 ```bash
-# Evaluate with default settings
-mg evaluate
+# Evaluate model with configuration file
+mg evaluate --config config.yaml
 
-# Evaluate specific model
-mg evaluate --model ./logs/models/best_model.keras
+# Evaluate with specific model path
+mg evaluate --config config.yaml --model-path ./models/trained_model.keras
 
-# Evaluate with custom config
-mg evaluate --config evaluation_config.yaml
+# Evaluate with custom data path
+mg evaluate --config config.yaml --data-path ./test_data
 ```
 
-### Custom Data Evaluation
+### Output Format Options
 
 ```bash
-# Evaluate on specific test set
-mg evaluate --test-dir ./custom_test_data
+# Save results in YAML format (default)
+mg evaluate --config config.yaml --output-format yaml
 
-# Evaluate on validation set
-mg evaluate --subset val
+# Save results in JSON format
+mg evaluate --config config.yaml --output-format json
 
-# Evaluate with custom batch size
-mg evaluate --batch-size 64
+# Don't save results to file
+mg evaluate --config config.yaml --no-save
 ```
 
-### Comprehensive Analysis
+### Complete Evaluation Workflow
 
 ```bash
-# Full evaluation with all features
+# Train, then evaluate
+mg train --config config.yaml
+mg evaluate --config config.yaml
+
+# Evaluate with specific paths
 mg evaluate \
-    --per-class \
-    --confusion-matrix \
-    --roc-curves \
-    --precision-recall \
-    --interpretability \
-    --grad-cam \
-    --benchmark
-
-# Quick evaluation with basic metrics
-mg evaluate --metrics accuracy,precision,recall,f1
+    --config config.yaml \
+    --model-path ./models/best_model.keras \
+    --data-path ./evaluation_data \
+    --output-format json
 ```
 
-### Visualization and Reporting
+### Evaluation After Training
 
 ```bash
-# Generate detailed HTML report
-mg evaluate --detailed-report --format html,pdf
+# Standard workflow
+mg create project_name
+cd project_name
+mg train --config config.yaml
+mg evaluate --config config.yaml
 
-# Save individual predictions
-mg evaluate --save-predictions --format csv
-
-# Custom output directory
-mg evaluate --output-dir ./experiment_1/evaluation
+# Custom evaluation setup
+mg evaluate \
+    --config config.yaml \
+    --model-path ./models/epoch_100_model.keras \
+    --data-path ./custom_test_set
 ```
 
-### Performance Benchmarking
+## Configuration Requirements
+
+The evaluate command requires a configuration file that includes:
+
+### Required Configuration Sections
+
+- **Data Configuration**: Test/evaluation data paths and parameters
+- **Model Configuration**: Model architecture and loading information
+- **Evaluation Configuration**: Metrics and evaluation settings
+
+### Example Configuration Structure
+
+```yaml
+configuration:
+  data:
+    test_dir: "./data/test"
+    data_loader:
+      name: "ImageDataGenerator"
+      parameters:
+        batch_size: 32
+        shuffle: false
+    
+  model:
+    model_family: "resnet"
+    model_name: "resnet50"
+    model_parameters:
+      classes: 10
+      
+  evaluation:
+    metrics:
+      - "accuracy"
+      - "precision"
+      - "recall"
+      - "f1_score"
+    save_results: true
+    output_dir: "./evaluation_results"
+```
+
+## Evaluation Process
+
+When you run the evaluate command, ModelGardener:
+
+1. **Loads Configuration**: Reads evaluation configuration and data paths
+2. **Loads Model**: Loads the trained model from specified path
+3. **Prepares Data**: Sets up evaluation data loaders
+4. **Runs Evaluation**: Executes model evaluation on test data
+5. **Calculates Metrics**: Computes performance metrics
+6. **Saves Results**: Outputs results in specified format
+
+### Evaluation Metrics
+
+ModelGardener calculates various performance metrics:
+
+- **Accuracy**: Overall classification accuracy
+- **Loss**: Model loss on evaluation data
+- **Per-class Metrics**: Class-specific performance measures
+- **Confusion Matrix**: Classification confusion matrix
+- **Custom Metrics**: Additional metrics from configuration
+
+## Output Files
+
+Evaluation generates several output files:
+
+### Results Files
+- **Evaluation Results**: Main metrics and performance data
+- **Detailed Logs**: Comprehensive evaluation logs
+- **Model Performance**: Per-class and overall statistics
+
+### Output Formats
+- **YAML**: Human-readable structured format
+- **JSON**: Machine-readable structured format
+- **Console Output**: Real-time evaluation progress
+
+### Example Output Structure
+```
+evaluation_results/
+├── metrics.yaml         # Main evaluation metrics
+├── detailed_results.yaml # Comprehensive results
+├── evaluation.log       # Evaluation process logs
+└── model_performance.yaml # Model-specific metrics
+```
+
+## Integration with Other Commands
+
+The evaluate command integrates with the ModelGardener workflow:
 
 ```bash
-# Performance benchmarking
-mg evaluate --benchmark --timing --memory-usage
+# Complete ML pipeline
+mg create project_name
+mg config config.yaml --epochs 100
+mg train --config config.yaml
+mg evaluate --config config.yaml
 
-# Interpretability analysis
-mg evaluate --interpretability --grad-cam --feature-maps
+# Model comparison workflow
+mg train --config config_v1.yaml
+mg evaluate --config config_v1.yaml --output-format json
+mg train --config config_v2.yaml  
+mg evaluate --config config_v2.yaml --output-format json
+
+# Prediction after evaluation
+mg evaluate --config config.yaml
+mg predict --config config.yaml --input test_image.jpg
 ```
 
-## Available Metrics
+## Tips and Best Practices
 
-### Classification Metrics
+1. **Use separate test data** that wasn't used during training
+2. **Save evaluation results** for model comparison and analysis
+3. **Use consistent data preprocessing** between training and evaluation
+4. **Monitor multiple metrics** to get a complete performance picture
+5. **Compare different models** using the same evaluation setup
+6. **Document evaluation settings** for reproducibility
 
-**Basic Metrics:**
-- Accuracy (overall and per-class)
-- Precision (macro, micro, weighted)
-- Recall (macro, micro, weighted)
-- F1-score (macro, micro, weighted)
-- Cohen's Kappa
-- Matthews Correlation Coefficient
+## Troubleshooting
 
-**Advanced Metrics:**
-- ROC AUC (one-vs-rest, one-vs-one)
-- Average Precision Score
+### Common Issues
+
+- **Model loading errors**: Check model path and format compatibility
+- **Data loading errors**: Verify evaluation data paths and structure
+- **Configuration errors**: Use `mg check config.yaml` to validate configuration
+- **Memory issues**: Reduce batch size for large datasets
+
+### Error Resolution
+
+```bash
+# Check configuration before evaluation
+mg check config.yaml
+mg evaluate --config config.yaml
+
+# Fix data path issues
+mg config config.yaml --val-dir /correct/path/to/test
+mg evaluate --config config.yaml
+
+# Use specific model path
+mg evaluate --config config.yaml --model-path ./models/specific_model.keras
+```
+
+## Related Commands
+
+- [`mg train`](train.md) - Train models for evaluation
+- [`mg predict`](predict.md) - Make predictions with evaluated models
+- [`mg config`](config.md) - Configure evaluation parameters
+- [`mg check`](check.md) - Validate configuration before evaluation
+- [`mg deploy`](deploy.md) - Deploy evaluated models
 - Log Loss
 - Balanced Accuracy
 - Top-k Accuracy (configurable k)

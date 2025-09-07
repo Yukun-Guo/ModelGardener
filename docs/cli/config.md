@@ -1,100 +1,197 @@
 # `config` Command
 
-Manage and validate ModelGardener configuration files with comprehensive validation, optimization suggestions, and interactive editing capabilities.
+Modify existing model configuration files interactively or through command-line arguments.
 
 ## Synopsis
 
 ```bash
-mg config [OPTIONS]
+mg config [config_file] [OPTIONS]
 ```
 
 ## Description
 
-The `config` command provides comprehensive configuration management including:
+The `config` command allows you to modify existing ModelGardener configuration files. You can update configuration values either interactively through a guided interface or by specifying individual parameters via command-line arguments.
 
-- Configuration file validation and syntax checking
-- Interactive configuration editing and generation
-- Configuration optimization and best practice suggestions
-- Template generation for different use cases
-- Configuration migration and version management
-- Batch validation for multiple configurations
-- Schema documentation and help
+Features:
+- Interactive configuration modification mode
+- Batch parameter updates via command-line arguments
+- Support for both YAML and JSON configuration formats
+- Automatic file format detection and conversion
+
+## Arguments
+
+| Argument | Type | Description | Required |
+|----------|------|-------------|----------|
+| `config_file` | `str` | Existing configuration file to modify | No* |
+
+*If not provided, the command will search the current directory for configuration files.
 
 ## Options
 
-### Basic Operations
+### General Options
 
 | Option | Short | Type | Description | Default |
 |--------|-------|------|-------------|---------|
-| `--file` | `-f` | `str` | Configuration file path | `config.yaml` |
-| `--validate` | `-v` | `flag` | Validate configuration file | False |
-| `--edit` | `-e` | `flag` | Interactive configuration editing | False |
-| `--show` | `-s` | `flag` | Display current configuration | False |
+| `--interactive` | `-i` | `flag` | Interactive configuration modification mode | False |
+| `--format` | `-f` | `str` | Output format (json, yaml) | Auto-detected |
 
-### Configuration Generation
+### Training Data Options
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--template` | `str` | Generate template (basic, advanced, custom) | None |
-| `--use-case` | `str` | Use case template (classification, detection, etc.) | None |
-| `--interactive` | `flag` | Interactive configuration builder | False |
-| `--from-model` | `str` | Generate config from existing model | None |
+| `--train-dir` | `str` | Training data directory | None |
+| `--val-dir` | `str` | Validation data directory | None |
+| `--batch-size` | `int` | Batch size for training | None |
 
-### Validation Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--strict` | `flag` | Enable strict validation mode | False |
-| `--check-paths` | `flag` | Validate file and directory paths | True |
-| `--check-dependencies` | `flag` | Check for required dependencies | True |
-| `--suggest-optimizations` | `flag` | Provide optimization suggestions | True |
-
-### Output Options
+### Model Configuration
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--output` | `str` | Output file for generated config | None |
-| `--format` | `str` | Output format (yaml, json) | `yaml` |
-| `--backup` | `flag` | Create backup before editing | True |
-| `--dry-run` | `flag` | Show changes without applying | False |
+| `--model-family` | `str` | Model family to use | None |
+| `--model-name` | `str` | Specific model name | None |
+| `--num-classes` | `int` | Number of output classes | None |
+| `--model-dir` | `str` | Model output directory | None |
+
+### Training Parameters
+
+| Option | Type | Description | Default |
+|--------|------|-------------|---------|
+| `--epochs` | `int` | Number of training epochs | None |
+| `--learning-rate` | `float` | Learning rate for optimizer | None |
+| `--optimizer` | `str` | Optimizer to use | None |
+| `--loss-function` | `str` | Loss function to use | None |
+
+### Hardware Configuration
+
+| Option | Type | Description | Default |
+|--------|------|-------------|---------|
+| `--num-gpus` | `int` | Number of GPUs to use | None |
 
 ## Usage Examples
 
-### Configuration Validation
+## Usage Examples
+
+### Interactive Configuration Modification
 
 ```bash
-# Validate default configuration
-mg config --validate
+# Modify configuration interactively
+mg config --interactive
 
-# Validate specific configuration file
-mg config --file custom_config.yaml --validate
+# Modify specific configuration file interactively  
+mg config config.yaml --interactive
 
-# Strict validation with path checking
-mg config \
-    --file config.yaml \
-    --validate \
-    --strict \
-    --check-paths \
-    --suggest-optimizations
+# Specify output format for interactive mode
+mg config --interactive --format json
 ```
 
-### Configuration Generation
+### Batch Configuration Updates
 
 ```bash
-# Generate basic configuration template
-mg config --template basic --output basic_config.yaml
+# Update training parameters
+mg config config.yaml 
+    --epochs 100 
+    --learning-rate 0.001 
+    --batch-size 32
 
-# Generate advanced configuration
-mg config --template advanced --output advanced_config.yaml
+# Update data directories
+mg config config.yaml 
+    --train-dir /path/to/train 
+    --val-dir /path/to/validation
 
-# Interactive configuration builder
-mg config --interactive --output my_config.yaml
+# Update model configuration
+mg config config.yaml 
+    --model-family resnet 
+    --model-name resnet50 
+    --num-classes 10
 
-# Use case specific template
-mg config \
-    --use-case image_classification \
-    --output classification_config.yaml
+# Update multiple parameters at once
+mg config config.yaml 
+    --model-name efficientnet_b0 
+    --batch-size 64 
+    --learning-rate 0.01 
+    --epochs 50 
+    --optimizer adam 
+    --num-gpus 2
 ```
+
+### Auto-detection and Format Conversion
+
+```bash
+# Auto-detect configuration file in current directory
+mg config --epochs 100 --learning-rate 0.001
+
+# Convert YAML to JSON while modifying
+mg config config.yaml --format json --batch-size 32
+
+# Convert JSON to YAML while modifying  
+mg config config.json --format yaml --model-name resnet18
+```
+
+## Configuration Parameters
+
+The config command can modify the following configuration sections:
+
+### Data Configuration
+- Training and validation data directories
+- Batch size for data loading
+- Data preprocessing parameters
+
+### Model Configuration  
+- Model family and specific model name
+- Number of output classes
+- Model architecture parameters
+
+### Training Configuration
+- Number of training epochs
+- Learning rate and optimizer settings
+- Loss function specification
+- Hardware configuration (GPU count)
+
+### Output Configuration
+- Model output directory
+- Checkpoint and logging settings
+
+## File Format Support
+
+The config command supports both YAML and JSON configuration formats:
+
+- **YAML**: Default format, human-readable with comments
+- **JSON**: Structured format, good for programmatic access
+- **Auto-detection**: Format automatically detected from file extension
+- **Format conversion**: Convert between formats using `--format` option
+
+## Integration with Other Commands
+
+The config command works seamlessly with other ModelGardener commands:
+
+```bash
+# Modify config then train
+mg config config.yaml --epochs 100 --learning-rate 0.001
+mg train --config config.yaml
+
+# Check configuration after modification
+mg config config.yaml --batch-size 64
+mg check config.yaml
+
+# Preview changes before training
+mg config config.yaml --model-name resnet50
+mg preview --config config.yaml
+```
+
+## Tips and Best Practices
+
+1. **Use interactive mode** for complex configurations or when unsure about parameter names
+2. **Batch updates** are efficient for scripting and automation
+3. **Auto-detection** works when you have a single config file in the directory
+4. **Format conversion** can help standardize configuration formats across projects
+5. **Combine with other commands** for complete workflow automation
+
+## Related Commands
+
+- [`mg create`](create.md) - Create new project configurations
+- [`mg check`](check.md) - Validate configuration files
+- [`mg train`](train.md) - Train models using configurations
+- [`mg preview`](preview.md) - Preview training setup and configuration
 
 ### Configuration Editing
 

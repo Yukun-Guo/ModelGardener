@@ -1,6 +1,6 @@
 # `train` Command
 
-Train machine learning models using comprehensive configuration with support for distributed training, custom functions, and advanced monitoring.
+Train machine learning models using ModelGardener configuration files with support for resuming from checkpoints.
 
 ## Synopsis
 
@@ -10,44 +10,27 @@ mg train [OPTIONS]
 
 ## Description
 
-The `train` command executes the training pipeline with:
+The `train` command executes the training pipeline based on a configuration file. It supports:
 
-- Advanced model architectures with custom function support
-- Distributed training across multiple GPUs
-- Comprehensive logging and monitoring
-- Real-time visualization and metrics tracking
-- Automatic checkpointing and model saving
-- Cross-validation and hyperparameter optimization
+- Training from configuration files (YAML/JSON)
+- Resuming training from checkpoints
+- Automatic model saving and logging
+- Progress tracking and metrics reporting
 
 ## Options
 
-### Configuration Options
+### Required Options
 
-| Option | Short | Type | Description | Default |
-|--------|-------|------|-------------|---------|
-| `--config` | `-c` | `str` | Path to YAML configuration file | `config.yaml` |
-| `--resume` | `-r` | `str` | Path to checkpoint to resume from | None |
-| `--override` | `-o` | `str` | Override config values (key=value) | None |
+| Option | Short | Type | Description | Required |
+|--------|-------|------|-------------|----------|
+| `--config` | `-c` | `str` | Configuration file path | Yes |
 
-### Training Control
+### Optional Training Control
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--epochs` | `int` | Number of training epochs | From config |
-| `--batch-size` | `int` | Training batch size | From config |
-| `--learning-rate` | `float` | Initial learning rate | From config |
-| `--validation-split` | `float` | Validation data split ratio | From config |
-
-### Model Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--model-family` | `str` | Model architecture family | From config |
-| `--model-name` | `str` | Specific model within family | From config |
-| `--pretrained` | `flag` | Use pretrained weights | From config |
-| `--fine-tune` | `flag` | Enable fine-tuning mode | False |
-
-### Distributed Training
+| `--resume` | `flag` | Resume training from checkpoint | False |
+| `--checkpoint` | `str` | Specific checkpoint file to resume from | None |
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
@@ -64,88 +47,57 @@ The `train` command executes the training pipeline with:
 | `--early-stopping` | `flag` | Enable early stopping | From config |
 | `--save-best-only` | `flag` | Save only best model | True |
 
-### Output and Logging
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--output-dir` | `str` | Directory for model outputs | From config |
-| `--log-level` | `str` | Logging level (DEBUG, INFO, WARNING) | `INFO` |
-| `--tensorboard` | `flag` | Enable TensorBoard logging | From config |
-| `--wandb` | `flag` | Enable Weights & Biases logging | False |
-
 ## Usage Examples
 
 ### Basic Training
 
 ```bash
-# Train with default configuration
-mg train
+# Train with configuration file
+mg train --config config.yaml
 
-# Train with specific config file
-mg train --config my_config.yaml
-
-# Train with parameter overrides
-mg train --epochs 200 --learning-rate 0.001
-```
-
-### Configuration Override
-
-```bash
-# Override specific configuration values
-mg train --override "training.epochs=300"
-mg train --override "model.model_parameters.classes=50"
-mg train --override "data.batch_size=64,training.learning_rate=0.001"
+# Train with different configuration file
+mg train --config my_training_config.yaml
 ```
 
 ### Resume Training
 
 ```bash
-# Resume from checkpoint
-mg train --resume ./logs/checkpoint_epoch_50.keras
+# Resume training from checkpoint
+mg train --config config.yaml --resume
 
-# Resume with different configuration
-mg train --resume ./logs/latest_checkpoint.keras --config new_config.yaml
+# Resume from specific checkpoint file
+mg train --config config.yaml --resume --checkpoint path/to/checkpoint.keras
 ```
 
-### Distributed Training
+### Common Training Workflows
 
 ```bash
-# Multi-GPU training
-mg train --gpus 4 --strategy mirror
+# Complete workflow: create, configure, train
+mg create my_project
+cd my_project
+mg config config.yaml --epochs 100 --batch-size 32
+mg train --config config.yaml
 
-# Mixed precision training
-mg train --mixed-precision --gpus 2
+# Resume training after interruption
+mg train --config config.yaml --resume
 
-# Multi-worker distributed training
-mg train --strategy multi_worker --gpus 8
+# Train multiple configurations
+mg train --config config_v1.yaml
+mg train --config config_v2.yaml --resume
 ```
 
-### Advanced Training Modes
+## Configuration Requirements
 
-```bash
-# Cross-validation training
-mg train --cross-validation 5
+The train command requires a valid configuration file that includes:
 
-# Hyperparameter tuning
-mg train --hyperparameter-tuning --epochs 100
+### Required Configuration Sections
 
-# Fine-tuning pre-trained model
-mg train --fine-tune --pretrained --learning-rate 0.0001
-```
+- **Data Configuration**: Training and validation data paths
+- **Model Configuration**: Model architecture and parameters  
+- **Training Configuration**: Training parameters like epochs, batch size, learning rate
+- **Output Configuration**: Model save paths and logging settings
 
-### Monitoring and Logging
-
-```bash
-# Enable comprehensive logging
-mg train --tensorboard --wandb --log-level DEBUG
-
-# Custom output directory
-mg train --output-dir ./experiments/run_001
-```
-
-## Configuration File Structure
-
-The training command uses a comprehensive YAML configuration:
+### Example Configuration Structure
 
 ```yaml
 configuration:
@@ -157,14 +109,126 @@ configuration:
       parameters:
         batch_size: 32
         shuffle: true
-        validation_split: 0.2
-        preprocessing_function: null
     
-    preprocessing:
-      resize:
-        height: 224
-        width: 224
-      normalization:
+  model:
+    model_family: "resnet"
+    model_name: "resnet50"
+    model_parameters:
+      classes: 10
+      input_shape: [224, 224, 3]
+      
+  training:
+    epochs: 100
+    learning_rate: 0.001
+    optimizer: "adam"
+    loss_function: "categorical_crossentropy"
+    
+  output:
+    model_dir: "./models"
+    logs_dir: "./logs"
+```
+
+## Training Process
+
+When you run the train command, ModelGardener:
+
+1. **Loads Configuration**: Reads and validates the configuration file
+2. **Prepares Data**: Sets up data loaders and preprocessing
+3. **Builds Model**: Creates the model architecture based on configuration
+4. **Configures Training**: Sets up optimizer, loss function, and callbacks
+5. **Executes Training**: Runs the training loop with progress monitoring
+6. **Saves Results**: Saves trained model and training logs
+
+### Checkpoint and Resume Functionality
+
+- **Automatic Checkpointing**: Models are automatically saved during training
+- **Resume Training**: Use `--resume` to continue from the last checkpoint
+- **Custom Checkpoints**: Specify `--checkpoint` to resume from a specific file
+- **Progress Preservation**: Training metrics and state are preserved across resume
+
+## Output and Logs
+
+Training generates several outputs:
+
+### Model Files
+- Trained model files (`.keras`, `.h5`)
+- Model architecture files
+- Training checkpoints
+
+### Logs and Metrics  
+- Training progress logs
+- Validation metrics
+- Loss and accuracy curves
+- TensorBoard logs (if configured)
+
+### Directory Structure
+```
+project/
+├── models/          # Trained model files
+├── logs/            # Training logs and metrics
+├── checkpoints/     # Training checkpoints
+└── config.yaml      # Configuration file
+```
+
+## Integration with Other Commands
+
+The train command works with other ModelGardener commands:
+
+```bash
+# Create project and train
+mg create project_name
+mg train --config project_name/config.yaml
+
+# Configure then train
+mg config config.yaml --epochs 200 --learning-rate 0.01
+mg train --config config.yaml
+
+# Train then evaluate
+mg train --config config.yaml
+mg evaluate --config config.yaml
+
+# Train then predict
+mg train --config config.yaml  
+mg predict --config config.yaml --input test_image.jpg
+```
+
+## Tips and Best Practices
+
+1. **Always use configuration files** for reproducible training
+2. **Enable resume functionality** for long training runs
+3. **Monitor training progress** through logs and metrics
+4. **Use appropriate batch sizes** based on your hardware
+5. **Save checkpoints frequently** to prevent data loss
+6. **Validate configuration** before starting long training runs
+
+## Troubleshooting
+
+### Common Issues
+
+- **Configuration errors**: Use `mg check config.yaml` to validate configuration
+- **Memory issues**: Reduce batch size in configuration
+- **Resume failures**: Check checkpoint file paths and compatibility
+- **Data loading errors**: Verify data directory paths in configuration
+
+### Error Resolution
+
+```bash
+# Check configuration before training
+mg check config.yaml
+mg train --config config.yaml
+
+# Fix data path issues
+mg config config.yaml --train-dir /correct/path/to/train
+mg train --config config.yaml
+```
+
+## Related Commands
+
+- [`mg create`](create.md) - Create new project with training configuration
+- [`mg config`](config.md) - Modify training configuration parameters
+- [`mg check`](check.md) - Validate configuration before training
+- [`mg evaluate`](evaluate.md) - Evaluate trained models
+- [`mg predict`](predict.md) - Make predictions with trained models
         rescale: 0.00392156862
       augmentation:
         rotation_range: 20

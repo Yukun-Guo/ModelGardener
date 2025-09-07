@@ -875,7 +875,7 @@ class ModelGardenerCLI:
         
         # Update README content based on what was actually generated
         package_file = "pyproject.toml" if use_pyproject else "requirements.txt"
-        scripts_note = "auto-generated" if auto_generate_scripts else "can be generated with --auto-generate-scripts"
+        scripts_note = "auto-generated" if auto_generate_scripts else "can be generated with --script"
         
         # Create README
         readme_content = f"""# {project_name} - ModelGardener Project
@@ -1522,8 +1522,8 @@ Examples:
     create_parser.add_argument('project_name', nargs='?', default=None, help='Name of the project (optional - uses current directory name if not provided)')
     create_parser.add_argument('--dir', '-d', default='.', help='Directory to create project in (ignored if no project_name provided)')
     create_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive project creation mode')
-    create_parser.add_argument('--auto-generate-scripts', action='store_true', default=True, help='Enable auto-generation of training scripts (default: True)')
-    create_parser.add_argument('--no-auto-generate-scripts', action='store_false', dest='auto_generate_scripts', help='Disable auto-generation of training scripts')
+    create_parser.add_argument('--script', action='store_true', default=True, help='Enable auto-generation of training scripts (default: True)')
+    create_parser.add_argument('--no-script', action='store_false', dest='script', help='Disable auto-generation of training scripts')
     create_parser.add_argument('--use-pyproject', action='store_true', default=True, help='Generate pyproject.toml instead of requirements.txt (default: True)')
     create_parser.add_argument('--use-requirements', action='store_false', dest='use_pyproject', help='Generate requirements.txt instead of pyproject.toml')
     # Add configuration arguments for batch mode (same as config)
@@ -1670,7 +1670,7 @@ def main():
                 kwargs['num_gpus'] = args.num_gpus
             
             # Get script generation options
-            auto_generate_scripts = getattr(args, 'auto_generate_scripts', True)
+            auto_generate_scripts = getattr(args, 'script', True)
             use_pyproject = getattr(args, 'use_pyproject', True)
             
             cli.create_project_template(

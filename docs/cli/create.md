@@ -34,8 +34,8 @@ The `create` command initializes a new machine learning project with:
 |--------|-------|------|-------------|---------|
 | `--dir` | `-d` | `str` | Directory to create project in | Current directory (`.`) |
 | `--interactive` | `-i` | `flag` | Enable interactive project creation mode | Disabled |
-| `--auto-generate-scripts` |  | `flag` | Enable auto-generation of training scripts | Enabled |
-| `--no-auto-generate-scripts` |  | `flag` | Disable auto-generation of training scripts | N/A |
+| `--script` |  | `flag` | Enable auto-generation of training scripts | Enabled |
+| `--no-script` |  | `flag` | Disable auto-generation of training scripts | N/A |
 | `--use-pyproject` |  | `flag` | Generate pyproject.toml instead of requirements.txt | Enabled |
 | `--use-requirements` |  | `flag` | Generate requirements.txt instead of pyproject.toml | N/A |
 

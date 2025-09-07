@@ -14,6 +14,7 @@ ModelGardener provides a comprehensive command-line interface for all machine le
 | [`deploy`](deploy.md) | Deploy models in multiple formats | ✅ Available |
 | [`models`](models.md) | List available model architectures | ✅ Available |
 | [`check`](check.md) | Validate configuration files | ✅ Available |
+| [`preview`](preview.md) | Preview data with preprocessing/augmentation | ✅ Available |
 
 ## Quick Start
 
@@ -25,9 +26,11 @@ mg <command> --help
 # Basic workflow
 mg create my_project --interactive
 cd my_project
+mg preview --config config.yaml  # Preview your data
 mg train --config config.yaml
 mg evaluate --config config.yaml
 mg predict --config config.yaml --input test_image.jpg
+mg deploy --config config.yaml --formats onnx tflite
 ```
 
 ## Global Options
@@ -43,6 +46,9 @@ All commands support these global options:
 - **[`create`](create.md)**: Initialize new ML projects with templates
 - **[`config`](config.md)**: Modify and validate configuration files
 - **[`check`](check.md)**: Validate configuration file syntax and structure
+
+### Data Operations
+- **[`preview`](preview.md)**: Preview data samples with preprocessing and augmentation visualization
 
 ### Model Operations
 - **[`train`](train.md)**: Train models with comprehensive pipeline

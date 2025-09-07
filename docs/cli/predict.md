@@ -1,6 +1,6 @@
 # `predict` Command
 
-Generate predictions on new data using trained models with support for batch processing, visualization, and multiple output formats.
+Generate predictions on new data using trained models with support for single images, batch processing, and configurable output.
 
 ## Synopsis
 
@@ -10,44 +10,36 @@ mg predict [OPTIONS]
 
 ## Description
 
-The `predict` command enables comprehensive prediction capabilities including:
+The `predict` command enables prediction on new data using trained models. It supports:
 
 - Single image and batch prediction processing
-- Confidence score analysis and uncertainty quantification
-- Top-k predictions with probability distributions
-- Prediction visualization and interpretation
-- Performance optimization for inference
-- Export predictions in multiple formats
-- Real-time prediction monitoring
+- Top-k predictions with confidence scores
+- Configurable batch sizes for performance optimization
+- Multiple output formats (JSON/YAML)
+- Custom model and input paths
 
 ## Options
 
-### Model and Configuration
+### Required Options
+
+| Option | Short | Type | Description | Required |
+|--------|-------|------|-------------|----------|
+| `--config` | `-c` | `str` | Configuration file path | Yes |
+| `--input` | `-i` | `str` | Input image file or directory | Yes |
+
+### Optional Model and Output
 
 | Option | Short | Type | Description | Default |
 |--------|-------|------|-------------|---------|
-| `--config` | `-c` | `str` | Path to YAML configuration file | `config.yaml` |
-| `--model` | `-m` | `str` | Path to trained model file | From config |
-| `--weights` | `-w` | `str` | Path to model weights file | None |
+| `--model-path` | | `str` | Path to trained model | From config |
+| `--output` | `-o` | `str` | Output file for results (JSON/YAML) | Console output |
 
-### Input Data
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--input` | `str` | Input file or directory for prediction | Required |
-| `--batch-size` | `int` | Batch size for processing | From config |
-| `--input-format` | `str` | Input format (image, directory, csv) | Auto-detect |
-
-### Prediction Options
+### Prediction Parameters
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--top-k` | `int` | Number of top predictions to return | 5 |
-| `--confidence-threshold` | `float` | Minimum confidence threshold | 0.0 |
-| `--uncertainty` | `flag` | Include uncertainty quantification | False |
-| `--ensemble` | `flag` | Use ensemble prediction (if multiple models) | False |
-
-### Visualization Options
+| `--top-k` | `int` | Number of top predictions to show | 5 |
+| `--batch-size` | `int` | Batch size for processing | 32 |
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
@@ -56,105 +48,268 @@ The `predict` command enables comprehensive prediction capabilities including:
 | `--overlay` | `flag` | Overlay predictions on images | False |
 | `--confidence-bars` | `flag` | Show confidence score bars | True |
 
-### Output Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--output-dir` | `str` | Directory for prediction outputs | `./predictions` |
-| `--output-format` | `str` | Output format (json, csv, txt, html) | `json` |
-| `--save-images` | `flag` | Save processed images | False |
-| `--detailed-output` | `flag` | Include detailed prediction information | False |
-
-### Performance Options
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--optimize` | `flag` | Enable inference optimization | True |
-| `--benchmark` | `flag` | Include performance benchmarking | False |
-| `--parallel` | `flag` | Enable parallel processing | True |
-| `--gpu-memory-limit` | `int` | GPU memory limit in MB | Auto |
-
 ## Usage Examples
 
 ### Single Image Prediction
 
 ```bash
 # Predict single image
-mg predict --input image.jpg
+mg predict --config config.yaml --input image.jpg
 
-# Predict with model specification
-mg predict --model ./logs/models/best_model.keras --input image.jpg
+# Predict with custom model path
+mg predict --config config.yaml --input image.jpg --model-path ./models/my_model.keras
 
-# Detailed prediction with visualization
+# Predict with top-3 results
+mg predict --config config.yaml --input image.jpg --top-k 3
+
+# Save prediction results to file
 mg predict \
+    --config config.yaml \
     --input image.jpg \
-    --visualize \
-    --grad-cam \
-    --top-k 10 \
-    --detailed-output
+    --output predictions.json \
+    --top-k 10
 ```
 
 ### Batch Directory Prediction
 
 ```bash
 # Predict entire directory
-mg predict --input ./test_images/
+mg predict --config config.yaml --input ./test_images/
 
-# Batch prediction with custom settings
+# Batch prediction with custom batch size
 mg predict \
+    --config config.yaml \
     --input ./large_dataset/ \
-    --batch-size 64 \
-    --confidence-threshold 0.8 \
-    --output-format csv
+    --batch-size 64
 
-# Optimized batch processing
+# Batch prediction with output file
 mg predict \
+    --config config.yaml \
     --input ./images/ \
-    --optimize \
-    --parallel \
-    --batch-size 128
+    --output batch_predictions.yaml \
+    --batch-size 16
 ```
 
-### Advanced Prediction Features
+### Custom Configuration and Output
 
 ```bash
-# Uncertainty quantification
+# Predict with YAML output
 mg predict \
+    --config config.yaml \
     --input image.jpg \
-    --uncertainty \
-    --top-k 5
+    --output results.yaml
 
-# Ensemble prediction
+# Predict with JSON output (default)
 mg predict \
-    --input ./test_set/ \
-    --ensemble \
-    --uncertainty
+    --config config.yaml \
+    --input image.jpg \
+    --output results.json
 
-# Performance benchmarking
-mg predict \
-    --input ./benchmark_set/ \
-    --benchmark \
-    --output-format json,html
+# Console output only (no file save)
+mg predict --config config.yaml --input image.jpg --top-k 5
 ```
 
-### Visualization and Analysis
+### Complete Prediction Workflow
 
 ```bash
-# Comprehensive visualization
-mg predict \
-    --input image.jpg \
-    --visualize \
-    --grad-cam \
-    --overlay \
-    --confidence-bars \
-    --save-images
+# Train, evaluate, then predict
+mg train --config config.yaml
+mg evaluate --config config.yaml
+mg predict --config config.yaml --input new_image.jpg
 
-# Batch visualization
+# Predict with different models
 mg predict \
-    --input ./images/ \
-    --visualize \
-    --output-dir ./predictions_with_viz
+    --config config.yaml \
+    --input test_image.jpg \
+    --model-path ./models/model_v1.keras \
+    --output v1_predictions.json
+
+mg predict \
+    --config config.yaml \
+    --input test_image.jpg \
+    --model-path ./models/model_v2.keras \
+    --output v2_predictions.json
 ```
+
+## Configuration Requirements
+
+The predict command requires a configuration file that includes:
+
+### Required Configuration Sections
+
+- **Model Configuration**: Model architecture and loading parameters
+- **Data Configuration**: Data preprocessing and input handling
+- **Prediction Configuration**: Prediction-specific settings
+
+### Example Configuration Structure
+
+```yaml
+configuration:
+  model:
+    model_family: "resnet"
+    model_name: "resnet50"
+    model_parameters:
+      classes: 10
+      input_shape: [224, 224, 3]
+    
+  data:
+    preprocessing:
+      resize:
+        height: 224
+        width: 224
+      normalization:
+        mean: [0.485, 0.456, 0.406]
+        std: [0.229, 0.224, 0.225]
+    
+  prediction:
+    batch_size: 32
+    top_k: 5
+    model_path: "./models/trained_model.keras"
+    class_names:
+      - "class_0"
+      - "class_1"
+      - "class_2"
+```
+
+## Prediction Process
+
+When you run the predict command, ModelGardener:
+
+1. **Loads Configuration**: Reads prediction configuration and model settings
+2. **Loads Model**: Loads the trained model from specified path
+3. **Prepares Input**: Preprocesses input images according to configuration
+4. **Runs Prediction**: Executes model inference on input data
+5. **Processes Results**: Formats predictions with confidence scores
+6. **Outputs Results**: Saves or displays prediction results
+
+### Input Types Supported
+
+- **Single Images**: JPG, PNG, and other common image formats
+- **Image Directories**: Batch processing of multiple images
+- **Preprocessed Data**: Images preprocessed according to training configuration
+
+### Output Format
+
+Prediction results include:
+
+- **Top-K Predictions**: Most likely classes with confidence scores
+- **Class Names**: Human-readable class labels
+- **Confidence Scores**: Probability values for each prediction
+- **Processing Metadata**: Input file names and processing information
+
+### Example Output Structure
+
+**JSON Format:**
+```json
+{
+  "image.jpg": {
+    "predictions": [
+      {
+        "class": "cat",
+        "confidence": 0.95,
+        "class_index": 1
+      },
+      {
+        "class": "dog", 
+        "confidence": 0.03,
+        "class_index": 2
+      }
+    ],
+    "top_prediction": "cat",
+    "processing_time": 0.12
+  }
+}
+```
+
+**YAML Format:**
+```yaml
+image.jpg:
+  predictions:
+    - class: cat
+      confidence: 0.95
+      class_index: 1
+    - class: dog
+      confidence: 0.03
+      class_index: 2
+  top_prediction: cat
+  processing_time: 0.12
+```
+
+## Performance Optimization
+
+### Batch Size Optimization
+
+- **Small Images**: Use larger batch sizes (64-128)
+- **Large Images**: Use smaller batch sizes (8-32)
+- **Memory Constraints**: Reduce batch size if out of memory errors occur
+
+### Processing Tips
+
+1. **Use appropriate batch sizes** for your hardware capabilities
+2. **Preprocess images consistently** with training preprocessing
+3. **Monitor memory usage** during batch prediction
+4. **Save results regularly** for large batch jobs
+5. **Use GPU acceleration** when available
+
+## Integration with Other Commands
+
+The predict command integrates with the ModelGardener workflow:
+
+```bash
+# Complete ML pipeline
+mg create project_name
+mg train --config config.yaml
+mg evaluate --config config.yaml
+mg predict --config config.yaml --input new_data.jpg
+
+# Model comparison predictions
+mg predict --config config.yaml --model-path ./models/model_v1.keras --input test.jpg --output v1.json
+mg predict --config config.yaml --model-path ./models/model_v2.keras --input test.jpg --output v2.json
+
+# Batch prediction workflow
+mg predict --config config.yaml --input ./validation_set/ --output validation_predictions.json
+mg predict --config config.yaml --input ./test_set/ --output test_predictions.json
+```
+
+## Tips and Best Practices
+
+1. **Use consistent preprocessing** between training and prediction
+2. **Save prediction results** for analysis and comparison
+3. **Monitor prediction confidence** to identify uncertain predictions
+4. **Use appropriate top-k values** based on your use case
+5. **Batch process large datasets** for efficiency
+6. **Validate input formats** match training data format
+
+## Troubleshooting
+
+### Common Issues
+
+- **Model loading errors**: Check model path and format compatibility
+- **Input format errors**: Verify image formats and preprocessing
+- **Memory errors**: Reduce batch size for large images or datasets
+- **Configuration errors**: Use `mg check config.yaml` to validate configuration
+
+### Error Resolution
+
+```bash
+# Check configuration before prediction
+mg check config.yaml
+mg predict --config config.yaml --input image.jpg
+
+# Fix model path issues
+mg predict --config config.yaml --input image.jpg --model-path ./models/correct_model.keras
+
+# Reduce batch size for memory issues
+mg predict --config config.yaml --input ./large_images/ --batch-size 8
+```
+
+## Related Commands
+
+- [`mg train`](train.md) - Train models for prediction
+- [`mg evaluate`](evaluate.md) - Evaluate model performance before prediction
+- [`mg config`](config.md) - Configure prediction parameters
+- [`mg deploy`](deploy.md) - Deploy models for production prediction
+- [`mg check`](check.md) - Validate configuration before prediction
 
 ## Input Formats
 
