@@ -1,23 +1,11 @@
 """
 Enhanced custom model architectures for ModelGardener.
 
-Supports:
-- Multi-input and multi-output models
-- 2D and 3D data
-- Multiple task types (classification, segmentation, object detection)
-
 This module contains custom model architectures that can be dynamically loaded
 into the ModelGardener application.
 """
 
 import keras
-from keras import layers
-from typing import Union, List, Dict, Tuple, Any
-from .utils import (
-    TaskType, DataDimension, detect_data_dimension, infer_task_type,
-    get_conv_layer, get_pooling_layer, create_task_specific_output
-)
-
 
 
 def create_adaptive_cnn(input_shape=(32, 32, 3), 

@@ -2000,34 +2000,126 @@ class ModelConfigCLI:
             print(f"❌ Error saving configuration: {str(e)}")
             return False
 
-    def validate_config(self, config: Dict[str, Any]) -> bool:
-        """Validate configuration structure."""
+    def normalize_config_format(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize configuration format to handle different input formats.
+        Auto-wraps simple configs that don't have the full structure.
+        """
+        # If config already has the expected structure, return as-is
+        if 'configuration' in config and 'metadata' in config:
+            return config
+        
+        # If config has configuration but no metadata, add minimal metadata
+        if 'configuration' in config and 'metadata' not in config:
+            config['metadata'] = {
+                'project_name': 'Auto-generated Project',
+                'version': '1.0.0',
+                'description': 'Configuration auto-normalized by ModelGardener CLI',
+                'custom_functions': {}
+            }
+            return config
+        
+        # If config looks like a raw configuration (has typical sections), wrap it
+        config_indicators = ['task_type', 'data', 'model', 'training', 'runtime']
+        has_config_structure = any(key in config for key in config_indicators)
+        
+        if has_config_structure:
+            print("🔄 Auto-wrapping simple configuration format...")
+            wrapped_config = {
+                'configuration': config.copy(),
+                'metadata': {
+                    'project_name': 'Auto-generated Project',
+                    'version': '1.0.0', 
+                    'description': 'Configuration auto-wrapped by ModelGardener CLI',
+                    'custom_functions': {}
+                }
+            }
+            
+            # Ensure task_type exists
+            if 'task_type' not in wrapped_config['configuration']:
+                wrapped_config['configuration']['task_type'] = 'image_classification'
+            
+            return wrapped_config
+        
+        # For other formats, try to be more permissive but add minimal structure
+        print("⚠️  Configuration format not recognized, adding minimal structure...")
+        minimal_config = {
+            'configuration': {
+                'task_type': config.get('task_type', 'image_classification'),
+                'data': config.get('data', {}),
+                'model': config.get('model', {}),
+                'training': config.get('training', {}),
+                'runtime': config.get('runtime', {})
+            },
+            'metadata': {
+                'project_name': 'Auto-generated Project',
+                'version': '1.0.0',
+                'description': 'Configuration normalized from custom format',
+                'custom_functions': {}
+            }
+        }
+        
+        # Copy any other top-level keys to configuration section
+        for key, value in config.items():
+            if key not in ['configuration', 'metadata']:
+                minimal_config['configuration'][key] = value
+        
+        return minimal_config
+
+    def validate_config(self, config: Dict[str, Any], strict: bool = False) -> bool:
+        """
+        Validate configuration structure with flexible format support.
+        
+        Args:
+            config: Configuration dictionary to validate
+            strict: If True, enforce strict format requirements (default: False)
+            
+        Returns:
+            bool: True if configuration is valid
+        """
+        if not strict:
+            # Normalize the configuration format first
+            config = self.normalize_config_format(config)
+        
         required_sections = ['configuration', 'metadata']
         required_config_sections = ['task_type', 'data', 'model', 'training', 'runtime']
         
         # Check top-level structure
         for section in required_sections:
             if section not in config:
-                print(f"❌ Missing required section: {section}")
-                return False
+                if strict:
+                    print(f"❌ Missing required section: {section}")
+                    return False
+                else:
+                    print(f"⚠️  Warning: Missing section '{section}', but continuing with flexible validation")
         
         # Check configuration sections
         config_section = config.get('configuration', {})
+        missing_sections = []
         for section in required_config_sections:
             if section not in config_section:
-                print(f"❌ Missing required configuration section: {section}")
+                missing_sections.append(section)
+        
+        if missing_sections:
+            if strict:
+                for section in missing_sections:
+                    print(f"❌ Missing required configuration section: {section}")
                 return False
+            else:
+                print(f"⚠️  Warning: Missing configuration sections: {', '.join(missing_sections)}")
+                print("💡 Continuing with flexible validation - some features may not work as expected")
         
-        # Validate data paths
-        data_config = config_section.get('data', {})
-        train_dir = data_config.get('train_dir', '')
-        val_dir = data_config.get('val_dir', '')
-        
-        if train_dir and not os.path.exists(train_dir):
-            print(f"⚠️  Warning: Training directory does not exist: {train_dir}")
-        
-        if val_dir and not os.path.exists(val_dir):
-            print(f"⚠️  Warning: Validation directory does not exist: {val_dir}")
+        # Validate data paths (only if data section exists)
+        if 'data' in config_section:
+            data_config = config_section.get('data', {})
+            train_dir = data_config.get('train_dir', '')
+            val_dir = data_config.get('val_dir', '')
+            
+            if train_dir and not os.path.exists(train_dir):
+                print(f"⚠️  Warning: Training directory does not exist: {train_dir}")
+            
+            if val_dir and not os.path.exists(val_dir):
+                print(f"⚠️  Warning: Validation directory does not exist: {val_dir}")
         
         print("✅ Configuration validation passed")
         return True
@@ -2045,29 +2137,113 @@ class ModelConfigCLI:
         data = config_section.get('data', {})
         print(f"Training Data: {data.get('train_dir', 'N/A')}")
         print(f"Validation Data: {data.get('val_dir', 'N/A')}")
-        print(f"Batch Size: {data.get('data_loader', {}).get('parameters', {}).get('batch_size', 'N/A')}")
         
-        # Model info
+        # Handle both simple and complex data loader formats
+        data_loader = data.get('data_loader', {})
+        if isinstance(data_loader, dict):
+            if 'parameters' in data_loader:
+                # Complex format
+                batch_size = data_loader.get('parameters', {}).get('batch_size', 'N/A')
+            else:
+                # Simple format
+                batch_size = data_loader.get('batch_size', 'N/A')
+        else:
+            batch_size = 'N/A'
+        print(f"Batch Size: {batch_size}")
+        
+        # Model info - handle both simple and complex formats
         model = config_section.get('model', {})
-        print(f"Model: {model.get('model_name', 'N/A')} ({model.get('model_family', 'N/A')})")
         
+        # Try different model selection formats
+        model_selection = model.get('model_selection', {})
+        if model_selection:
+            model_family = model_selection.get('selected_model_family', 'N/A')
+            model_name = model_selection.get('selected_model_name', 'N/A')
+        else:
+            # Fallback to simple format
+            model_family = model.get('model_family', 'N/A')
+            model_name = model.get('model_name', 'N/A')
+        
+        print(f"Model: {model_name} ({model_family})")
+        
+        # Input shape
         model_params = model.get('model_parameters', {})
         input_shape = model_params.get('input_shape', {})
-        print(f"Input Shape: {input_shape.get('height', 'N/A')}x{input_shape.get('width', 'N/A')}x{input_shape.get('channels', 'N/A')}")
+        height = input_shape.get('height', 'N/A')
+        width = input_shape.get('width', 'N/A')
+        channels = input_shape.get('channels', 'N/A')
+        print(f"Input Shape: {height}x{width}x{channels}")
         print(f"Classes: {model_params.get('classes', 'N/A')}")
         
-        # Optimizer info
-        optimizer = model.get('optimizer', {}).get('Optimizer Selection', {})
-        print(f"Optimizer: {optimizer.get('selected_optimizer', 'N/A')}")
-        print(f"Learning Rate: {optimizer.get('learning_rate', 'N/A')}")
+        # Optimizer info - handle different formats
+        optimizer_info = 'N/A'
+        learning_rate = 'N/A'
         
-        # Loss function info
-        loss = model.get('loss_functions', {}).get('Loss Selection', {})
-        print(f"Loss Function: {loss.get('selected_loss', 'N/A')}")
+        # Try complex format first
+        optimizer_config = model.get('optimizer', {})
+        if 'Optimizer Selection' in optimizer_config:
+            optimizer_selection = optimizer_config['Optimizer Selection']
+            optimizer_info = optimizer_selection.get('selected_optimizer', 'N/A')
+            learning_rate = optimizer_selection.get('learning_rate', 'N/A')
+        elif 'compilation' in model:
+            # Alternative complex format
+            compilation = model['compilation']
+            if 'optimizer' in compilation:
+                opt = compilation['optimizer']
+                optimizer_info = opt.get('name', 'N/A')
+                learning_rate = opt.get('parameters', {}).get('learning_rate', 'N/A')
+        else:
+            # Simple format
+            optimizer_info = optimizer_config.get('name', 'N/A')
+            learning_rate = optimizer_config.get('learning_rate', 'N/A')
+        
+        print(f"Optimizer: {optimizer_info}")
+        print(f"Learning Rate: {learning_rate}")
+        
+        # Loss function
+        loss_info = 'N/A'
+        loss_functions = model.get('loss_functions', {})
+        if 'Loss Selection' in loss_functions:
+            loss_info = loss_functions['Loss Selection'].get('selected_loss', 'N/A')
+        elif 'compilation' in model and 'loss' in model['compilation']:
+            loss_info = model['compilation']['loss'].get('name', 'N/A')
+        else:
+            loss_info = model.get('loss', {}).get('name', 'N/A')
+        
+        print(f"Loss Function: {loss_info}")
         
         # Metrics info
-        metrics = model.get('metrics', {}).get('Metrics Selection', {})
-        print(f"Metrics: {metrics.get('selected_metrics', 'N/A')}")
+        metrics_info = 'N/A'
+        metrics = model.get('metrics', {})
+        if 'Metrics Selection' in metrics:
+            metrics_info = metrics['Metrics Selection'].get('selected_metrics', 'N/A')
+        elif 'compilation' in model and 'metrics' in model['compilation']:
+            metrics_list = model['compilation']['metrics']
+            if isinstance(metrics_list, list):
+                metrics_info = ', '.join(metrics_list)
+            else:
+                metrics_info = str(metrics_list)
+        else:
+            # Simple format
+            if isinstance(metrics, list):
+                metrics_info = ', '.join(metrics)
+            else:
+                metrics_info = str(metrics) if metrics else 'N/A'
+        
+        print(f"Metrics: {metrics_info}")
+        
+        # Training info
+        training = config_section.get('training', {})
+        epochs = training.get('epochs', 'N/A')
+        
+        print(f"Epochs: {epochs}")
+        
+        # Runtime info
+        runtime = config_section.get('runtime', {})
+        print(f"Model Directory: {runtime.get('model_dir', 'N/A')}")
+        print(f"GPUs: {runtime.get('num_gpus', 'N/A')}")
+        
+        print("=" * 50)
         
         # Training info
         training = config_section.get('training', {})
