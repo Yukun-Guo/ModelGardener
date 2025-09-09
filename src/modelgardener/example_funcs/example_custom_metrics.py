@@ -24,3 +24,11 @@ def example_metric_1(param1=1.0, param2=0.5):
         metric_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
         return metric_value
     return wrapper
+
+
+def example_metric_2(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example metric calculation logic
+        metric_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
+        return metric_value
+    return wrapper

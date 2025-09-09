@@ -11,7 +11,7 @@ CallBack class requirements:
 
 import keras
 
-class ExampleCallbackClass(keras.callbacks.Callback):
+class ExampleCallbackClass1(keras.callbacks.Callback):
     """
     Example custom callback class.
     """

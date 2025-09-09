@@ -11,53 +11,54 @@ except ImportError:
     ScriptGenerator = None
 
 def is_model_function(obj, name: str) -> bool:
-        """Check if an object is likely a model function."""
-        try:
-            if inspect.isfunction(obj):
-                # Check if function signature includes typical model parameters
-                sig = inspect.signature(obj)
-                params = list(sig.parameters.keys())
+    """Check if an object is a model function based on example_funcs pattern."""
+    try:
+        if inspect.isfunction(obj):
+            # Check function signature for model parameters
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
+            
+            # Model functions should have input_shape and/or num_classes parameters
+            has_input_shape = 'input_shape' in params
+            has_num_classes = 'num_classes' in params or 'classes' in params
+            
+            # Check function name patterns
+            name_lower = name.lower()
+            model_name_patterns = ['model', 'net', 'network', 'cnn', 'resnet', 'efficientnet', 'mobilenet', 'unet']
+            has_model_name = any(pattern in name_lower for pattern in model_name_patterns)
+            
+            # Check docstring for model-related keywords
+            docstring = inspect.getdoc(obj) or ""
+            docstring_lower = docstring.lower()
+            model_keywords = ['model', 'architecture', 'neural network', 'keras.model', 'returns', 'keras model']
+            has_model_keywords = any(keyword in docstring_lower for keyword in model_keywords)
+            
+            # Must have model parameters OR model name/keywords
+            return (has_input_shape or has_num_classes) or (has_model_name and has_model_keywords)
+            
+        elif inspect.isclass(obj):
+            # Check if class looks like a model class
+            name_lower = name.lower()
+            class_patterns = ['model', 'net', 'network', 'cnn', 'classifier']
+            return any(pattern in name_lower for pattern in class_patterns)
                 
-                # Look for common model function patterns
-                model_indicators = [
-                    'input_shape', 'num_classes', 'classes', 'inputs', 'outputs',
-                    'input_tensor', 'model', 'layers', 'activation'
-                ]
-                
-                # Check if function has model-related parameters
-                has_model_params = any(indicator in ' '.join(params).lower() for indicator in model_indicators)
-                
-                # Check function name patterns
-                name_lower = name.lower()
-                name_patterns = [
-                    'create', 'build', 'get', 'make', 'model', 'net', 'network',
-                    'cnn', 'resnet', 'efficientnet', 'mobilenet', 'unet'
-                ]
-                has_model_name = any(pattern in name_lower for pattern in name_patterns)
-                
-                return has_model_params or has_model_name
-                
-            elif inspect.isclass(obj):
-                # Check if class looks like a model class
-                name_lower = name.lower()
-                class_patterns = ['model', 'net', 'network', 'cnn', 'classifier']
-                return any(pattern in name_lower for pattern in class_patterns)
-                
-        except Exception:
-            pass
-        
-        return False
+    except Exception:
+        pass
+    
+    return False
 
 def is_data_loader_function(obj, name: str) -> bool:
     """
-    Check if an object is a valid data loader function or class.
+    Check if an object is a data loader function based on example_funcs wrapper pattern.
+    
+    Pattern: outer function with config params, returns wrapper function that takes (train_dir, val_dir)
     
     Args:
         obj: The object to check
         name: Name of the object
         
     Returns:
-        bool: True if it's a valid data loader function/class
+        bool: True if it's a valid data loader function
     """
     import inspect
     
@@ -65,47 +66,41 @@ def is_data_loader_function(obj, name: str) -> bool:
     if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'os', 'sys', 'train_test_split', 'pd', 'pandas']:
         return False
     
-    # Skip objects from imported modules
+    # Skip objects from imported modules, but allow dynamically loaded modules and custom modules
     if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
-        if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+        # Skip standard library and common third-party modules
+        skip_modules = ['builtins', 'numpy', 'tensorflow', 'keras', 'pandas', 'sklearn', 'torch', 'torchvision']
+        if any(obj.__module__.startswith(mod) for mod in skip_modules):
             return False
         
     try:
         if inspect.isfunction(obj):
-            # Check function signature for data loader patterns
-            sig = inspect.signature(obj)
-            params = list(sig.parameters.keys())
-            
-            # Must have data-related parameters
-            data_loader_indicators = [
-                'data_dir', 'batch_size', 'split', 'train_dir', 'val_dir',
-                'dataset', 'images', 'labels', 'data_path', 'file_path',
-                'csv_path', 'npz_path', 'tfrecord_path'
-            ]
-            
-            # Check if function has data loader-like parameters
-            has_data_params = any(indicator in param.lower() for param in params for indicator in data_loader_indicators)
-            
-            # Must return tf.data.Dataset or similar
-            return_annotation = sig.return_annotation
-            valid_return_type = False
-            if return_annotation != inspect.Signature.empty:
-                return_type_str = str(return_annotation)
-                if 'tf.data.Dataset' in return_type_str or 'Dataset' in return_type_str or 'DatasetV2' in return_type_str:
-                    valid_return_type = True
+            # Check function name patterns
+            name_lower = name.lower()
+            data_loader_patterns = ['loader', 'data', 'dataset', 'load', 'reader', 'importer']
+            has_data_loader_name = any(pattern in name_lower for pattern in data_loader_patterns)
             
             # Check docstring for data loader keywords
             docstring = inspect.getdoc(obj) or ""
             docstring_lower = docstring.lower()
-            data_loader_keywords = ['data loader', 'dataset', 'load data', 'data loading']
-            has_data_keywords = any(keyword in docstring_lower for keyword in data_loader_keywords)
+            data_loader_keywords = ['data loader', 'dataset', 'load data', 'wrapper', 'tf.data', 'training and validation']
+            has_data_loader_keywords = any(keyword in docstring_lower for keyword in data_loader_keywords)
             
-            # Exclude simple utility functions like invalid_data_function
-            if len(params) < 2:
-                return False
+            # Check function signature for data loader configuration parameters
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
             
-            # Must have either data params + valid return type OR data keywords + data params
-            return (has_data_params and valid_return_type) or (has_data_keywords and has_data_params)
+            # Data loader wrapper pattern: has config params like batch_size, shuffle, etc.
+            # Should NOT have train_dir/val_dir (those are in the inner wrapper)
+            config_indicators = ['batch_size', 'shuffle', 'buffer_size', 'validation_split', 'epochs', 'seed']
+            has_config_params = any(indicator in param.lower() for param in params for indicator in config_indicators)
+            
+            # Should not have data path params (those are in inner wrapper)
+            path_indicators = ['train_dir', 'val_dir', 'data_dir', 'path']
+            has_no_path_params = not any(indicator in param.lower() for param in params for indicator in path_indicators)
+            
+            # Data loader functions must have name/keywords AND follow wrapper pattern (config params OR no path params)
+            return (has_data_loader_name or has_data_loader_keywords) and (has_config_params and has_no_path_params)
             
         elif inspect.isclass(obj):
             # Check if class has data loader-like methods
@@ -119,19 +114,7 @@ def is_data_loader_function(obj, name: str) -> bool:
             class_keywords = ['data loader', 'dataset', 'load data', 'dataloader']
             has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
             
-            # Check constructor parameters
-            init_method = getattr(obj, '__init__', None)
-            has_data_params = False
-            if init_method:
-                try:
-                    sig = inspect.signature(init_method)
-                    params = list(sig.parameters.keys())
-                    data_indicators = ['data_dir', 'batch_size', 'data_path', 'npz_path', 'csv_path']
-                    has_data_params = any(indicator in param.lower() for param in params for indicator in data_indicators)
-                except:
-                    pass
-            
-            return (has_loader_methods or has_class_keywords) and has_data_params
+            return has_loader_methods or has_class_keywords
             
     except Exception:
         return False
@@ -140,7 +123,9 @@ def is_data_loader_function(obj, name: str) -> bool:
 
 def is_loss_function( obj, name: str) -> bool:
     """
-    Check if an object is a valid loss function.
+    Check if an object is a loss function based on example_funcs wrapper pattern.
+    
+    Pattern: outer function with config params, returns wrapper function that takes (y_true, y_pred)
     
     Args:
         obj: The object to check
@@ -155,28 +140,37 @@ def is_loss_function( obj, name: str) -> bool:
     if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'keras', 'K']:
         return False
     
-    # Skip objects from imported modules (except custom ones)
+    # Skip objects from imported modules, but allow dynamically loaded modules and custom modules
     if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
-        if not obj.__module__.startswith('custom') and 'custom' not in obj.__module__:
+        # Skip standard library and common third-party modules
+        skip_modules = ['builtins', 'numpy', 'tensorflow', 'keras', 'pandas', 'sklearn', 'torch', 'torchvision']
+        if any(obj.__module__.startswith(mod) for mod in skip_modules):
             return False
         
     try:
         if inspect.isfunction(obj):
-            # Check function signature for loss function patterns
-            sig = inspect.signature(obj)
-            params = list(sig.parameters.keys())
-            
-            # Must have typical loss function parameters
-            loss_indicators = ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction', 'labels', 'logits']
-            has_loss_params = len(params) >= 2 and any(indicator in param.lower() for param in params for indicator in loss_indicators)
+            # Check function name for loss patterns (more lenient matching)
+            name_lower = name.lower()
+            loss_name_patterns = ['loss', 'cost', 'error', 'distance', 'divergence', 'mse', 'mae', 'bce', 'crossentropy', 'example_loss']
+            has_loss_name = any(pattern in name_lower for pattern in loss_name_patterns)
             
             # Check docstring for loss function keywords
             docstring = inspect.getdoc(obj) or ""
             docstring_lower = docstring.lower()
-            loss_keywords = ['loss', 'cost', 'error', 'distance', 'divergence']
+            loss_keywords = ['loss', 'cost', 'error', 'distance', 'divergence', 'wrapper', 'y_true', 'y_pred', 'loss_value', 'loss calculation']
             has_loss_keywords = any(keyword in docstring_lower for keyword in loss_keywords)
             
-            return has_loss_params or has_loss_keywords
+            # Check function signature for wrapper pattern
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
+            
+            # Wrapper pattern: should NOT have y_true, y_pred in outer function
+            # These should be in the inner wrapper function
+            execution_indicators = ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction', 'labels', 'logits']
+            has_no_execution_params = not any(indicator in param.lower() for param in params for indicator in execution_indicators)
+            
+            # Loss functions MUST have appropriate name patterns AND follow wrapper pattern
+            return has_loss_name and has_no_execution_params
             
         elif inspect.isclass(obj):
             # Check if class inherits from typical loss classes or has loss-like methods
@@ -235,29 +229,45 @@ def is_improved_template_config( config: Dict[str, Any]) -> bool:
         return False
 
 def is_preprocessing_function( obj, name: str) -> bool:
-    """Check if an object is likely a preprocessing function (including wrapper pattern)."""
+    """
+    Check if an object is a preprocessing function based on example_funcs wrapper pattern.
+    
+    Pattern: outer function with config params, returns wrapper function that takes (data, label)
+    """
     try:
         if inspect.isfunction(obj):
             # Check function name patterns
             name_lower = name.lower()
             name_patterns = [
-                'preprocess', 'process', 'transform', 'normalize', 'resize', 'augment',
-                'enhance', 'filter', 'convert', 'scale', 'adjust', 'crop', 'pad', 'tf_', 'cv_',
-                'gamma', 'histogram', 'edge', 'adaptive', 'enhancement', 'correction'
+                'preprocess', 'process', 'transform', 'normalize', 'resize', 'scale', 
+                'adjust', 'crop', 'pad', 'enhance', 'filter', 'convert'
             ]
             has_preprocessing_name = any(pattern in name_lower for pattern in name_patterns)
             
             # Check docstring for preprocessing-related keywords
-            has_preprocessing_keywords = False
-            if obj.__doc__:
-                docstring_lower = obj.__doc__.lower()
-                preprocessing_keywords = ['preprocess', 'transform', 'normalize', 'resize', 'enhance', 'filter', 'gamma', 'histogram', 'edge', 'contrast', 'brightness', 'correction', 'adaptive']
-                has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
+            docstring = inspect.getdoc(obj) or ""
+            docstring_lower = docstring.lower()
+            preprocessing_keywords = [
+                'preprocess', 'transform', 'normalize', 'resize', 'enhance', 'filter', 
+                'wrapper', 'data', 'label', 'processed_data', 'processed_label'
+            ]
+            has_preprocessing_keywords = any(keyword in docstring_lower for keyword in preprocessing_keywords)
             
-            # Accept functions with preprocessing names/keywords regardless of signature
-            # This supports both wrapper pattern and legacy pattern
-            if has_preprocessing_name or has_preprocessing_keywords:
-                return True
+            # Check function signature for wrapper pattern
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
+            
+            # Wrapper pattern: should NOT have data, label in outer function
+            # These should be in the inner wrapper function
+            execution_indicators = ['data', 'image', 'img', 'input', 'x', 'array', 'tensor', 'label', 'labels']
+            has_no_execution_params = not any(indicator in param.lower() for param in params for indicator in execution_indicators)
+            
+            # Should have configuration parameters (or no parameters for simple cases)
+            config_indicators = ['param', 'size', 'scale', 'factor', 'threshold', 'alpha', 'beta', 'gamma']
+            has_config_params = any(indicator in param.lower() for param in params for indicator in config_indicators) or len(params) == 0
+            
+            # Preprocessing functions must have name/keywords AND follow wrapper pattern
+            return (has_preprocessing_name or has_preprocessing_keywords) and has_no_execution_params
             
     except Exception:
         pass
@@ -266,7 +276,9 @@ def is_preprocessing_function( obj, name: str) -> bool:
 
 def is_augmentation_function( obj, name: str) -> bool:
     """
-    Check if an object is a valid augmentation function (including wrapper pattern).
+    Check if an object is an augmentation function based on example_funcs wrapper pattern.
+    
+    Pattern: outer function with config params, returns wrapper function that takes (data, label)
     
     Args:
         obj: The object to check
@@ -295,21 +307,36 @@ def is_augmentation_function( obj, name: str) -> bool:
         augmentation_patterns = [
             'augment', 'flip', 'rotate', 'brightness', 'contrast', 'blur', 'noise',
             'crop', 'zoom', 'shift', 'color', 'hue', 'saturation', 'jitter',
-            'distort', 'elastic', 'tf_', 'cv_', 'random', 'transform'
+            'distort', 'elastic', 'random', 'transform'
         ]
         has_augmentation_name = any(pattern in name_lower for pattern in augmentation_patterns)
         
         # Check docstring for augmentation-related keywords  
-        has_augmentation_keywords = False
-        if obj.__doc__:
-            docstring_lower = obj.__doc__.lower()
-            augmentation_keywords = ['augment', 'random', 'flip', 'rotate', 'brightness', 'contrast', 'blur', 'noise', 'crop', 'zoom', 'distort', 'transform', 'color', 'hue', 'saturation']
-            has_augmentation_keywords = any(keyword in docstring_lower for keyword in augmentation_keywords)
+        docstring = inspect.getdoc(obj) or ""
+        docstring_lower = docstring.lower()
+        augmentation_keywords = [
+            'augment', 'random', 'flip', 'rotate', 'brightness', 'contrast', 'blur', 'noise', 
+            'crop', 'zoom', 'distort', 'transform', 'color', 'hue', 'saturation', 'wrapper',
+            'data', 'label', 'modified_data', 'modified_label'
+        ]
+        has_augmentation_keywords = any(keyword in docstring_lower for keyword in augmentation_keywords)
         
-        # Accept functions with augmentation names/keywords regardless of signature
-        # This supports both wrapper pattern and legacy pattern
-        if has_augmentation_name or has_augmentation_keywords:
-            return True
+        # Check function signature for wrapper pattern
+        if inspect.isfunction(obj):
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
+            
+            # Wrapper pattern: should NOT have data, label in outer function
+            # These should be in the inner wrapper function
+            execution_indicators = ['data', 'image', 'img', 'input', 'x', 'array', 'tensor', 'label', 'labels']
+            has_no_execution_params = not any(indicator in param.lower() for param in params for indicator in execution_indicators)
+            
+            # Should have configuration parameters (or no parameters for simple cases)
+            config_indicators = ['param', 'probability', 'rate', 'factor', 'range', 'alpha', 'beta', 'gamma', 'angle', 'scale']
+            has_config_params = any(indicator in param.lower() for param in params for indicator in config_indicators) or len(params) == 0
+            
+            # Augmentation functions must have name/keywords AND follow wrapper pattern
+            return (has_augmentation_name or has_augmentation_keywords) and has_no_execution_params
             
     except Exception:
         return False
@@ -318,7 +345,9 @@ def is_augmentation_function( obj, name: str) -> bool:
 
 def is_callback_function(obj, name: str) -> bool:
     """
-    Check if an object is a valid callback function or class.
+    Check if an object is a callback function or class based on example_funcs pattern.
+    
+    Pattern: classes inheriting from keras.callbacks.Callback
     
     Args:
         obj: The object to check
@@ -337,7 +366,7 @@ def is_callback_function(obj, name: str) -> bool:
         return False
     
     try:
-        if inspect.isfunction(obj) or inspect.isclass(obj):
+        if inspect.isclass(obj):
             # Check function/class name patterns for callbacks
             name_lower = name.lower()
             callback_patterns = [
@@ -350,38 +379,56 @@ def is_callback_function(obj, name: str) -> bool:
             has_callback_name = any(pattern in name_lower for pattern in callback_patterns)
             
             # Check docstring for callback-related keywords
-            has_callback_keywords = False
-            if hasattr(obj, '__doc__') and obj.__doc__:
-                docstring_lower = obj.__doc__.lower()
-                callback_keywords = [
-                    'callback', 'epoch', 'batch', 'training', 'monitor', 'metric',
-                    'checkpoint', 'early stopping', 'learning rate', 'tensorboard',
-                    'csv logger', 'progress', 'history', 'validation'
-                ]
-                has_callback_keywords = any(keyword in docstring_lower for keyword in callback_keywords)
+            docstring = inspect.getdoc(obj) or ""
+            docstring_lower = docstring.lower()
+            callback_keywords = [
+                'callback', 'epoch', 'batch', 'training', 'monitor', 'metric',
+                'checkpoint', 'early stopping', 'learning rate', 'tensorboard',
+                'csv logger', 'progress', 'history', 'validation'
+            ]
+            has_callback_keywords = any(keyword in docstring_lower for keyword in callback_keywords)
             
             # For classes, check if it inherits from Keras callback
-            if inspect.isclass(obj):
-                try:
-                    import tensorflow as tf
-                    if issubclass(obj, tf.keras.callbacks.Callback):
-                        return True
-                except (ImportError, TypeError):
-                    pass
+            try:
+                import tensorflow as tf
+                # Check inheritance from tf.keras.callbacks.Callback
+                if issubclass(obj, tf.keras.callbacks.Callback):
+                    return True
+            except (ImportError, TypeError):
+                pass
             
+            try:
+                import keras
+                # Check inheritance from keras.callbacks.Callback  
+                if issubclass(obj, keras.callbacks.Callback):
+                    return True
+            except (ImportError, TypeError):
+                pass
+            
+            # Check if class has typical callback methods
+            methods = [method for method in dir(obj) if not method.startswith('_')]
+            callback_methods = ['on_epoch_end', 'on_batch_end', 'on_train_begin', 'on_train_end', 'on_epoch_begin', 'on_batch_begin']
+            has_callback_methods = any(method in methods for method in callback_methods)
+            
+            return has_callback_name or has_callback_keywords or has_callback_methods
+            
+        elif inspect.isfunction(obj):
             # For functions, check if it returns a callback-like object
-            if inspect.isfunction(obj):
-                try:
-                    sig = inspect.signature(obj)
-                    return_annotation = sig.return_annotation
-                    if return_annotation != inspect.Signature.empty:
-                        return_type_str = str(return_annotation)
-                        if 'callback' in return_type_str.lower():
-                            return True
-                except Exception:
-                    pass
+            name_lower = name.lower()
+            callback_patterns = ['callback', 'early', 'stopping', 'checkpoint', 'monitor']
+            has_callback_name = any(pattern in name_lower for pattern in callback_patterns)
             
-            return has_callback_name or has_callback_keywords
+            try:
+                sig = inspect.signature(obj)
+                return_annotation = sig.return_annotation
+                if return_annotation != inspect.Signature.empty:
+                    return_type_str = str(return_annotation)
+                    if 'callback' in return_type_str.lower():
+                        return True
+            except Exception:
+                pass
+                
+            return has_callback_name
                 
     except Exception:
         pass
@@ -523,7 +570,7 @@ def extract_data_loader_parameters(obj) -> Dict[str, Any]:
 
 def extract_loss_parameters(obj) -> Dict[str, Any]:
     """
-    Extract parameters from a loss function.
+    Extract parameters from a loss function (supports wrapper pattern).
     
     Args:
         obj: The loss function or class
@@ -539,7 +586,8 @@ def extract_loss_parameters(obj) -> Dict[str, Any]:
             params = {}
             
             for param_name, param in sig.parameters.items():
-                # Skip y_true, y_pred parameters as they are provided during training
+                # For wrapper pattern, we want the configuration parameters (outer function)
+                # Skip y_true, y_pred parameters if they exist (traditional pattern)
                 if param_name.lower() in ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction']:
                     continue
                     
@@ -607,6 +655,167 @@ def extract_loss_parameters(obj) -> Dict[str, Any]:
             'parameters': {},
             'signature': '',
             'description': f"Loss function: {getattr(obj, '__name__', 'Unknown')}"
+        }
+    
+    return {}
+
+def is_metrics_function(obj, name: str) -> bool:
+    """
+    Check if an object is a metrics function based on example_funcs wrapper pattern.
+    
+    Pattern: outer function with config params, returns wrapper function that takes (y_true, y_pred)
+    
+    Args:
+        obj: The object to check
+        name: Name of the object
+        
+    Returns:
+        bool: True if it's a valid metrics function
+    """
+    import inspect
+    
+    # Skip private functions, imports, and common utilities
+    if name.startswith('_') or name in ['tf', 'tensorflow', 'np', 'numpy', 'keras', 'K']:
+        return False
+    
+    # Skip objects from imported modules, but allow dynamically loaded modules and custom modules
+    if hasattr(obj, '__module__') and obj.__module__ not in [None, '__main__']:
+        # Skip standard library and common third-party modules
+        skip_modules = ['builtins', 'numpy', 'tensorflow', 'keras', 'pandas', 'sklearn', 'torch', 'torchvision']
+        if any(obj.__module__.startswith(mod) for mod in skip_modules):
+            return False
+        
+    try:
+        if inspect.isfunction(obj):
+            # Check function name for metrics patterns (more lenient matching)
+            name_lower = name.lower()
+            metrics_name_patterns = ['metric', 'accuracy', 'precision', 'recall', 'f1', 'auc', 'score', 'mse', 'mae', 'rmse', 'iou', 'dice', 'example_metric']
+            has_metrics_name = any(pattern in name_lower for pattern in metrics_name_patterns)
+            
+            # Check docstring for metrics function keywords
+            docstring = inspect.getdoc(obj) or ""
+            docstring_lower = docstring.lower()
+            metrics_keywords = ['metric', 'accuracy', 'precision', 'recall', 'f1', 'auc', 'score', 'measure', 'evaluation', 'wrapper', 'y_true', 'y_pred', 'metric_value', 'metric calculation']
+            has_metrics_keywords = any(keyword in docstring_lower for keyword in metrics_keywords)
+            
+            # Check function signature for wrapper pattern
+            sig = inspect.signature(obj)
+            params = list(sig.parameters.keys())
+            
+            # Wrapper pattern: should NOT have y_true, y_pred in outer function
+            # These should be in the inner wrapper function
+            execution_indicators = ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction', 'labels', 'logits']
+            has_no_execution_params = not any(indicator in param.lower() for param in params for indicator in execution_indicators)
+            
+            # Metrics functions MUST have appropriate name patterns AND follow wrapper pattern
+            return has_metrics_name and has_no_execution_params
+            
+        elif inspect.isclass(obj):
+            # Check if class inherits from typical metrics classes or has metrics-like methods
+            methods = [method for method in dir(obj) if not method.startswith('_')]
+            metrics_methods = ['call', '__call__', 'compute_metric', 'calculate_metric', 'evaluate', 'score']
+            has_metrics_methods = any(method.lower() in [m.lower() for m in metrics_methods] for method in methods)
+            
+            # Check class docstring
+            docstring = inspect.getdoc(obj) or ""
+            docstring_lower = docstring.lower()
+            class_keywords = ['metric', 'accuracy', 'precision', 'recall', 'evaluation', 'measure']
+            has_class_keywords = any(keyword in docstring_lower for keyword in class_keywords)
+            
+            return has_metrics_methods or has_class_keywords
+            
+    except Exception:
+        return False
+        
+    return False
+
+def extract_metrics_parameters(obj) -> Dict[str, Any]:
+    """
+    Extract parameters from a metrics function (supports wrapper pattern).
+    
+    Args:
+        obj: The metrics function or class
+        
+    Returns:
+        Dict containing parameter information
+    """
+    import inspect
+    
+    try:
+        if inspect.isfunction(obj):
+            sig = inspect.signature(obj)
+            params = {}
+            
+            for param_name, param in sig.parameters.items():
+                # For wrapper pattern, we want the configuration parameters (outer function)
+                # Skip y_true, y_pred parameters if they exist (traditional pattern)
+                if param_name.lower() in ['y_true', 'y_pred', 'true', 'pred', 'target', 'prediction']:
+                    continue
+                    
+                param_info = {
+                    'name': param_name,
+                    'required': param.default == inspect.Parameter.empty,
+                    'default': param.default if param.default != inspect.Parameter.empty else None,
+                    'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                }
+                
+                # Infer parameter type
+                if param.annotation != inspect.Parameter.empty:
+                    param_info['type'] = str(param.annotation)
+                elif param.default is not None:
+                    param_info['type'] = type(param.default).__name__
+                else:
+                    param_info['type'] = 'Any'
+                
+                params[param_name] = param_info
+            
+            return {
+                'type': 'function',
+                'parameters': params,
+                'signature': str(sig),
+                'description': inspect.getdoc(obj) or f"Metrics function: {obj.__name__}"
+            }
+            
+        elif inspect.isclass(obj):
+            # Get constructor parameters
+            init_method = getattr(obj, '__init__', None)
+            params = {}
+            
+            if init_method:
+                sig = inspect.signature(init_method)
+                for param_name, param in sig.parameters.items():
+                    if param_name == 'self':
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+            
+            return {
+                'type': 'class',
+                'parameters': params,
+                'signature': f"class {obj.__name__}",
+                'description': inspect.getdoc(obj) or f"Metrics class: {obj.__name__}"
+            }
+            
+    except Exception:
+        return {
+            'type': 'unknown',
+            'parameters': {},
+            'signature': '',
+            'description': f"Metrics function: {getattr(obj, '__name__', 'Unknown')}"
         }
     
     return {}
@@ -935,14 +1144,6 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
             # Use interactive mode format: "Custom Preprocessing"
             improved_config['configuration']['data']['preprocessing']['Custom Preprocessing'] = preprocessing_config
     
-    # Add custom callback option
-    if 'model' in improved_config['configuration'] and 'callbacks' in improved_config['configuration']['model']:
-        improved_config['configuration']['model']['callbacks']['Custom Callback'] = {
-            'enabled': False,
-            'callback_name': 'custom_callback_name',
-            'file_path': './custom_modules/custom_callbacks.py'
-        }
-    
     # Remove custom optimizer from metadata (if present) since it's rarely used
     if 'metadata' in improved_config and 'custom_functions' in improved_config['metadata']:
         if 'optimizers' in improved_config['metadata']['custom_functions']:
@@ -960,67 +1161,91 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
         # These are the functions we know exist based on generated modules with their parameters
         known_functions = {
             'models': [{
-                'name': 'create_simple_cnn',
+                'name': 'example_model',
                 'file_path': './custom_modules/custom_models.py', 
-                'function_name': 'create_simple_cnn',
+                'function_name': 'example_model',
                 'type': 'function',
-                'parameters': extract_function_parameters('create_simple_cnn', './custom_modules/custom_models.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_model', './custom_modules/custom_models.py', project_dir, show_warnings=False)
             }],
             'data_loaders': [{
-                'name': 'Custom_load_cifar10_npz_data',
+                'name': 'example_data_loader',
                 'file_path': './custom_modules/custom_data_loaders.py',
-                'function_name': 'Custom_load_cifar10_npz_data', 
+                'function_name': 'example_data_loader', 
                 'type': 'function',
-                'parameters': extract_function_parameters('Custom_load_cifar10_npz_data', './custom_modules/custom_data_loaders.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_data_loader', './custom_modules/custom_data_loaders.py', project_dir, show_warnings=False)
             }],
             'loss_functions': [{
-                'name': 'dice_loss',
+                'name': 'example_loss_1',
                 'file_path': './custom_modules/custom_loss_functions.py',
-                'function_name': 'dice_loss',
+                'function_name': 'example_loss_1',
                 'type': 'function',
-                'parameters': extract_function_parameters('dice_loss', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
-            }],
-            'optimizers': [{
-                'name': 'adaptive_adam',
-                'file_path': './custom_modules/custom_optimizers.py',
-                'function_name': 'adaptive_adam',
+                'parameters': extract_function_parameters('example_loss_1', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
+            },{
+                'name': 'example_loss_2',
+                'file_path': './custom_modules/custom_loss_functions.py',
+                'function_name': 'example_loss_2',
                 'type': 'function',
-                'parameters': extract_function_parameters('adaptive_adam', './custom_modules/custom_optimizers.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_loss_2', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
             }],
             'metrics': [{
-                'name': 'balanced_accuracy',
+                'name': 'example_metric_1',
                 'file_path': './custom_modules/custom_metrics.py',
-                'function_name': 'balanced_accuracy',
+                'function_name': 'example_metric_1',
                 'type': 'function',
-                'parameters': extract_function_parameters('balanced_accuracy', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_metric_1', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
+            },
+            {
+                'name': 'example_metric_2',
+                'file_path': './custom_modules/custom_metrics.py',
+                'function_name': 'example_metric_2',
+                'type': 'function',
+                'parameters': extract_function_parameters('example_metric_2', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
             }],
             'callbacks': [{
-                'name': 'MemoryUsageMonitor',
+                'name': 'ExampleCallbackClass1',
                 'file_path': './custom_modules/custom_callbacks.py',
-                'function_name': 'MemoryUsageMonitor',
+                'function_name': 'ExampleCallbackClass1',
                 'type': 'class',
-                'parameters': extract_function_parameters('MemoryUsageMonitor', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('ExampleCallbackClass1', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
+            },{
+                'name': 'ExampleCallbackClass2',
+                'file_path': './custom_modules/custom_callbacks.py',
+                'function_name': 'ExampleCallbackClass2',
+                'type': 'class',
+                'parameters': extract_function_parameters('ExampleCallbackClass2', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
             }],
             'augmentations': [{
-                'name': 'color_shift',
+                'name': 'example_augmentation_1',
                 'file_path': './custom_modules/custom_augmentations.py',
-                'function_name': 'color_shift',
+                'function_name': 'example_augmentation_1',
                 'type': 'function',
-                'parameters': extract_function_parameters('color_shift', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_augmentation_1', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
+            },{
+                'name': 'example_augmentation_2',
+                'file_path': './custom_modules/custom_augmentations.py',
+                'function_name': 'example_augmentation_2',
+                'type': 'function',
+                'parameters': extract_function_parameters('example_augmentation_2', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
             }],
             'preprocessing': [{
-                'name': 'adaptive_histogram_equalization',
+                'name': 'example_preprocessing_1',
                 'file_path': './custom_modules/custom_preprocessing.py',
-                'function_name': 'adaptive_histogram_equalization',
+                'function_name': 'example_preprocessing_1',
                 'type': 'function',
-                'parameters': extract_function_parameters('adaptive_histogram_equalization', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_preprocessing_1', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
+            },{
+                'name': 'example_preprocessing_2',
+                'file_path': './custom_modules/custom_preprocessing.py',
+                'function_name': 'example_preprocessing_2',
+                'type': 'function',
+                'parameters': extract_function_parameters('example_preprocessing_2', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
             }],
             'training_loops': [{
-                'name': 'progressive_training_loop',
+                'name': 'example_training_loop',
                 'file_path': './custom_modules/custom_training_loops.py',
-                'function_name': 'progressive_training_loop',
+                'function_name': 'example_training_loop',
                 'type': 'function',
-                'parameters': extract_function_parameters('progressive_training_loop', './custom_modules/custom_training_loops.py', project_dir, show_warnings=False)
+                'parameters': extract_function_parameters('example_training_loop', './custom_modules/custom_training_loops.py', project_dir, show_warnings=False)
             }]
         }
         
@@ -1237,10 +1462,9 @@ def generate_improved_yaml(config: Dict[str, Any]) -> str:
         "# ModelGardener Configuration Template - Ready to run with custom functions and sample data",
         "",
         "# INSTRUCTIONS:",
-        "# 1. Sample data has been copied to ./data/ directory with 3 classes", 
-        "# 2. Custom functions are configured in metadata section below",
-        "# 3. Modify parameters below to customize training behavior",
-        "# 4. Run training with: python train.py",
+        "# 1. Custom functions are configured in metadata section below",
+        "# 2. Modify parameters below to customize training behavior",
+        "# 3. Run training with: mg train -c config.yaml or python train.py",
         "",
         "# AVAILABLE OPTIONS REFERENCE:",
         "# - Optimizers: [Adam, SGD, RMSprop, Adagrad, AdamW, Adadelta, Adamax, Nadam, FTRL]",
@@ -1293,7 +1517,7 @@ def generate_improved_yaml(config: Dict[str, Any]) -> str:
     for key, value in preprocessing.items():
         if key.endswith('(custom)'):
             if not custom_preprocessing_found:
-                yaml_lines.append("      # Custom preprocessing functions (disabled by default)")
+                yaml_lines.append("      # Custom preprocessing functions")
                 custom_preprocessing_found = True
             yaml_lines.append(f"      {key}:")
             for sub_key, sub_value in value.items():
@@ -1315,7 +1539,7 @@ def generate_improved_yaml(config: Dict[str, Any]) -> str:
     for key, value in augmentation.items():
         if key.endswith('(custom)'):
             if not custom_augmentation_found:
-                yaml_lines.append("      # Custom augmentation functions (disabled by default)")
+                yaml_lines.append("      # Custom augmentation functions")
                 custom_augmentation_found = True
             yaml_lines.append(f"      {key}:")
             for sub_key, sub_value in value.items():
@@ -1459,34 +1683,39 @@ def add_nested_yaml(yaml_lines: List[str], value: Any, indent_level: int):
         yaml_lines.append(f"{indent}{value}")
 
 def extract_preprocessing_parameters(obj) -> Dict[str, Any]:
-    """Extract parameters from preprocessing function."""
+    """Extract parameters from preprocessing function (supports wrapper pattern)."""
     try:
         if inspect.isfunction(obj):
             sig = inspect.signature(obj)
             param_info = {}
             
             for param_name, param in sig.parameters.items():
-                # Skip the first parameter (usually 'data', 'image', etc.)
-                if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor']:
+                # For wrapper pattern, we want the configuration parameters (outer function)
+                # Skip data/image parameters if they exist (traditional pattern)
+                if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor', 'label', 'labels']:
                     continue
                     
-                param_details = {'type': 'str', 'default': None}
-                if param.default != inspect.Parameter.empty:
-                    param_details['default'] = param.default
-                    # Infer type from default value
-                    if isinstance(param.default, bool):
-                        param_details['type'] = 'bool'
-                    elif isinstance(param.default, int):
-                        param_details['type'] = 'int'
-                    elif isinstance(param.default, float):
-                        param_details['type'] = 'float'
-                    elif isinstance(param.default, (list, tuple)):
-                        param_details['type'] = 'list'
+                param_details = {
+                    'name': param_name,
+                    'required': param.default == inspect.Parameter.empty,
+                    'default': param.default if param.default != inspect.Parameter.empty else None,
+                    'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                }
+                
+                # Infer parameter type
+                if param.annotation != inspect.Parameter.empty:
+                    param_details['type'] = str(param.annotation)
+                elif param.default is not None:
+                    param_details['type'] = type(param.default).__name__
+                else:
+                    param_details['type'] = 'Any'
+                    
                 param_info[param_name] = param_details
             
             # Extract function metadata
             function_info = {
                 'name': obj.__name__,
+                'type': 'function',
                 'parameters': param_info,
                 'signature': str(sig),
                 'description': obj.__doc__.strip().split('\n')[0] if obj.__doc__ else f"Preprocessing function: {obj.__name__}"
@@ -1501,7 +1730,7 @@ def extract_preprocessing_parameters(obj) -> Dict[str, Any]:
 
 def extract_augmentation_parameters(func) -> Dict[str, Any]:
     """
-    Extract parameters from an augmentation function.
+    Extract parameters from an augmentation function (supports wrapper pattern).
     
     Args:
         func: The function to analyze
@@ -1510,48 +1739,39 @@ def extract_augmentation_parameters(func) -> Dict[str, Any]:
         Dictionary containing function information
     """
     import inspect
-    import ast
     
     try:
         sig = inspect.signature(func)
         doc = inspect.getdoc(func) or "Custom augmentation function"
         
-        # Extract parameters (skip first parameter - image/data)
+        # Extract parameters
         parameters = {}
-        param_names = list(sig.parameters.keys())[1:]  # Skip first parameter
-        
-        for param_name in param_names:
-            param = sig.parameters[param_name]
-            param_info = {'name': param_name}
+        for param_name, param in sig.parameters.items():
+            # For wrapper pattern, we want the configuration parameters (outer function)
+            # Skip data/image parameters if they exist (traditional pattern)
+            if param_name in ['data', 'image', 'img', 'input', 'x', 'array', 'tensor', 'label', 'labels']:
+                continue
             
-            # Get type annotation if available
+            param_info = {
+                'name': param_name,
+                'required': param.default == inspect.Parameter.empty,
+                'default': param.default if param.default != inspect.Parameter.empty else None,
+                'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+            }
+            
+            # Infer parameter type
             if param.annotation != inspect.Parameter.empty:
-                param_info['type'] = param.annotation.__name__ if hasattr(param.annotation, '__name__') else 'str'
+                param_info['type'] = str(param.annotation)
+            elif param.default is not None:
+                param_info['type'] = type(param.default).__name__
             else:
-                # Try to infer type from default value
-                if param.default != inspect.Parameter.empty:
-                    param_info['type'] = type(param.default).__name__
-                else:
-                    param_info['type'] = 'str'
-            
-            # Get default value
-            if param.default != inspect.Parameter.empty:
-                param_info['default'] = param.default
-            else:
-                # Set sensible defaults based on type and name
-                if param_info['type'] == 'bool':
-                    param_info['default'] = True
-                elif param_info['type'] in ['int', 'float']:
-                    if 'probability' in param_name.lower():
-                        param_info['default'] = 0.5
-                    else:
-                        param_info['default'] = 1.0 if param_info['type'] == 'float' else 1
-                else:
-                    param_info['default'] = ""
+                param_info['type'] = 'Any'
             
             parameters[param_name] = param_info
         
         return {
+            'name': func.__name__,
+            'type': 'function',
             'description': doc.split('\n')[0] if doc else f"Custom augmentation: {func.__name__}",
             'parameters': parameters,
             'signature': str(sig)
@@ -1559,6 +1779,94 @@ def extract_augmentation_parameters(func) -> Dict[str, Any]:
             
     except Exception:
         pass
+    
+    return {}
+
+def extract_callback_parameters(obj) -> Dict[str, Any]:
+    """
+    Extract parameters from a callback class (supports keras.callbacks.Callback).
+    
+    Args:
+        obj: The callback class
+        
+    Returns:
+        Dict containing parameter information
+    """
+    import inspect
+    
+    try:
+        if inspect.isclass(obj):
+            # Get constructor parameters
+            init_method = getattr(obj, '__init__', None)
+            params = {}
+            
+            if init_method:
+                sig = inspect.signature(init_method)
+                for param_name, param in sig.parameters.items():
+                    if param_name == 'self':
+                        continue
+                        
+                    param_info = {
+                        'name': param_name,
+                        'required': param.default == inspect.Parameter.empty,
+                        'default': param.default if param.default != inspect.Parameter.empty else None,
+                        'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                    }
+                    
+                    if param.annotation != inspect.Parameter.empty:
+                        param_info['type'] = str(param.annotation)
+                    elif param.default is not None:
+                        param_info['type'] = type(param.default).__name__
+                    else:
+                        param_info['type'] = 'Any'
+                    
+                    params[param_name] = param_info
+            
+            return {
+                'name': obj.__name__,
+                'type': 'class',
+                'parameters': params,
+                'signature': f"class {obj.__name__}",
+                'description': inspect.getdoc(obj) or f"Callback class: {obj.__name__}"
+            }
+            
+        elif inspect.isfunction(obj):
+            # If it's a function that returns a callback, analyze its parameters
+            sig = inspect.signature(obj)
+            params = {}
+            
+            for param_name, param in sig.parameters.items():
+                param_info = {
+                    'name': param_name,
+                    'required': param.default == inspect.Parameter.empty,
+                    'default': param.default if param.default != inspect.Parameter.empty else None,
+                    'annotation': param.annotation if param.annotation != inspect.Parameter.empty else None
+                }
+                
+                if param.annotation != inspect.Parameter.empty:
+                    param_info['type'] = str(param.annotation)
+                elif param.default is not None:
+                    param_info['type'] = type(param.default).__name__
+                else:
+                    param_info['type'] = 'Any'
+                
+                params[param_name] = param_info
+            
+            return {
+                'name': obj.__name__,
+                'type': 'function',
+                'parameters': params,
+                'signature': str(sig),
+                'description': inspect.getdoc(obj) or f"Callback function: {obj.__name__}"
+            }
+            
+    except Exception:
+        return {
+            'type': 'unknown',
+            'parameters': {},
+            'signature': '',
+            'description': f"Callback: {getattr(obj, '__name__', 'Unknown')}"
+        }
     
     return {}
 

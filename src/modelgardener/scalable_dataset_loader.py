@@ -56,9 +56,17 @@ class ScalableDatasetLoader:
         data_loader_config = self.data_config.get('data_loader', {})
         selected_loader = data_loader_config.get('selected_data_loader', 'Default')
         
-        if selected_loader.startswith('Custom_'):
+        # First check if the selected loader exists in custom functions
+        custom_loader_info = self.custom_functions.get('data_loaders', {}).get(selected_loader)
+        
+        if custom_loader_info:
+            # Use custom loader if found
+            return self._create_custom_dataset(split, data_loader_config)
+        elif selected_loader.startswith('Custom_'):
+            # Legacy support for Custom_ prefix
             return self._create_custom_dataset(split, data_loader_config)
         else:
+            # Fall back to built-in loader
             return self._create_builtin_dataset(split)
     
     def _create_custom_dataset(self, split: str, loader_config: Dict[str, Any]) -> tf.data.Dataset:
@@ -84,7 +92,28 @@ class ScalableDatasetLoader:
         
         try:
             if loader_type == 'function':
-                result = loader_func(**args)
+                # First, check if this is a higher-order function (returns a function)
+                # by trying to call it with loader parameters first
+                loader_params = loader_config.get('parameters', {})
+                
+                # Try calling with just the loader parameters (for higher-order functions)
+                try:
+                    intermediate_result = loader_func(**loader_params)
+                    
+                    # If the result is callable, it's a higher-order function
+                    if callable(intermediate_result):
+                        # Call the returned function with data directory arguments
+                        train_dir = self.data_config.get('train_dir', './data')
+                        val_dir = self.data_config.get('val_dir', './data')
+                        
+                        result = intermediate_result(train_dir=train_dir, val_dir=val_dir)
+                    else:
+                        # It's a regular function that returned the dataset directly
+                        result = intermediate_result
+                        
+                except TypeError:
+                    # Fall back to original pattern if the above fails
+                    result = loader_func(**args)
                 
                 # Handle different return types
                 if isinstance(result, tuple) and len(result) == 2:
@@ -562,13 +591,17 @@ class ScalableDatasetLoader:
         data_loader_config = self.data_config.get('data_loader', {})
         selected_loader = data_loader_config.get('selected_data_loader', 'Default')
         
-        if not selected_loader.startswith('Custom_'):
+        # Check if this is a custom loader (either by name or by presence in custom functions)
+        custom_loader_info = self.custom_functions.get('data_loaders', {}).get(selected_loader)
+        is_custom_loader = custom_loader_info is not None or selected_loader.startswith('Custom_')
+        
+        if not is_custom_loader:
             # Only batch built-in loaders, custom loaders may already be batched
             dataset = dataset.batch(batch_size, drop_remainder=False)
         
         # Convert labels to categorical if needed (skip for custom loaders that already return categorical)
         # Only convert labels for built-in loaders, custom loaders may already return categorical
-        if not selected_loader.startswith('Custom_'):
+        if not is_custom_loader:
             dataset = dataset.map(
                 self._convert_labels_to_categorical,
                 num_parallel_calls=tf.data.AUTOTUNE

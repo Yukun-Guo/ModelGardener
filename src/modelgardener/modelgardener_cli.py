@@ -863,8 +863,19 @@ class ModelGardenerCLI:
             os.chdir(project_path)
 
             try:
-                config = self.config_cli.interactive_configuration()
-                config_data = config
+                # Check if we can actually run interactively
+                if not self.config_cli.is_interactive:
+                    print("⚠️  Non-interactive environment detected. Creating default configuration.")
+                    config = self.config_cli.create_default_config()
+                    # Set some reasonable defaults for common use cases
+                    config['configuration']['data']['train_dir'] = './data/train'
+                    config['configuration']['data']['val_dir'] = './data/val'
+                    config['configuration']['model']['model_family'] = 'custom'
+                    config['configuration']['model']['model_name'] = 'example_model'
+                    config_data = config
+                else:
+                    config = self.config_cli.interactive_configuration()
+                    config_data = config
 
                 # Validate and save configuration using relative path
                 config_file_relative = "config.yaml"

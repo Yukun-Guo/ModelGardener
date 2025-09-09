@@ -24,7 +24,7 @@ class ScriptGenerator:
         }
     
     def generate_scripts(self, config_data: Dict[str, Any], output_dir: str, 
-                        config_file_name: str = "model_config.yaml",
+                        config_file_name: str = "config.yaml",
                         generate_pyproject: bool = True,
                         generate_requirements: bool = False) -> bool:
         """
@@ -129,32 +129,33 @@ class ScriptGenerator:
         # Map of example files to their function extraction patterns
         function_extractions = {
             'example_custom_models.py': [
-                ('create_simple_cnn', 'custom_models.py')
+                ('example_model', 'custom_models.py')
             ],
             'example_custom_data_loaders.py': [
-                ('custom_image_data_loader', 'custom_data_loaders.py'),
-                ('Custom_load_cifar10_npz_data', 'custom_data_loaders.py')
+                ('example_data_loader', 'custom_data_loaders.py'),
             ],
             'example_custom_loss_functions.py': [
-                ('dice_loss', 'custom_loss_functions.py')
-            ],
-            'example_custom_optimizers.py': [
-                ('adaptive_adam', 'custom_optimizers.py')
+                ('example_loss_1', 'custom_loss_functions.py'),
+                ('example_loss_2', 'custom_loss_functions.py')
             ],
             'example_custom_metrics.py': [
-                ('balanced_accuracy', 'custom_metrics.py')
+                ('example_metric_1', 'custom_metrics.py'),
+                ('example_metric_2', 'custom_metrics.py')
             ],
             'example_custom_callbacks.py': [
-                ('MemoryUsageMonitor', 'custom_callbacks.py')
+                ('ExampleCallbackClass1', 'custom_callbacks.py'),
+                ('ExampleCallbackClass2', 'custom_callbacks.py')
             ],
             'example_custom_augmentations.py': [
-                ('color_shift', 'custom_augmentations.py')
+                ('example_augmentation_1', 'custom_augmentations.py'),
+                ('example_augmentation_2', 'custom_augmentations.py')
             ],
             'example_custom_preprocessing.py': [
-                ('adaptive_histogram_equalization', 'custom_preprocessing.py')
+                ('example_preprocessing_1', 'custom_preprocessing.py'),
+                ('example_preprocessing_2', 'custom_preprocessing.py')
             ],
             'example_custom_training_loops.py': [
-                ('progressive_training_loop', 'custom_training_loops.py')
+                ('example_training_loop', 'custom_training_loops.py')
             ]
         }
         
@@ -206,23 +207,6 @@ class ScriptGenerator:
                 print(f"⚠️ Example file not found: {example_file_path}, creating basic template")
                 self._create_basic_template(custom_modules_dir, example_file)
         
-        # Copy utils.py file as-is since it's needed by other modules
-        utils_source_path = os.path.join(example_funcs_dir, 'utils.py')
-        utils_dest_path = os.path.join(custom_modules_dir, 'utils.py')
-        
-        if os.path.exists(utils_source_path):
-            try:
-                with open(utils_source_path, 'r', encoding='utf-8') as f:
-                    utils_content = f.read()
-                
-                with open(utils_dest_path, 'w', encoding='utf-8') as f:
-                    f.write(utils_content)
-                print(f"✅ Generated: {utils_dest_path}")
-            except Exception as e:
-                print(f"❌ Error copying utils.py: {str(e)}")
-        else:
-            print(f"⚠️ utils.py not found in example_funcs, creating basic template")
-            self._create_basic_utils_template(custom_modules_dir)
 
     def _extract_single_function(self, file_content: str, function_name: str, source_file: str) -> str:
         """
@@ -333,7 +317,6 @@ class ScriptGenerator:
             'example_custom_models.py': ('custom_models.py', self._get_basic_models_template()),
             'example_custom_data_loaders.py': ('custom_data_loaders.py', self._get_basic_data_loaders_template()),
             'example_custom_loss_functions.py': ('custom_loss_functions.py', self._get_basic_loss_functions_template()),
-            'example_custom_optimizers.py': ('custom_optimizers.py', self._get_basic_optimizers_template()),
             'example_custom_metrics.py': ('custom_metrics.py', self._get_basic_metrics_template()),
             'example_custom_callbacks.py': ('custom_callbacks.py', self._get_basic_callbacks_template()),
             'example_custom_augmentations.py': ('custom_augmentations.py', self._get_basic_augmentations_template()),
@@ -348,883 +331,464 @@ class ScriptGenerator:
                 f.write(template)
             print(f"✅ Generated basic template: {output_path}")
 
-    def _create_basic_utils_template(self, custom_modules_dir: str):
-        """Create basic utils.py template when the original is not available."""
-        utils_template = '''"""
-Utility functions for ModelGardener custom functions.
-
-This module provides common utility functions used across all custom functions
-to support multi-inputs/multi-outputs, 3D data, and different task types.
-"""
-
-import tensorflow as tf
-import numpy as np
-from typing import Union, Tuple, List, Dict, Any
-from enum import Enum
-
-class TaskType(Enum):
-    """Enumeration of supported task types."""
-    CLASSIFICATION = "classification"
-    SEGMENTATION = "segmentation"
-    OBJECT_DETECTION = "object_detection"
-
-class DataDimension(Enum):
-    """Enumeration of data dimensions."""
-    TWO_D = "2d"
-    THREE_D = "3d"
-
-def detect_data_dimension(data: tf.Tensor) -> DataDimension:
-    """
-    Detect if data is 2D or 3D based on tensor shape.
-    
-    Args:
-        data: Input tensor
-        
-    Returns:
-        DataDimension: 2D or 3D
-    """
-    shape = tf.shape(data)
-    rank = len(data.shape)
-    
-    if rank == 3:  # (H, W, C)
-        return DataDimension.TWO_D
-    elif rank == 4:  # (H, W, D, C) or (B, H, W, C)
-        # Check if it's batched 2D or unbatched 3D
-        # This is a heuristic - in practice, context would be needed
-        if data.shape[-1] <= 16:  # Likely channels
-            return DataDimension.THREE_D
-        else:
-            return DataDimension.TWO_D
-    elif rank == 5:  # (B, H, W, D, C)
-        return DataDimension.THREE_D
-    else:
-        return DataDimension.TWO_D  # Default fallback
-
-def infer_task_type(data: tf.Tensor, labels: tf.Tensor = None) -> TaskType:
-    """
-    Infer task type based on data and label characteristics.
-    
-    Args:
-        data: Input data tensor
-        labels: Label tensor (optional)
-        
-    Returns:
-        TaskType: Inferred task type
-    """
-    if labels is not None:
-        label_shape = tf.shape(labels)
-        if len(label_shape) == 1 or (len(label_shape) == 2 and label_shape[-1] == 1):
-            return TaskType.CLASSIFICATION
-        elif len(label_shape) >= 3:
-            return TaskType.SEGMENTATION
-    
-    # Default to classification if unable to determine
-    return TaskType.CLASSIFICATION
-
-def handle_multi_input(inputs):
-    """
-    Handle multiple input types: single tensor, list of tensors, or dict of tensors.
-    
-    Args:
-        inputs: Input data (tensor, list, or dict)
-        
-    Returns:
-        Standardized format for processing
-    """
-    if isinstance(inputs, dict):
-        return inputs
-    elif isinstance(inputs, (list, tuple)):
-        return {f"input_{i}": inp for i, inp in enumerate(inputs)}
-    else:
-        return {"input_0": inputs}
-
-def handle_multi_output(outputs, target_format="single"):
-    """
-    Handle multiple output types and convert to target format.
-    
-    Args:
-        outputs: Output data (tensor, list, or dict)
-        target_format: "single", "list", or "dict"
-        
-    Returns:
-        Outputs in target format
-    """
-    if target_format == "single":
-        if isinstance(outputs, dict):
-            return list(outputs.values())[0] if outputs else None
-        elif isinstance(outputs, (list, tuple)):
-            return outputs[0] if outputs else None
-        else:
-            return outputs
-    elif target_format == "list":
-        if isinstance(outputs, dict):
-            return list(outputs.values())
-        elif isinstance(outputs, (list, tuple)):
-            return outputs
-        else:
-            return [outputs]
-    elif target_format == "dict":
-        if isinstance(outputs, dict):
-            return outputs
-        elif isinstance(outputs, (list, tuple)):
-            return {f"output_{i}": out for i, out in enumerate(outputs)}
-        else:
-            return {"output_0": outputs}
-    
-    return outputs
-'''
-        
-        output_path = os.path.join(custom_modules_dir, 'utils.py')
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(utils_template)
-        print(f"✅ Generated basic utils template: {output_path}")
-
     def _get_basic_models_template(self) -> str:
         """Get basic models template."""
         return '''"""
-Custom Models Template for ModelGardener
+Enhanced custom model architectures for ModelGardener.
 
-This file provides a template for creating a custom model architecture.
+This module contains custom model architectures that can be dynamically loaded
+into the ModelGardener application.
 """
 
-import tensorflow as tf
 import keras
-from keras import layers
 
-
-def create_simple_cnn(input_shape=(32, 32, 3), num_classes=10, dropout_rate=0.5, **kwargs):
+def example_model(input_shape=(32, 32, 3), num_classes=10, **kwargs):
     """
-    Create a simple CNN model optimized for CIFAR-10 image classification.
+    Example custom model architecture.
     
     Args:
-        input_shape: Input tensor shape (height, width, channels) - default (32, 32, 3) for CIFAR-10
-        num_classes: Number of output classes - default 10 for CIFAR-10
-        dropout_rate: Dropout rate for regularization
+        input_shape: Shape of the input tensor (height, width, channels)
+        num_classes: Number of output classes
         **kwargs: Additional parameters
         
     Returns:
         keras.Model: Compiled model ready for training
     """
-    inputs = keras.Input(shape=input_shape)
+    inputs = keras.Input(shape=input_shape, name="input_layer")
     
-    # First block - start with smaller filters for 32x32 input
-    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(x)
-    x = layers.MaxPooling2D((2, 2))(x)  # 32x32 -> 16x16
-    x = layers.Dropout(0.25)(x)
+    # Simple CNN architecture
+    x = keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+    x = keras.layers.MaxPooling2D((2, 2))(x)
+    x = keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+    x = keras.layers.MaxPooling2D((2, 2))(x)
+    x = keras.layers.Flatten()(x)
+    x = keras.layers.Dense(128, activation='relu')(x)
+    outputs = keras.layers.Dense(num_classes, activation='softmax', name='output_layer')(x)
     
-    # Second block
-    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-    x = layers.MaxPooling2D((2, 2))(x)  # 16x16 -> 8x8
-    x = layers.Dropout(0.25)(x)
-    
-    # Third block
-    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-    x = layers.MaxPooling2D((2, 2))(x)  # 8x8 -> 4x4
-    x = layers.Dropout(0.25)(x)
-    
-    # Classification head
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dense(512, activation='relu')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Dropout(dropout_rate)(x)
-    outputs = layers.Dense(num_classes, activation='softmax')(x)
-    
-    model = keras.Model(inputs, outputs, name='cifar10_cnn')
+    model = keras.Model(inputs, outputs, name="example_custom_model")
     return model
 
-
-if __name__ == "__main__":
-    # Test the custom model
-    print("Testing CIFAR-10 optimized model...")
-    model = create_simple_cnn(input_shape=(32, 32, 3), num_classes=10)
-    print(f"Model: {model.name}, params: {model.count_params():,}")
-    print("CIFAR-10 model created successfully!")
+def example_model_two_outputs(input_shape=(32, 32, 3), num_classes=10, **kwargs):
+    """
+    Another example custom model architecture.
+    
+    Args:
+        input_shape: Shape of the input tensor (height, width)
+        num_classes: Number of output classes
+        **kwargs: Additional parameters
+        
+    Returns:
+        keras.Model: Compiled model ready for training
+    """
+    inputs = keras.Input(shape=input_shape, name="input_layer")
+    x = keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+    x = keras.layers.MaxPooling2D((2, 2))(x)
+    x = keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+    x = keras.layers.MaxPooling2D((2, 2))(x)
+    x = keras.layers.Flatten()(x)    
+    x = keras.layers.Dense(256, activation='relu')(x)
+    outputs = keras.layers.Dense(num_classes, activation='softmax', name='output_layer')(x)
+    outputs2 = keras.layers.Dense(1, activation='sigmoid', name='output_layer_2')(x)
+    model = keras.Model(inputs, [outputs, outputs2], name="example_custom_model_2")
+    return model
 '''
 
     def _get_basic_data_loaders_template(self) -> str:
         """Get basic data loaders template."""
         return '''"""
-Custom Data Loaders Template for ModelGardener
+Enhanced custom data loader functions for ModelGardener
 
-This file provides templates for creating custom data loading functions.
-Includes support for both directory-based and NPZ file loading.
+
+This file demonstrates how to create custom data loader functions and classes that can be
+dynamically loaded into the ModelGardener application. Data loaders must be functions that
+
+A wrapper function that:
+- Should return a tuple of tf.data.Dataset instances with training and validation datasets.
+- Can accept configuration parameters like batch_size, shuffle, etc.
+- Should handle both training and validation data paths
+
 """
 
 import os
-import tensorflow as tf
-from typing import Optional, List, Tuple
-import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+import tensorflow as tf
 
+def example_data_loader(batch_size: int = 32,
+                       shuffle: bool = True,
+                       buffer_size: int = 1000,
+                       validation_split: float = 0.2):
 
-def Custom_load_cifar10_npz_data(train_dir: str = "./data", 
-                                 val_dir: str = "./data",
-                                 npz_file_path: str = "./data/cifar10.npz",
-                                 batch_size: int = 32,
-                                 shuffle: bool = True,
-                                 buffer_size: int = 1000,
-                                 validation_split: float = 0.2,
-                                 **kwargs):
-    """
-    Custom CIFAR-10 NPZ data loader for ModelGardener.
-    
-    This function loads CIFAR-10 data from an NPZ file and returns
-    training and validation datasets.
-    
-    Args:
-        train_dir: Directory path (used for compatibility)
-        val_dir: Directory path (used for compatibility) 
-        npz_file_path: Path to the NPZ file containing CIFAR-10 data
-        batch_size: Batch size for datasets
-        shuffle: Whether to shuffle the data
-        buffer_size: Buffer size for shuffling
-        validation_split: Fraction of data to use for validation
-        **kwargs: Additional parameters (ignored)
-        
-    Returns:
-        Tuple[tf.data.Dataset, tf.data.Dataset]: Training and validation datasets
-    """
-    print(f"🔍 Loading CIFAR-10 data from: {npz_file_path}")
-    
-    # Load NPZ file
-    if not os.path.exists(npz_file_path):
-        raise FileNotFoundError(f"NPZ file not found: {npz_file_path}")
-    
-    data = np.load(npz_file_path)
-    images = data['x'].astype(np.float32) / 255.0  # Normalize to [0, 1]
-    labels = data['y'].astype(np.int32)
-    
-    print(f"📊 Loaded {len(images)} images with shape {images.shape[1:]}")
-    print(f"🎯 Found {len(np.unique(labels))} unique classes")
-    
-    # Split into train and validation
-    train_indices = int(len(images) * (1 - validation_split))
-    
-    train_images = images[:train_indices]
-    train_labels = labels[:train_indices]
-    val_images = images[train_indices:]
-    val_labels = labels[train_indices:]
-    
-    # Convert labels to categorical (one-hot encoding)
-    num_classes = len(np.unique(labels))
-    train_labels_categorical = tf.keras.utils.to_categorical(train_labels, num_classes)
-    val_labels_categorical = tf.keras.utils.to_categorical(val_labels, num_classes)
-    
-    print(f"🚂 Training set: {len(train_images)} samples")
-    print(f"✅ Validation set: {len(val_images)} samples")
-    
-    # Create TensorFlow datasets
-    train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels_categorical))
-    val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels_categorical))
-    
-    # Apply shuffling if requested
-    if shuffle:
-        train_dataset = train_dataset.shuffle(buffer_size=buffer_size)
-    
-    # Batch the datasets
-    train_dataset = train_dataset.batch(batch_size)
-    val_dataset = val_dataset.batch(batch_size)
-    
-    # Prefetch for performance
-    train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
-    val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
-    
-    return train_dataset, val_dataset
+    def wrapper(train_dir: str = "./data", val_dir: str = "./data"):
+        npz_file_path = train_dir + "/cifar10.npz"
+        # Load NPZ file
+        if not os.path.exists(npz_file_path):
+            raise FileNotFoundError(f"NPZ file not found: {npz_file_path}")
 
+        data = np.load(npz_file_path)
+        images = data['x'].astype(np.float32) / 255.0  # Normalize to [0, 1]
+        labels = data['y'].astype(np.int32)
 
-def custom_image_data_loader(data_dir: str, batch_size: int = 32, 
-                           image_size: List[int] = [224, 224], 
-                           shuffle: bool = True, buffer_size: int = 1000, 
-                           augment: bool = False):
-    """
-    Custom image data loader that loads images from directories.
-    
-    Args:
-        data_dir: Path to directory containing image files
-        batch_size: Batch size for the dataset
-        image_size: Target image size [height, width]
-        shuffle: Whether to shuffle the dataset
-        buffer_size: Buffer size for shuffling
-        augment: Whether to apply augmentation
-        
-    Returns:
-        tf.data.Dataset: Dataset ready for training/validation
-    """
-    # Create dataset from directory
-    dataset = tf.keras.utils.image_dataset_from_directory(
-        data_dir,
-        image_size=image_size,
-        batch_size=batch_size,
-        shuffle=shuffle
-    )
-    
-    # Normalize pixel values
-    normalization_layer = tf.keras.utils.experimental.preprocessing.Rescaling(1./255)
-    dataset = dataset.map(lambda x, y: (normalization_layer(x), y))
-    
-    # Apply augmentation if requested
-    if augment:
-        augmentation_layer = tf.keras.Sequential([
-            tf.keras.layers.RandomFlip("horizontal"),
-            tf.keras.layers.RandomRotation(0.1),
-            tf.keras.layers.RandomZoom(0.1),
-        ])
-        dataset = dataset.map(lambda x, y: (augmentation_layer(x, training=True), y))
-    
-    # Optimize dataset performance
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    
-    return dataset
+        print(f"📊 Loaded {len(images)} images with shape {images.shape[1:]}")
+        print(f"🎯 Found {len(np.unique(labels))} unique classes")
 
+        # Split into train and validation
+        train_indices = int(len(images) * (1 - validation_split))
 
-if __name__ == "__main__":
-    # Test the custom data loader
-    print("Testing custom data loader...")
-    # Example usage - adjust path as needed
-    # dataset = custom_image_data_loader('./data/train', batch_size=4)
-    # for batch in dataset.take(1):
-    #     images, labels = batch
-    #     print(f"Batch shape: {images.shape}, Labels: {labels}")
-    print("Custom data loader ready!")
+        train_images = images[:train_indices]
+        train_labels = labels[:train_indices]
+        val_images = images[train_indices:]
+        val_labels = labels[train_indices:]
+
+        # Convert labels to categorical (one-hot encoding)
+        num_classes = len(np.unique(labels))
+        train_labels_categorical = tf.keras.utils.to_categorical(train_labels, num_classes)
+        val_labels_categorical = tf.keras.utils.to_categorical(val_labels, num_classes)
+
+        print(f"🚂 Training set: {len(train_images)} samples")
+        print(f"🚂 Validation set: {len(val_images)} samples")
+
+        # Create TensorFlow datasets
+        train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels_categorical))
+        val_dataset = tf.data.Dataset.from_tensor_slices((val_images, val_labels_categorical))
+
+        # Apply shuffling if requested
+        if shuffle:
+            train_dataset = train_dataset.shuffle(buffer_size=buffer_size)
+
+        # Batch the datasets
+        train_dataset = train_dataset.batch(batch_size)
+        val_dataset = val_dataset.batch(batch_size)
+
+        # Prefetch for performance
+        train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
+        val_dataset = val_dataset.prefetch(tf.data.AUTOTUNE)
+
+        return train_dataset, val_dataset
+
+    return wrapper
 '''
 
     def _get_basic_loss_functions_template(self) -> str:
         """Get basic loss functions template."""
         return '''"""
-Custom Loss Functions Template for ModelGardener
+Enhanced custom loss functions for ModelGardener.
 
-This file provides a template for creating custom loss functions.
+This file demonstrates how to create custom loss functions that can be loaded
+into the ModelGardener parameter tree. All functions should follow the pattern:
+- Outer function: Accepts configuration parameters (will be set in config.yaml)
+- Inner wrapper function: Accepts (y_true, y_pred) and returns a scalar loss value or tensor
+- Configuration parameters are set at the outer function level
+
+Example usage pattern:
+def loss_name(param1=default1, param2=default2):
+    def wrapper(y_true, y_pred):
+        # Apply loss calculation logic here
+        loss_value = compute_loss(y_true, y_pred, param1, param2)
+        return loss_value
+    return wrapper
 """
 
 import tensorflow as tf
-import numpy as np
 
+def example_loss_1(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example loss calculation logic
+        loss_value = tf.reduce_mean(tf.square(y_true - y_pred)) * param1 + param2
+        return loss_value
+    return wrapper
 
-def custom_focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0, from_logits=False):
-    """
-    Custom implementation of Focal Loss for addressing class imbalance.
-    
-    Args:
-        y_true: True labels
-        y_pred: Predicted labels
-        alpha: Weighting factor for rare class
-        gamma: Focusing parameter
-        from_logits: Whether y_pred is logits or probabilities
-    
-    Returns:
-        Focal loss value
-    """
-    # Convert to probabilities if logits
-    if from_logits:
-        y_pred = tf.nn.softmax(y_pred, axis=-1)
-    
-    # Clip predictions to prevent numerical instability
-    epsilon = tf.keras.backend.epsilon()
-    y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
-    
-    # Calculate cross entropy
-    cross_entropy = -y_true * tf.math.log(y_pred)
-    
-    # Calculate focal weight: (1 - p_t)^gamma
-    p_t = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
-    focal_weight = tf.pow((1 - p_t), gamma)
-    
-    # Apply alpha weighting
-    alpha_t = tf.where(tf.equal(y_true, 1), alpha, 1 - alpha)
-    
-    # Compute focal loss
-    focal_loss = alpha_t * focal_weight * cross_entropy
-    
-    return tf.reduce_mean(tf.reduce_sum(focal_loss, axis=-1))
-
-
-if __name__ == "__main__":
-    # Test the custom loss function
-    print("Testing custom loss function...")
-    
-    # Create dummy data
-    y_true = tf.constant([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=tf.float32)
-    y_pred = tf.constant([[0.7, 0.2, 0.1], [0.1, 0.8, 0.1], [0.2, 0.3, 0.5]], dtype=tf.float32)
-    
-    loss = custom_focal_loss(y_true, y_pred)
-    print(f"Focal loss: {loss.numpy():.4f}")
-    print("Custom loss function working!")
+def example_loss_2(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example loss calculation logic
+        loss_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
+        return loss_value
+    return wrapper
 '''
 
     def _get_basic_optimizers_template(self) -> str:
         """Get basic optimizers template."""
         return '''"""
-Custom Optimizers Template for ModelGardener
+Enhanced custom optimizers for ModelGardener
 
-This file provides a template for creating custom optimizers.
+This file demonstrates how to create custom optimizers that can be loaded
+into the ModelGardener application.
 """
 
-import tensorflow as tf
+import keras
 
-
-def custom_sgd_with_warmup(learning_rate=0.01, warmup_steps=1000, momentum=0.9):
+def example_optimizer(learning_rate=0.001, beta_1=0.9, beta_2=0.999, 
+                 epsilon=1e-7):
     """
-    Custom SGD optimizer with learning rate warmup.
+    Custom Adam optimizer with adaptive learning rate decay.
     
     Args:
-        learning_rate: Base learning rate
-        warmup_steps: Number of steps for warmup period
-        momentum: Momentum factor
-    
+        learning_rate: Initial learning rate
+        beta_1: Exponential decay rate for first moment estimates
+        beta_2: Exponential decay rate for second moment estimates
+        epsilon: Small constant for numerical stability
     Returns:
         TensorFlow optimizer instance
     """
-    # Create learning rate schedule with warmup
-    def warmup_schedule(step):
-        step = tf.cast(step, tf.float32)
-        warmup_steps_f = tf.cast(warmup_steps, tf.float32)
-        
-        warmup_lr = learning_rate * step / warmup_steps_f
-        decay_lr = learning_rate
-        
-        return tf.where(step < warmup_steps_f, warmup_lr, decay_lr)
-    
-    # Create optimizer with custom schedule
-    optimizer = tf.keras.optimizers.SGD(
-        learning_rate=warmup_schedule,
-        momentum=momentum,
-        name="CustomSGDWarmup"
+    custom_optimizer = keras.optimizers.Adam(
+        learning_rate=learning_rate,
+        beta_1=beta_1,
+        beta_2=beta_2,
+        epsilon=epsilon,
+        name="Adam_Custom"
     )
-    
-    return optimizer
 
-
-if __name__ == "__main__":
-    # Test the custom optimizer
-    print("Testing custom optimizer...")
-    
-    optimizer = custom_sgd_with_warmup(learning_rate=0.01, warmup_steps=500)
-    print(f"Optimizer: {optimizer.name}")
-    print("Custom optimizer created successfully!")
+    return custom_optimizer
 '''
 
     def _get_basic_metrics_template(self) -> str:
         """Get basic metrics template."""
         return '''"""
-Custom Metrics Template for ModelGardener
+Enhanced custom metrics for ModelGardener.
 
-This file provides a template for creating custom metrics.
+This file demonstrates how to create custom metric functions that can be loaded
+into the ModelGardener parameter tree. All functions should follow the pattern:
+- Outer function: Accepts configuration parameters (will be set in config.yaml)
+- Inner wrapper function: Accepts (y_true, y_pred) and returns a scalar metric value or tensor
+- Configuration parameters are set at the outer function level
+
+Example usage pattern:
+def metric_name(param1=default1, param2=default2):
+    def wrapper(y_true, y_pred):
+        # Apply metric calculation logic here
+        metric_value = compute_metric(y_true, y_pred, param1, param2)
+        return metric_value
+    return wrapper
 """
 
 import tensorflow as tf
 
-
-def custom_f1_score(y_true, y_pred, threshold=0.5):
-    """
-    Custom F1 score metric.
-    
-    Args:
-        y_true: True labels
-        y_pred: Predicted probabilities
-        threshold: Decision threshold
-    
-    Returns:
-        F1 score
-    """
-    # Convert predictions to binary
-    y_pred_binary = tf.cast(y_pred > threshold, tf.float32)
-    y_true = tf.cast(y_true, tf.float32)
-    
-    # Calculate precision and recall
-    true_positives = tf.reduce_sum(y_true * y_pred_binary)
-    predicted_positives = tf.reduce_sum(y_pred_binary)
-    actual_positives = tf.reduce_sum(y_true)
-    
-    precision = true_positives / (predicted_positives + tf.keras.backend.epsilon())
-    recall = true_positives / (actual_positives + tf.keras.backend.epsilon())
-    
-    # Calculate F1 score
-    f1 = 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
-    
-    return f1
+def example_metric_1(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example metric calculation logic
+        metric_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
+        return metric_value
+    return wrapper
 
 
-class CustomF1Score(tf.keras.metrics.Metric):
-    """
-    Custom F1 Score metric as a class.
-    """
-    
-    def __init__(self, threshold=0.5, name='f1_score', **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.threshold = threshold
-        self.true_positives = self.add_weight(name='tp', initializer='zeros')
-        self.false_positives = self.add_weight(name='fp', initializer='zeros')
-        self.false_negatives = self.add_weight(name='fn', initializer='zeros')
-    
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        y_pred = tf.cast(y_pred > self.threshold, tf.float32)
-        y_true = tf.cast(y_true, tf.float32)
-        
-        tp = tf.reduce_sum(y_true * y_pred)
-        fp = tf.reduce_sum((1 - y_true) * y_pred)
-        fn = tf.reduce_sum(y_true * (1 - y_pred))
-        
-        self.true_positives.assign_add(tp)
-        self.false_positives.assign_add(fp)
-        self.false_negatives.assign_add(fn)
-    
-    def result(self):
-        precision = self.true_positives / (self.true_positives + self.false_positives + tf.keras.backend.epsilon())
-        recall = self.true_positives / (self.true_positives + self.false_negatives + tf.keras.backend.epsilon())
-        return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
-    
-    def reset_state(self):
-        self.true_positives.assign(0)
-        self.false_positives.assign(0)
-        self.false_negatives.assign(0)
-
-
-if __name__ == "__main__":
-    # Test the custom metrics
-    print("Testing custom metrics...")
-    
-    # Test function-based metric
-    y_true = tf.constant([1, 1, 0, 0], dtype=tf.float32)
-    y_pred = tf.constant([0.8, 0.6, 0.3, 0.2], dtype=tf.float32)
-    
-    f1 = custom_f1_score(y_true, y_pred)
-    print(f"F1 Score (function): {f1.numpy():.4f}")
-    
-    # Test class-based metric
-    metric = CustomF1Score()
-    metric.update_state(y_true, y_pred)
-    print(f"F1 Score (class): {metric.result().numpy():.4f}")
-    
-    print("Custom metrics working!")
+def example_metric_2(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example metric calculation logic
+        metric_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
+        return metric_value
+    return wrapper
 '''
 
     def _get_basic_callbacks_template(self) -> str:
         """Get basic callbacks template."""
         return '''"""
-Custom Callbacks Template for ModelGardener
+Custom callback functions and classes for ModelGardener.
 
-This file provides a template for creating custom training callbacks.
+These callbacks demonstrate how to create custom training callbacks that can be 
+dynamically loaded into the callbacks parameter tree. Callbacks must be classes that inherit from tf.keras.callbacks.Callback
+
+CallBack class requirements:
+- Should implement relevant callback methods (on_epoch_end, on_batch_end, etc.)
+- __init__ method parameters become configuration options
 """
 
-import os
-import numpy as np
-import tensorflow as tf
-from typing import Dict, Any, Optional
+import keras
 
-
-class LossThresholdStopping(tf.keras.callbacks.Callback):
+class ExampleCallbackClass1(keras.callbacks.Callback):
     """
-    Custom callback that stops training when loss reaches a threshold.
+    Example custom callback class.
     """
     
-    def __init__(self, threshold=0.01, monitor='loss', patience=0, 
-                 restore_best_weights=False, verbose=1):
+    def __init__(self,
+                 param1: int = 1,
+                 param2: float = 0.1):
+        """
+        Initialize the callback with configuration parameters.
+        Args:
+            param1 (int): Example integer parameter.
+            param2 (float): Example float parameter.
+        """
         super().__init__()
-        self.threshold = threshold
-        self.monitor = monitor
-        self.patience = patience
-        self.restore_best_weights = restore_best_weights
-        self.verbose = verbose
-        self.best_weights = None
-        self.wait = 0
-        self.best_loss = np.inf
-    
+        self.param1 = param1
+        self.param2 = param2
+        
     def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
-        current_loss = logs.get(self.monitor)
-        
-        if current_loss is None:
-            if self.verbose > 0:
-                print(f"Warning: {self.monitor} is not available in logs")
-            return
-        
-        # Check if loss is below threshold
-        if current_loss < self.threshold:
-            if self.verbose > 0:
-                print(f"\\nEpoch {epoch + 1}: {self.monitor} reached threshold {self.threshold}, stopping training")
-            self.model.stop_training = True
-            return
-        
-        # Track best weights
-        if current_loss < self.best_loss:
-            self.best_loss = current_loss
-            self.wait = 0
-            if self.restore_best_weights:
-                self.best_weights = self.model.get_weights()
-        else:
-            self.wait += 1
+        # Add custom logic to execute at the end of each epoch
+        print(f"Example Callback Class 1: Epoch {epoch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        return super().on_epoch_end(epoch, logs)
     
-    def on_train_end(self, logs=None):
-        if self.restore_best_weights and self.best_weights is not None:
-            if self.verbose > 0:
-                print("Restoring model weights from the best epoch")
-            self.model.set_weights(self.best_weights)
+class ExampleCallbackClass2(keras.callbacks.Callback):
+    """
+    Another example custom callback class.
+    """
+    
+    def __init__(self,
+                 param1: str = "default",
+                 param2: bool = True):
+        """
+        Initialize the callback with configuration parameters.
+        Args:
+            param1 (str): Example string parameter.
+            param2 (bool): Example boolean parameter.
+        """
+        super().__init__()
+        self.param1 = param1
+        self.param2 = param2
 
-
-if __name__ == "__main__":
-    # Test the custom callback
-    print("Testing custom callback...")
-    
-    # Create a simple model for testing
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(10, activation='relu', input_shape=(5,)),
-        tf.keras.layers.Dense(1, activation='sigmoid')
-    ])
-    
-    model.compile(optimizer='adam', loss='binary_crossentropy')
-    
-    # Create callback
-    callback = LossThresholdStopping(threshold=0.1, verbose=1)
-    
-    # Generate dummy data
-    X = np.random.random((100, 5))
-    y = np.random.randint(0, 2, (100, 1))
-    
-    print("Training with custom callback...")
-    # model.fit(X, y, epochs=10, callbacks=[callback], verbose=0)
-    
-    print("Custom callback created successfully!")
+    def on_batch_end(self, batch, logs=None):
+        # Add custom logic to execute at the end of each batch
+        print(f"Example Callback Class 2: Batch {batch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        return super().on_batch_end(batch, logs)
 '''
 
     def _get_basic_augmentations_template(self) -> str:
         """Get basic augmentations template."""
         return '''"""
-Custom Augmentations Template for ModelGardener
+Custom augmentation functions for ModelGardener.
 
-This file provides a template for creating custom augmentation functions.
+All functions follow the nested wrapper pattern where:
+- Outer function: Accepts configuration parameters (will be set in config.yaml)
+- Inner wrapper function: Accepts (data, label) and returns (modified_data, modified_label)
+- Configuration parameters are set at the outer function level
+
+Example usage pattern:
+def augmentation_name(param1=default1, param2=default2):
+    def wrapper(data, label):
+        # Apply augmentation logic here
+        modified_data = apply_augmentation(data, param1, param2)
+        modified_label = modify_label_if_needed(label, augmentation_params)
+        return modified_data, modified_label
+    return wrapper
 """
 
-import numpy as np
-import cv2
 
+def example_augmentation_1(param1=1,param2=2):
+    def wrapper(data, label):
+        # Apply augmentation logic here
+        modified_data = data  # Replace with actual augmentation logic
+        modified_label = label  # Replace with actual label modification logic if needed
+        return modified_data, modified_label
+    return wrapper
 
-def random_pixelate(image, block_size=8, probability=0.5):
-    """
-    Apply random pixelation effect to image.
-    
-    Args:
-        image (np.ndarray): Input image
-        block_size (int): Size of pixelation blocks (default: 8)
-        probability (float): Probability of applying effect (default: 0.5)
-    
-    Returns:
-        np.ndarray: Pixelated image
-    """
-    if np.random.random() > probability:
-        return image
-    
-    try:
-        # Get original dimensions
-        height, width = image.shape[:2]
-        
-        # Resize down and then back up to create pixelation effect
-        temp = cv2.resize(image, 
-                         (width // block_size, height // block_size), 
-                         interpolation=cv2.INTER_LINEAR)
-        pixelated = cv2.resize(temp, 
-                              (width, height), 
-                              interpolation=cv2.INTER_NEAREST)
-        
-        return pixelated
-    except Exception as e:
-        print(f"Error in random_pixelate: {e}")
-        return image
-
-
-if __name__ == "__main__":
-    # Test the custom augmentation
-    print("Testing custom augmentation...")
-    
-    # Create dummy image
-    dummy_image = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-    
-    # Apply augmentation
-    augmented = random_pixelate(dummy_image, block_size=16, probability=1.0)
-    
-    print(f"Original shape: {dummy_image.shape}")
-    print(f"Augmented shape: {augmented.shape}")
-    print("Custom augmentation working!")
+def example_augmentation_2(param1=1,param2=2):
+    def wrapper(data, label):
+        # Apply augmentation logic here
+        modified_data = data  # Replace with actual augmentation logic
+        modified_label = label  # Replace with actual label modification logic if needed
+        return modified_data, modified_label
+    return wrapper
 '''
 
     def _get_basic_preprocessing_template(self) -> str:
         """Get basic preprocessing template."""
         return '''"""
-Custom Preprocessing Template for ModelGardener
+Enhanced custom preprocessing functions for ModelGardener.
 
-This file provides a template for creating custom preprocessing functions.
+
+All functions follow the nested wrapper pattern where:
+- Outer function: Accepts configuration parameters (will be set in config.yaml)
+- Inner wrapper function: Accepts (data, label) and returns (processed_data, processed_label)
+- Configuration parameters are set at the outer function level
+
+Example usage pattern:
+def preprocessing_name(param1=default1, param2=default2):
+    def wrapper(data, label):
+        # Apply preprocessing logic here
+        processed_data = apply_preprocessing(data, param1, param2)
+        processed_label = process_label_if_needed(label)
+        return processed_data, processed_label
+    return wrapper
+
+NOTE: With the new preprocessing pipeline, built-in preprocessing (sizing, normalization) 
+is applied BEFORE custom preprocessing functions.
 """
-
-import numpy as np
-import cv2
-from typing import Union, Tuple
-
-
-def adaptive_histogram_equalization(data: np.ndarray, clip_limit: float = 2.0, tile_grid_size: int = 8):
+def example_preprocessing_1(param1=1, param2=1):
     """
-    Apply adaptive histogram equalization (CLAHE) to improve image contrast.
+    Example custom preprocessing function
+    and applies random horizontal flip for augmentation.
     
-    This method enhances local contrast in images by applying histogram 
-    equalization in small regions (tiles) rather than the entire image.
-    
-    Args:
-        data: Input image data (numpy array)
-        clip_limit: Threshold for contrast limiting (higher = more contrast)
-        tile_grid_size: Size of the neighborhood region for local contrast
-        
     Returns:
-        Processed image with enhanced local contrast
+        Wrapper function that processes (data, label) tuples.
     """
-    if len(data.shape) == 3 and data.shape[2] == 3:
-        # Convert RGB to LAB color space for better results
-        lab = cv2.cvtColor(data.astype(np.uint8), cv2.COLOR_RGB2LAB)
-        
-        # Apply CLAHE to the L channel (lightness)
-        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_grid_size, tile_grid_size))
-        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
-        
-        # Convert back to RGB
-        result = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
-    else:
-        # Grayscale image
-        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_grid_size, tile_grid_size))
-        result = clahe.apply(data.astype(np.uint8))
-    
-    return result
+    def wrapper(data, label):
+        processed_data = data
+        processed_label = label
+        return processed_data, processed_label
+    return wrapper
 
-
-if __name__ == "__main__":
-    # Test the custom preprocessing
-    print("Testing custom preprocessing...")
+def example_preprocessing_2(param1=1, param2=1):
+    """
+    Example custom preprocessing function
+    and applies random horizontal flip for augmentation.
     
-    # Create dummy image
-    dummy_image = np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-    
-    # Apply preprocessing
-    processed = adaptive_histogram_equalization(dummy_image)
-    
-    print(f"Original shape: {dummy_image.shape}")
-    print(f"Processed shape: {processed.shape}")
-    print("Custom preprocessing working!")
+    Returns:
+        Wrapper function that processes (data, label) tuples.
+    """
+    def wrapper(data, label):
+        processed_data = data
+        processed_label = label
+        return processed_data, processed_label
+    return wrapper
 '''
 
     def _get_basic_training_loops_template(self) -> str:
         """Get basic training loops template."""
         return '''"""
-Custom Training Loops Template for ModelGardener
+Example custom training loop functions for ModelGardener
 
-This file provides a template for creating custom training loop strategies.
+Functions should follow the nested wrapper pattern.
+
+This file demonstrates how to create custom training loop functions that can be
+dynamically loaded into the ModelGardener application. Training loops must be
+functions that implement custom training logic:
+- Should accept parameters like model, optimizer, loss, data, epochs, etc.
+- Should implement the complete training loop logic
+- Should handle both training and validation phases
 """
-
 import tensorflow as tf
-import numpy as np
-import time
-from typing import Dict, Any, Optional, Callable
 
-
-def progressive_training_loop(model, train_dataset, val_dataset, epochs, 
-                            optimizer, loss_fn, initial_resolution=64, 
-                            final_resolution=224, progression_schedule='linear'):
-    """
-    Progressive training loop that gradually increases image resolution during training.
+def example_training_loop(param1=1, param2=1):
     
-    Args:
-        model: The model to train
-        train_dataset: Training dataset
-        val_dataset: Validation dataset  
-        epochs: Total number of epochs
-        optimizer: Optimizer to use
-        loss_fn: Loss function
-        initial_resolution: Starting image resolution
-        final_resolution: Final image resolution
-        progression_schedule: How to increase resolution ('linear' or 'exponential')
-    """
-    print(f"Starting progressive training from {initial_resolution}x{initial_resolution} to {final_resolution}x{final_resolution}")
-    
-    history = {'loss': [], 'val_loss': []}
-    
-    for epoch in range(epochs):
-        # Calculate current resolution
-        if progression_schedule == 'linear':
-            progress = epoch / (epochs - 1)
-        else:  # exponential
-            progress = (np.exp(epoch / epochs) - 1) / (np.e - 1)
+    def wrapper(model, train_dataset, val_dataset=None, epochs=100, optimizer=None, loss_fn=None):
+        """
+        Example custom training loop function.
         
-        current_resolution = int(initial_resolution + 
-                               (final_resolution - initial_resolution) * progress)
-        current_resolution = min(current_resolution, final_resolution)
+        Args:
+            model: Keras model to be trained
+            train_dataset: Training dataset (tf.data.Dataset)
+            val_dataset: Validation dataset (tf.data.Dataset), optional
+            epochs: Number of training epochs
+            optimizer: Keras optimizer instance
+            loss_fn: Loss function
         
-        print(f"\\nEpoch {epoch + 1}/{epochs} - Resolution: {current_resolution}x{current_resolution}")
-        
-        # Training step
-        epoch_loss = 0
-        num_batches = 0
-        
-        for batch in train_dataset:
-            images, labels = batch
+        Returns:
+            Trained Keras model
+        """
+        for epoch in range(epochs):
+            print(f"Epoch {epoch+1}/{epochs}")
             
-            # Resize images to current resolution
-            if current_resolution != images.shape[1]:
-                images = tf.image.resize(images, [current_resolution, current_resolution])
-            
-            with tf.GradientTape() as tape:
-                predictions = model(images, training=True)
-                loss = loss_fn(labels, predictions)
-            
-            gradients = tape.gradient(loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-            
-            epoch_loss += loss
-            num_batches += 1
-        
-        avg_loss = epoch_loss / num_batches
-        history['loss'].append(float(avg_loss))
-        
-        # Validation step
-        if val_dataset is not None:
-            val_loss = 0
-            val_batches = 0
-            
-            for batch in val_dataset:
-                images, labels = batch
+            # Training phase
+            for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
+                with tf.GradientTape() as tape:
+                    logits = model(x_batch_train, training=True)
+                    loss_value = loss_fn(y_batch_train, logits)
+                grads = tape.gradient(loss_value, model.trainable_weights)
+                optimizer.apply(zip(grads, model.trainable_weights))
                 
-                # Resize images to current resolution
-                if current_resolution != images.shape[1]:
-                    images = tf.image.resize(images, [current_resolution, current_resolution])
-                
-                predictions = model(images, training=False)
-                loss = loss_fn(labels, predictions)
-                val_loss += loss
-                val_batches += 1
+                if step % 100 == 0:
+                    print(f"Training loss at step {step}: {loss_value:.4f}")
             
-            avg_val_loss = val_loss / val_batches
-            history['val_loss'].append(float(avg_val_loss))
-            
-            print(f"Loss: {avg_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
-        else:
-            print(f"Loss: {avg_loss:.4f}")
-    
-    return history
-
-
-if __name__ == "__main__":
-    # Test the custom training loop
-    print("Testing custom training loop...")
-    
-    # Create a simple model for testing
-    model = tf.keras.Sequential([
-        tf.keras.layers.Input(shape=(None, None, 3)),
-        tf.keras.layers.GlobalAveragePooling2D(),
-        tf.keras.layers.Dense(10, activation='softmax')
-    ])
-    
-    print("Custom training loop template created successfully!")
+            # Validation phase
+            if val_dataset is not None:
+                val_loss = 0
+                val_steps = 0
+                for x_batch_val, y_batch_val in val_dataset:
+                    val_logits = model(x_batch_val, training=False)
+                    val_loss += loss_fn(y_batch_val, val_logits)
+                    val_steps += 1
+                val_loss /= val_steps
+                print(f"Validation loss after epoch {epoch+1}: {val_loss:.4f}")
+        
+        return wrapper
 '''
     
     def _fill_template(self, template: str, config: Dict[str, Any], config_file_name: str) -> str:
@@ -1575,7 +1139,6 @@ def auto_load_custom_functions():
             'custom_loss_functions.py': 'loss_functions',
             'custom_metrics.py': 'metrics',
             'custom_callbacks.py': 'callbacks',
-            'custom_optimizers.py': 'optimizers',
             'custom_augmentations.py': 'augmentations',
             'custom_preprocessing.py': 'preprocessing',
             'custom_training_loops.py': 'training_loops'
@@ -3494,7 +3057,6 @@ This directory contains templates for custom functions that can be used with Mod
 - `custom_models.py` - Custom model architectures
 - `custom_data_loaders.py` - Custom data loading functions
 - `custom_loss_functions.py` - Custom loss functions
-- `custom_optimizers.py` - Custom optimizers
 - `custom_metrics.py` - Custom metrics
 - `custom_callbacks.py` - Custom training callbacks
 - `custom_augmentations.py` - Custom data augmentation functions

@@ -24,3 +24,10 @@ def example_loss_1(param1=1.0, param2=0.5):
         loss_value = tf.reduce_mean(tf.square(y_true - y_pred)) * param1 + param2
         return loss_value
     return wrapper
+
+def example_loss_2(param1=1.0, param2=0.5):
+    def wrapper(y_true, y_pred):
+        # Example loss calculation logic
+        loss_value = tf.reduce_mean(tf.abs(y_true - y_pred)) * param1 + param2
+        return loss_value
+    return wrapper

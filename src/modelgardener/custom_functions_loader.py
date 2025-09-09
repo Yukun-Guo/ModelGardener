@@ -62,7 +62,7 @@ class CustomFunctionsLoader:
                 return False
             
             # Load the module
-            spec = importlib.util.spec_from_file_location("custom_data_loader", file_path)
+            spec = importlib.util.spec_from_file_location("custom_data_loaders", file_path)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             
@@ -238,42 +238,15 @@ class CustomFunctionsLoader:
         """
         Load a specific custom optimizer from a file.
         
+        Custom optimizers are no longer supported for simplicity.
+        
         Args:
             optimizer_group: The OptimizerGroup instance
             file_path: Path to the Python file containing the optimizer function
             function_name: Name of the function to load
             
         Returns:
-            bool: True if loaded successfully
+            bool: Always False (custom optimizers not supported)
         """
-        try:
-            if not os.path.exists(file_path):
-                return False
-                
-            # Load the module
-            spec = importlib.util.spec_from_file_location("custom_optimizer", file_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            
-            if not hasattr(module, function_name):
-                return False
-                
-            func = getattr(module, function_name)
-            custom_name = f"Custom_{function_name}"
-            
-            # Store the function
-            if not hasattr(optimizer_group, '_custom_optimizers'):
-                optimizer_group._custom_optimizers = {}
-            optimizer_group._custom_optimizers[custom_name] = func
-            
-            # Extract parameters from function signature
-            optimizer_group._extract_custom_optimizer_parameters(custom_name, func)
-            
-            # Update optimizer options
-            optimizer_group._refresh_optimizer_options()
-            
-            return True
-            
-        except Exception as e:
-            print(f"Error loading custom optimizer: {e}")
-            return False
+        print("⚠️  Custom optimizers are no longer supported. Using built-in optimizers only.")
+        return False

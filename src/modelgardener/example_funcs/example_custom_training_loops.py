@@ -1,68 +1,57 @@
 """
 Example custom training loop functions for ModelGardener
 
-This file demonstrates how to create custom training loop functions and classes that can be
-dynamically loaded into the ModelGardener application. Training loops can be either:
+Functions should follow the nested wrapper pattern.
 
-1. Functions that implement custom training logic
-2. Classes that provide comprehensive training functionality
-
-For functions:
+This file demonstrates how to create custom training loop functions that can be
+dynamically loaded into the ModelGardener application. Training loops must be
+functions that implement custom training logic:
 - Should accept parameters like model, optimizer, loss, data, epochs, etc.
 - Should implement the complete training loop logic
 - Should handle both training and validation phases
-
-For classes:
-- Should implement training-related methods
-- Can have __init__ method with configuration parameters
-- Should provide methods like train(), fit(), step(), etc.
 """
+import tensorflow as tf
 
-
-def progressive_training_loop(model, train_dataset, val_dataset=None, 
-                            epochs=100, optimizer=None, loss_fn=None,
-                            initial_resolution=32, final_resolution=224, 
-                            progression_schedule='linear'):
-    """
-    Progressive training loop that gradually increases image resolution during training.
+def example_training_loop(param1=1, param2=1):
     
-    Args:
-        model: The model to train
-        train_dataset: Training dataset
-        val_dataset: Validation dataset (optional)
-        epochs: Number of training epochs
-        optimizer: Optimizer to use
-        loss_fn: Loss function
-        initial_resolution: Starting image resolution
-        final_resolution: Final image resolution
-        progression_schedule: How to progress resolution ('linear' or 'exponential')
-    """
-    print(f"Starting progressive training from {initial_resolution}x{initial_resolution} to {final_resolution}x{final_resolution}")
-    
-    for epoch in range(epochs):
-        # Calculate current resolution
-        progress = epoch / epochs
-        if progression_schedule == 'exponential':
-            progress = progress ** 2
+    def wrapper(model, train_dataset, val_dataset=None, epochs=100, optimizer=None, loss_fn=None):
+        """
+        Example custom training loop function.
         
-        current_resolution = int(initial_resolution + (final_resolution - initial_resolution) * progress)
-        current_resolution = min(current_resolution, final_resolution)
+        Args:
+            model: Keras model to be trained
+            train_dataset: Training dataset (tf.data.Dataset)
+            val_dataset: Validation dataset (tf.data.Dataset), optional
+            epochs: Number of training epochs
+            optimizer: Keras optimizer instance
+            loss_fn: Loss function
         
-        print(f"Epoch {epoch+1}/{epochs} - Resolution: {current_resolution}x{current_resolution}")
-        
-        # Here you would implement the actual training logic with dynamic resolution
-        # This is a simplified example
-        epoch_loss = 0.0
-        num_batches = 0
-        
-        for batch in train_dataset:
-            # Resize batch to current resolution
-            # resized_batch = tf.image.resize(batch[0], [current_resolution, current_resolution])
+        Returns:
+            Trained Keras model
+        """
+        for epoch in range(epochs):
+            print(f"Epoch {epoch+1}/{epochs}")
             
-            # Training step logic would go here
-            # loss = training_step(model, resized_batch, batch[1], optimizer, loss_fn)
-            # epoch_loss += loss
-            num_batches += 1
+            # Training phase
+            for step, (x_batch_train, y_batch_train) in enumerate(train_dataset):
+                with tf.GradientTape() as tape:
+                    logits = model(x_batch_train, training=True)
+                    loss_value = loss_fn(y_batch_train, logits)
+                grads = tape.gradient(loss_value, model.trainable_weights)
+                optimizer.apply(zip(grads, model.trainable_weights))
+                
+                if step % 100 == 0:
+                    print(f"Training loss at step {step}: {loss_value:.4f}")
+            
+            # Validation phase
+            if val_dataset is not None:
+                val_loss = 0
+                val_steps = 0
+                for x_batch_val, y_batch_val in val_dataset:
+                    val_logits = model(x_batch_val, training=False)
+                    val_loss += loss_fn(y_batch_val, val_logits)
+                    val_steps += 1
+                val_loss /= val_steps
+                print(f"Validation loss after epoch {epoch+1}: {val_loss:.4f}")
         
-        avg_loss = epoch_loss / max(num_batches, 1)
-        print(f"Epoch {epoch+1} completed - Average loss: {avg_loss:.4f}")
+        return wrapper

@@ -161,10 +161,10 @@ class EnhancedTrainer:
             custom_files_map = {
                 'custom_data_loaders.py': 'data_loaders',
                 'custom_models.py': 'models',
+                'custom_model.py': 'models',  # Support both singular and plural
                 'custom_loss_functions.py': 'loss_functions',
                 'custom_metrics.py': 'metrics',
                 'custom_callbacks.py': 'callbacks',
-                'custom_optimizers.py': 'optimizers',
                 'custom_augmentations.py': 'augmentations',
                 'custom_preprocessing.py': 'preprocessing'
             }
@@ -184,8 +184,11 @@ class EnhancedTrainer:
                                     if func_type not in custom_functions:
                                         custom_functions[func_type] = {}
                                     
+                                    # Use appropriate key based on function type
+                                    func_key = 'loader' if func_type == 'data_loaders' else 'function'
+                                    
                                     custom_functions[func_type][name] = {
-                                        'loader': obj,
+                                        func_key: obj,
                                         'type': 'function' if inspect.isfunction(obj) else 'class',
                                         'file_path': custom_file_path,
                                         'original_name': name

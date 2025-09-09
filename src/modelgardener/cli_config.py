@@ -50,6 +50,7 @@ class ModelConfigCLI:
     def __init__(self):
         self.config_manager = ConfigManager()
         self.current_config = {}
+        self.is_interactive = self._check_interactive_environment()
         self.available_models = {
             'resnet': ['ResNet-18', 'ResNet-34', 'ResNet-50', 'ResNet-101', 'ResNet-152'],
             'efficientnet': ['EfficientNetB0', 'EfficientNetB1', 'EfficientNetB2', 'EfficientNetB3', 
@@ -76,6 +77,88 @@ class ModelConfigCLI:
             'NPZDataLoader', 'Custom'
         ]
 
+    def _check_interactive_environment(self) -> bool:
+        """
+        Check if we're running in an interactive environment that supports TTY operations.
+        
+        Returns:
+            True if interactive environment is available, False otherwise
+        """
+        try:
+            # Check if stdin is connected to a terminal
+            if not sys.stdin.isatty():
+                return False
+            
+            # Check if stdout is connected to a terminal  
+            if not sys.stdout.isatty():
+                return False
+                
+            # Check for specific environment variables that indicate non-interactive mode
+            if os.environ.get('CI') or os.environ.get('AUTOMATED_TEST'):
+                return False
+                
+            # Check if inquirer is available
+            if inquirer is None:
+                return False
+                
+            # Try to import termios to check if TTY operations are supported
+            try:
+                import termios
+                import tty
+                # Try to get terminal attributes to see if they work
+                termios.tcgetattr(sys.stdin.fileno())
+                return True
+            except (ImportError, OSError):
+                return False
+                
+        except Exception:
+            return False
+
+    def safe_inquirer_input(self, prompt_type: str, message: str, choices: List[str] = None, 
+                           default: Any = None, **kwargs) -> Any:
+        """
+        Safely handle inquirer input with fallback for non-interactive environments.
+        
+        Args:
+            prompt_type: Type of prompt ('list', 'text', 'confirm', 'checkbox')
+            message: The prompt message
+            choices: List of choices for list/checkbox prompts
+            default: Default value
+            **kwargs: Additional arguments for inquirer
+            
+        Returns:
+            User input or default value
+        """
+        if not self.is_interactive or inquirer is None:
+            # In non-interactive mode, return default values
+            if prompt_type == 'list' and choices and default:
+                return default if default in choices else choices[0]
+            elif prompt_type == 'checkbox' and choices:
+                return [default] if default and default in choices else []
+            elif prompt_type == 'confirm':
+                return bool(default) if default is not None else False
+            elif prompt_type == 'text':
+                return str(default) if default is not None else ""
+            else:
+                return default
+
+        try:
+            # Interactive mode - use inquirer
+            if prompt_type == 'list':
+                return inquirer.list_input(message, choices=choices, default=default, **kwargs)
+            elif prompt_type == 'text':
+                return inquirer.text(message, default=default, **kwargs)
+            elif prompt_type == 'confirm':
+                return inquirer.confirm(message, default=default, **kwargs)
+            elif prompt_type == 'checkbox':
+                return inquirer.checkbox(message, choices=choices, default=default, **kwargs)
+            else:
+                print(f"⚠️  Unknown prompt type: {prompt_type}, using default: {default}")
+                return default
+                
+        except Exception as e:
+            print(f"⚠️  Interactive prompt failed ({e}), using default: {default}")
+            return default
 
     def copy_custom_function_to_modules(self, source_path: str, function_type: str, destination_dir: str = None) -> str:
         """
@@ -134,7 +217,7 @@ class ModelConfigCLI:
                 return False, {"error": f"File does not exist: {file_path}"}
             
             # Load the module
-            spec = importlib.util.spec_from_file_location("custom_model", file_path)
+            spec = importlib.util.spec_from_file_location("custom_models", file_path)
             if spec is None or spec.loader is None:
                 return False, {"error": f"Cannot load module from: {file_path}"}
             
@@ -343,7 +426,7 @@ class ModelConfigCLI:
 
     def analyze_custom_loss_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Analyze a Python file to extract loss functions.
+        Analyze a Python file to extract loss functions (supports wrapper pattern).
         
         Args:
             file_path: Path to the Python file
@@ -368,7 +451,7 @@ class ModelConfigCLI:
             
             loss_info = {}
             
-            # Analyze module contents
+            # Analyze module contents for wrapper pattern and traditional pattern
             for name, obj in inspect.getmembers(module):
                 if hf.is_loss_function(obj, name):
                     info = hf.extract_loss_parameters(obj)
@@ -464,8 +547,7 @@ class ModelConfigCLI:
 
     def analyze_custom_metrics_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Analyze a Python file to extract custom metrics functions.
-        Similar to analyze_custom_loss_file but for metrics functions.
+        Analyze a Python file to extract custom metrics functions (supports wrapper pattern).
         
         Args:
             file_path: Path to the Python file containing custom metrics
@@ -473,74 +555,34 @@ class ModelConfigCLI:
         Returns:
             Tuple of (success, analysis_result)
         """
+        import importlib.util
+        import inspect
+        
         try:
             if not os.path.exists(file_path):
                 return False, {}
             
-            # Read and parse the file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            # Load the module
+            spec = importlib.util.spec_from_file_location("custom_metrics", file_path)
+            if spec is None or spec.loader is None:
+                return False, {}
             
-            # Use AST to parse the file
-            tree = ast.parse(content)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
             
-            functions_info = {}
+            metrics_info = {}
             
-            # Look for function definitions
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
-                    func_name = node.name
-                    
-                    # Skip private functions
-                    if func_name.startswith('_'):
-                        continue
-                    
-                    # Get function signature
-                    args = [arg.arg for arg in node.args.args]
-                    
-                    # Look for typical metrics function patterns
-                    if hf.is_likely_metrics_function(func_name, args, content):
-                        # Extract parameters
-                        parameters = hf.extract_function_parameters(node, content)
-                        
-                        # Get signature string
-                        signature = f"({', '.join(args)})"
-                        
-                        functions_info[func_name] = {
-                            'type': 'function',
-                            'function_name': func_name,
-                            'signature': signature,
-                            'parameters': parameters,
-                            'file_path': file_path
-                        }
-                
-                # Look for class definitions that might be custom metrics
-                elif isinstance(node, ast.ClassDef):
-                    class_name = node.name
-                    
-                    # Skip private classes
-                    if class_name.startswith('_'):
-                        continue
-                    
-                    # Look for classes that might be metrics (typically have __call__ or compute methods)
-                    has_call = any(isinstance(n, ast.FunctionDef) and n.name == '__call__' 
-                                 for n in node.body)
-                    has_compute = any(isinstance(n, ast.FunctionDef) and n.name == 'compute' 
-                                    for n in node.body)
-                    
-                    if has_call or has_compute or 'metric' in class_name.lower():
-                        functions_info[class_name] = {
-                            'type': 'class',
-                            'function_name': class_name,
-                            'signature': '(class)',
-                            'parameters': {},
-                            'file_path': file_path
-                        }
+            # Analyze module contents for wrapper pattern and traditional pattern
+            for name, obj in inspect.getmembers(module):
+                if hf.is_metrics_function(obj, name):
+                    info = hf.extract_metrics_parameters(obj)
+                    if info:
+                        metrics_info[name] = info
             
-            return len(functions_info) > 0, functions_info
+            return len(metrics_info) > 0, metrics_info
             
         except Exception as e:
-            print(f"Error analyzing metrics file {file_path}: {e}")
+            print(f"❌ Error analyzing metrics file: {str(e)}")
             return False, {}
 
     def interactive_custom_metrics_selection(self, file_path: str, metrics_info: Dict[str, Any]) -> List[str]:
@@ -951,10 +993,6 @@ class ModelConfigCLI:
             'custom_metrics_configs': custom_metrics_configs
         }
         
-        # Add information about newly loaded custom metrics for caller to track
-        if newly_loaded_custom_metrics:
-            result['_newly_loaded_custom_metrics'] = newly_loaded_custom_metrics
-        
         return result
 
     def configure_callbacks(self, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -1076,11 +1114,11 @@ class ModelConfigCLI:
         
         # Custom Callbacks
         print("\n🛠️  Custom Callbacks")
-        print("💡 Load custom callback functions from Python files")
+        print("💡 Load and configure custom callback functions from Python files")
         enable_custom_callbacks = inquirer.confirm("Add custom callbacks?", default=False)
         
         if enable_custom_callbacks:
-            custom_callbacks = []
+            custom_callbacks_config = {}
             
             while True:
                 callback_file = inquirer.text("Enter path to Python file containing custom callbacks")
@@ -1108,56 +1146,78 @@ class ModelConfigCLI:
                                   for name, info in found_callbacks.items()]
                 
                 selected_callbacks = inquirer.checkbox(
-                    "Select callbacks to use",
+                    "Select callbacks to use (use spacebar to select, enter to confirm)",
                     choices=callback_choices
                 )
                 
+                # Copy the custom callback file to custom_modules and get the relative path
+                relative_path = self.copy_custom_function_to_modules(callback_file, "callbacks")
+                
                 for callback_name in selected_callbacks:
                     callback_info = found_callbacks[callback_name]
+                    user_parameters = {}
                     
                     # Configure parameters for each selected callback
-                    print(f"\n⚙️  Configuring parameters for {callback_name}:")
-                    callback_params = {}
-                    
-                    if 'parameters' in callback_info:
+                    if callback_info.get('parameters'):
+                        print(f"\n⚙️  Configuring parameters for {callback_name}:")
+                        
                         for param_name, param_info in callback_info['parameters'].items():
-                            default_value = param_info.get('default', '')
-                            param_value = inquirer.text(f"Enter {param_name}", default=str(default_value))
+                            param_type = param_info.get('type', 'str')
+                            default_val = param_info.get('default')
                             
-                            # Try to convert to appropriate type
-                            if param_info.get('type') == 'int':
-                                try:
-                                    callback_params[param_name] = int(param_value)
-                                except ValueError:
-                                    callback_params[param_name] = param_info.get('default', 0)
-                            elif param_info.get('type') == 'float':
-                                try:
-                                    callback_params[param_name] = float(param_value)
-                                except ValueError:
-                                    callback_params[param_name] = param_info.get('default', 0.0)
-                            elif param_info.get('type') == 'bool':
-                                callback_params[param_name] = param_value.lower() in ['true', '1', 'yes', 'y']
+                            if param_type == 'bool':
+                                value = inquirer.confirm(
+                                    f"Set {param_name}",
+                                    default=bool(default_val) if default_val is not None else False
+                                )
                             else:
-                                callback_params[param_name] = param_value
+                                prompt_text = f"Enter {param_name}"
+                                if default_val is not None:
+                                    prompt_text += f" (default: {default_val})"
+                                
+                                value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
+                                
+                                # Convert to appropriate type
+                                try:
+                                    if param_type == 'int':
+                                        value = int(value_str) if value_str else (default_val if default_val is not None else 0)
+                                    elif param_type == 'float':
+                                        value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
+                                    elif param_type == 'list':
+                                        if value_str:
+                                            # Try to parse as list
+                                            try:
+                                                value = ast.literal_eval(value_str)
+                                            except:
+                                                value = value_str.split(',') if ',' in value_str else [value_str]
+                                        else:
+                                            value = default_val if default_val is not None else []
+                                    else:
+                                        value = value_str if value_str else (default_val if default_val is not None else "")
+                                except ValueError:
+                                    value = default_val if default_val is not None else ""
+                                    print(f"⚠️  Invalid value for {param_name}, using default: {value}")
+                            
+                            user_parameters[param_name] = value
                     
-                    custom_callback_config = {
-                        'function_name': callback_name,
-                        'file_path': callback_file,
-                        'type': callback_info.get('type', 'function'),
-                        'parameters': callback_params
+                    # Store callback configuration in augmentation-like format
+                    custom_callbacks_config[callback_name] = {
+                        "enabled": True,
+                        "function_name": callback_name,
+                        "file_path": relative_path,
+                        "type": callback_info.get('type', 'function'),
+                        "parameters": user_parameters,
+                        "description": callback_info.get('description', '')
                     }
                     
-                    custom_callbacks.append(custom_callback_config)
                     print(f"✅ Added custom callback: {callback_name}")
                 
                 add_more = inquirer.confirm("Add callbacks from another file?", default=False)
                 if not add_more:
                     break
             
-            callbacks_config['Custom Callback'] = {
-                'enabled': len(custom_callbacks) > 0,
-                'callbacks': custom_callbacks
-            }
+            if custom_callbacks_config:
+                callbacks_config['Custom Callbacks'] = custom_callbacks_config
         
         print("\n✅ Callbacks configuration complete!")
         
@@ -1185,25 +1245,9 @@ class ModelConfigCLI:
                     
                 obj = getattr(module, name)
                 if hf.is_callback_function(obj, name):
-                    # Get function info
-                    sig = inspect.signature(obj)
-                    doc = inspect.getdoc(obj) or f"Custom callback function: {name}"
-                    
-                    # Extract parameters
-                    parameters = {}
-                    for param_name, param in sig.parameters.items():
-                        param_info = {
-                            'name': param_name,
-                            'type': str(param.annotation) if param.annotation != inspect.Parameter.empty else 'str',
-                            'default': param.default if param.default != inspect.Parameter.empty else None
-                        }
-                        parameters[param_name] = param_info
-                    
-                    found_callbacks[name] = {
-                        'type': 'function' if inspect.isfunction(obj) else 'class',
-                        'description': doc.split('\n')[0] if doc else f"Custom callback: {name}",
-                        'parameters': parameters
-                    }
+                    info = hf.extract_callback_parameters(obj)
+                    if info:
+                        found_callbacks[name] = info
             
             return found_callbacks
             
@@ -1229,14 +1273,6 @@ class ModelConfigCLI:
             metrics_config = self._configure_single_metrics(loaded_custom_metrics, loaded_custom_configs)
             metrics_configs[output_name] = metrics_config
             
-            # Handle newly loaded custom metrics from this configuration
-            if '_newly_loaded_custom_metrics' in metrics_config:
-                for new_metric_name in metrics_config['_newly_loaded_custom_metrics']:
-                    if new_metric_name not in loaded_custom_metrics:
-                        loaded_custom_metrics.append(new_metric_name)
-                # Remove the temporary tracking info from the final config
-                del metrics_config['_newly_loaded_custom_metrics']
-            
             # If custom metrics were configured, add them to the available list for next outputs
             custom_configs = metrics_config.get('custom_metrics_configs', {})
             for metric_name, config_data in custom_configs.items():
@@ -1259,14 +1295,15 @@ class ModelConfigCLI:
                     "train_dir": "./data",
                     "val_dir": "./data",
                     "data_loader": {
-                        "selected_data_loader": "Custom_load_cifar10_npz_data",
+                        "selected_data_loader": "example_data_loader",
+                        "file_path": "./custom_modules/custom_data_loaders.py",
                         "use_for_train": True,
                         "use_for_val": True,
                         "parameters": {
                             "batch_size": 32,
                             "shuffle": True,
                             "buffer_size": 1000,
-                            "npz_file_path": "./data/cifar10.npz"
+                            "validation_split": 0.2,
                         }
                     },
                     "preprocessing": {
@@ -1290,6 +1327,26 @@ class ModelConfigCLI:
                             "std": {"r": 0.229, "g": 0.224, "b": 0.225},
                             "axis": -1,
                             "epsilon": 1e-07
+                        },
+                        "Custom Preprocessing": {
+                            "example_preprocessing_1": {
+                                "enabled": True,
+                                "function_name": "example_preprocessing_1",
+                                "file_path": "./custom_modules/custom_preprocessing.py",
+                                "parameters": {
+                                    "param1": 1,
+                                    "param2": 1
+                                }
+                            },
+                            "example_preprocessing_2": {
+                                "enabled": True,
+                                "function_name": "example_preprocessing_2",
+                                "file_path": "./custom_modules/custom_preprocessing.py",
+                                "parameters": {
+                                    "param1": 1,
+                                    "param2": 1
+                                }
+                            }
                         }
                     },
                     "augmentation": {
@@ -1320,12 +1377,27 @@ class ModelConfigCLI:
                             "enabled": False,
                             "factor_range": [0.8, 1.2],
                             "probability": 0.5
-                        }
+                        },
+                        # Custom augmentation functions (disabled by default)
+                        "example_augmentation_1 (custom)": {
+                            "enabled": True,
+                            "function_name": "example_augmentation_1",
+                            "file_path": "./custom_modules/custom_augmentations.py",
+                            "probability": 0.5,
+                            "parameters": {"param1": 1, "param2": 2}
+                        },
+                        "example_augmentation_2 (custom)": {
+                            "enabled": True,
+                            "function_name": "example_augmentation_2",
+                            "file_path": "./custom_modules/custom_augmentations.py",
+                            "probability": 0.5,
+                            "parameters": {"param1": 1, "param2": 2}
+                        },
                     }
                 },
                 "model": {
                     "model_family": "custom_model",
-                    "model_name": "create_simple_cnn",
+                    "model_name": "example_model",
                     "model_parameters": {
                         "input_shape": {"height": 32, "width": 32, "channels": 3},
                         "include_top": True,
@@ -1333,7 +1405,13 @@ class ModelConfigCLI:
                         "pooling": "",
                         "classes": 10,
                         "classifier_activation": "",
-                        "kwargs": {}
+                        "kwargs": {},
+                        "custom_info": {
+                            "file_path": "./custom_modules/custom_models.py",
+                            "type": "function",
+                            "function_name": "example_model",
+                            "description": "Example custom model architecture."
+                            },
                     },
                     "optimizer": {
                         "Optimizer Selection": {
@@ -1352,11 +1430,12 @@ class ModelConfigCLI:
                             "loss_strategy": "single_loss_all_outputs"
                         },
                         "Loss Selection": {
-                            "selected_loss": "Categorical Crossentropy",
-                            "loss_weight": 1.0,
-                            "from_logits": False,
-                            "label_smoothing": 0.0,
-                            "reduction": "sum_over_batch_size"
+                            "selected_loss": "example_loss_1",
+                            "custom_loss_path": "./custom_modules/custom_loss_functions.py",
+                            "parameters": {
+                                "param1": 1.0,
+                                "param2": 0.5
+                            }
                         }
                     },
                     "metrics": {
@@ -1366,8 +1445,18 @@ class ModelConfigCLI:
                             "metrics_strategy": "shared_metrics_all_outputs"
                         },
                         "Metrics Selection": {
-                            "selected_metrics": "Accuracy"
-                        }
+                            "selected_metrics": "Accuracy,example_metric_1,example_metric_2",
+                            "custom_metrics_configs": {
+                                "example_metric_1": {
+                                    "custom_metrics_path": "./custom_modules/custom_metrics.py",
+                                    "parameters": {}
+                                },
+                                "example_metric_2": {
+                                    "custom_metrics_path": "./custom_modules/custom_metrics.py",
+                                    "parameters": {}
+                                }
+                            }
+                    },
                     },
                     "callbacks": {
                         "Early Stopping": {
@@ -1409,11 +1498,31 @@ class ModelConfigCLI:
                             "filename": "./logs/training.csv",
                             "append": False
                         },
-                        "Custom Callback": {
-                            "enabled": False,
-                            "callbacks": []
+                        "Custom Callbacks": {
+                            "ExampleCallbackClass1": {
+                                "enabled": True,
+                                "function_name": "ExampleCallbackClass1",
+                                "file_path": "./custom_modules/custom_callbacks.py",
+                                "type": "class",
+                                "parameters": {
+                                    "param1": 1,
+                                    "param2": 0.1
+                                },
+                                "description": "Example custom callback class."
+                            },
+                            "ExampleCallbackClass2": {
+                                "enabled": True,
+                                "function_name": "ExampleCallbackClass2",
+                                "file_path": "./custom_modules/custom_callbacks.py",
+                                "type": "class",
+                                "parameters": {
+                                    "param1": "default",
+                                    "param2": True
+                                },
+                                "description": "Another example custom callback class."
+                                },
                         }
-                    }
+                    },
                 },
                 "training": {
                     "epochs": 100,
@@ -1437,7 +1546,7 @@ class ModelConfigCLI:
                     "distribution_strategy": "mirrored",
                     "mixed_precision": None,
                     "num_gpus": 0
-                }
+                },
             },
             "metadata": {
                 "version": "1.2",
@@ -1459,82 +1568,88 @@ class ModelConfigCLI:
         Returns:
             Updated configuration with custom functions
         """
-        custom_modules_dir = os.path.join(project_dir, 'custom_modules')
-        
-        # Dynamically discover custom functions from example_funcs directory
-        augmentation_functions = hf.discover_custom_functions('./example_funcs/example_custom_augmentations.py')
-        preprocessing_functions = hf.discover_custom_functions('./example_funcs/example_custom_preprocessing.py')
-        
         # Define the custom functions to add based on discovered and generated files
         custom_functions = {
             'models': [{
-                'name': 'create_simple_cnn',
+                'name': 'example_model',
                 'file_path': './custom_modules/custom_models.py',
-                'function_name': 'create_simple_cnn',
+                'function_name': 'example_model',
                 'type': 'function'
             }],
             'data_loaders': [{
-                'name': 'Custom_load_cifar10_npz_data',
+                'name': 'example_data_loader',
                 'file_path': './custom_modules/custom_data_loaders.py',
-                'function_name': 'Custom_load_cifar10_npz_data',
+                'function_name': 'example_data_loader',
                 'type': 'function'
             }],
             'loss_functions': [{
-                'name': 'dice_loss',
+                'name': 'example_loss_1',
                 'file_path': './custom_modules/custom_loss_functions.py',
-                'function_name': 'dice_loss',
+                'function_name': 'example_loss_1',
                 'type': 'function'
-            }],
-            'optimizers': [{
-                'name': 'adaptive_adam',
-                'file_path': './custom_modules/custom_optimizers.py',
-                'function_name': 'adaptive_adam',
+            },
+            {
+                'name': 'example_loss_2',
+                'file_path': './custom_modules/custom_loss_functions.py',
+                'function_name': 'example_loss_2',
                 'type': 'function'
             }],
             'metrics': [{
-                'name': 'balanced_accuracy',
+                'name': 'example_metric_1',
                 'file_path': './custom_modules/custom_metrics.py',
-                'function_name': 'balanced_accuracy',
+                'function_name': 'example_metric_1',
+                'type': 'function'
+            },
+            {
+                'name': 'example_metric_2',
+                'file_path': './custom_modules/custom_metrics.py',
+                'function_name': 'example_metric_2',
                 'type': 'function'
             }],
             'callbacks': [{
-                'name': 'MemoryUsageMonitor',
+                'name': 'ExampleCallbackClass1',
                 'file_path': './custom_modules/custom_callbacks.py',
-                'function_name': 'MemoryUsageMonitor',
+                'function_name': 'ExampleCallbackClass1',
+                'type': 'class'
+            },
+            {
+                'name': 'ExampleCallbackClass2',
+                'file_path': './custom_modules/custom_callbacks.py',
+                'function_name': 'ExampleCallbackClass2',
                 'type': 'class'
             }],
             'augmentations': [{
-                'name': 'color_shift',
+                'name': 'example_augmentation_1',
                 'file_path': './custom_modules/custom_augmentations.py',
-                'function_name': 'color_shift',
+                'function_name': 'example_augmentation_1',
+                'type': 'function'
+            },
+            {
+                'name': 'example_augmentation_2',
+                'file_path': './custom_modules/custom_augmentations.py',
+                'function_name': 'example_augmentation_2',
                 'type': 'function'
             }],
-            'preprocessing': [],
+            'preprocessing': [{
+                'name': 'example_preprocessing_1',
+                'file_path': './custom_modules/custom_preprocessing.py',
+                'function_name': 'example_preprocessing_1',
+                'type': 'function'
+            },
+            {
+                'name': 'example_preprocessing_2',
+                'file_path': './custom_modules/custom_preprocessing.py',
+                'function_name': 'example_preprocessing_2',
+                'type': 'function'
+            }],
             'training_loops': [{
-                'name': 'progressive_training_loop',
+                'name': 'example_training_loop',
                 'file_path': './custom_modules/custom_training_loops.py',
-                'function_name': 'progressive_training_loop',
+                'function_name': 'example_training_loop',
                 'type': 'function'
             }]
         }
         
-        # Add discovered augmentation functions
-        for func_name, func_info in augmentation_functions.items():
-            custom_functions['augmentations'].append({
-                'name': func_name,
-                'file_path': './custom_modules/custom_augmentations.py',
-                'function_name': func_name,
-                'type': 'function'
-            })
-        
-        # Add discovered preprocessing functions  
-        for func_name, func_info in preprocessing_functions.items():
-            custom_functions['preprocessing'].append({
-                'name': func_name,
-                'file_path': './custom_modules/custom_preprocessing.py',
-                'function_name': func_name,
-                'type': 'function'
-            })
         
         # Update metadata with custom functions
         config['metadata']['custom_functions'] = custom_functions
@@ -1542,12 +1657,11 @@ class ModelConfigCLI:
         # Update specific configuration sections to use some of the custom functions
         # Example: Use custom model in model configuration
         config['configuration']['model']['model_family'] = 'custom_model'
-        config['configuration']['model']['model_name'] = 'create_simple_cnn'
+        config['configuration']['model']['model_name'] = 'example_model'
         config['configuration']['model']['model_parameters'] = {
             'input_shape': {'width': 32, 'height': 32, 'channels': 3},
             'num_classes': 10,  # CIFAR-10 classes
             'dropout_rate': 0.5,
-            'custom_model_file_path': None,
             'custom_info': {
                 'file_path': None,
                 'type': 'function'
@@ -1561,15 +1675,20 @@ class ModelConfigCLI:
         return config
 
     def interactive_configuration(self) -> Dict[str, Any]:
-        """Interactive configuration using inquirer."""
+        """Interactive configuration using inquirer with fallback for non-interactive environments."""
         print("\n🌱 ModelGardener CLI Configuration Tool")
         print("=" * 50)
+        
+        if not self.is_interactive:
+            print("⚠️  Non-interactive environment detected. Using default configuration values.")
+            print("💡 For full customization, run in an interactive terminal or use configuration files.")
         
         config = self.create_default_config()
         
         # Task Type Selection
         task_types = ['image_classification', 'object_detection', 'semantic_segmentation']
-        task_type = inquirer.list_input(
+        task_type = self.safe_inquirer_input(
+            'list',
             "Select task type",
             choices=task_types,
             default='image_classification'
@@ -1578,8 +1697,16 @@ class ModelConfigCLI:
         
         # Data Configuration
         print("\n📁 Data Configuration")
-        train_dir = inquirer.text("Enter training data directory", default="./example_data/train")
-        val_dir = inquirer.text("Enter validation data directory", default="./example_data/val")
+        train_dir = self.safe_inquirer_input(
+            'text',
+            "Enter training data directory",
+            default="./data/train"
+        )
+        val_dir = self.safe_inquirer_input(
+            'text', 
+            "Enter validation data directory",
+            default="./data/val"
+        )
         
         config['configuration']['data']['train_dir'] = train_dir
         config['configuration']['data']['val_dir'] = val_dir
@@ -1587,24 +1714,28 @@ class ModelConfigCLI:
         
         # Data Loader Selection
         print("\n📊 Data Loader Configuration")
-        data_loader = inquirer.list_input(
+        data_loader = self.safe_inquirer_input(
+            'list',
             "Select data loader",
             choices=self.available_data_loaders,
-            default='ImageDataGenerator'
+            default='Custom'
         )
         config['configuration']['data']['data_loader']['selected_data_loader'] = data_loader
         
         # Handle custom data loader selection
         if data_loader == 'Custom':
             print("\n🔧 Custom Data Loader Configuration")
-            custom_data_loader_path = inquirer.text(
-                "Enter path to Python file containing custom data loader"
+            custom_data_loader_path = self.safe_inquirer_input(
+                'text',
+                "Enter path to Python file containing custom data loader",
+                default="./custom_modules/custom_data_loaders.py"
             )
             
             if not custom_data_loader_path or not os.path.exists(custom_data_loader_path):
                 print("❌ Invalid file path. Using default data loader.")
-                data_loader_name = 'ImageDataGenerator'
+                data_loader_name = 'Custom'
                 data_loader_params = {}
+                relative_data_loader_path = "./custom_modules/custom_data_loaders.py"
             else:
                 # Copy the custom data loader to custom_modules and get the relative path
                 relative_data_loader_path = self.copy_custom_function_to_modules(custom_data_loader_path, "data_loaders")
@@ -1614,7 +1745,7 @@ class ModelConfigCLI:
                 
                 if not success or not loader_info:
                     print("❌ No valid data loader functions found in the file. Using default data loader.")
-                    data_loader_name = 'ImageDataGenerator'
+                    data_loader_name = 'Custom'
                     data_loader_params = {}
                 else:
                     print(f"\n✅ Found {len(loader_info)} data loader function(s) in {custom_data_loader_path}")
@@ -1759,7 +1890,6 @@ class ModelConfigCLI:
             
             # Store custom model information in config
             config['configuration']['model']['model_name'] = model_name
-            config['configuration']['model']['model_parameters']['custom_model_file_path'] = relative_model_path
             config['configuration']['model']['model_parameters']['custom_info'] = custom_model_info
             
             # Add custom model parameters if any were found
@@ -2312,7 +2442,7 @@ class ModelConfigCLI:
         # Add custom functions to config
         config = self._add_custom_functions_to_config(config, project_dir)
         
-        # Copy example data to project directory (fixed 500 samples per class)
+        # Copy example data to project directory
         hf.copy_example_data(project_dir)
         
         # Create the improved template with custom functions and parameters
@@ -2613,7 +2743,6 @@ class ModelConfigCLI:
         current_checkpoint = current_callbacks_config.get('Model Checkpoint', {}).get('enabled', True)
         current_tensorboard = current_callbacks_config.get('TensorBoard', {}).get('enabled', False)
         current_csv_logger = current_callbacks_config.get('CSV Logger', {}).get('enabled', False)
-        current_custom_callbacks = current_callbacks_config.get('Custom Callback', {}).get('enabled', False)
         
         print(f"\n📞 Current Callbacks Configuration:")
         print(f"    Early Stopping: {'Enabled' if current_early_stopping else 'Disabled'}")
@@ -2621,7 +2750,15 @@ class ModelConfigCLI:
         print(f"    Model Checkpoint: {'Enabled' if current_checkpoint else 'Disabled'}")
         print(f"    TensorBoard: {'Enabled' if current_tensorboard else 'Disabled'}")
         print(f"    CSV Logger: {'Enabled' if current_csv_logger else 'Disabled'}")
-        print(f"    Custom Callback: {'Enabled' if current_custom_callbacks else 'Disabled'}")
+        
+        # Check for custom callbacks in the new format
+        custom_callbacks = current_callbacks_config.get('Custom Callbacks', {})
+        if custom_callbacks:
+            enabled_callbacks = [name for name, config in custom_callbacks.items() if config.get('enabled', False)]
+            if enabled_callbacks:
+                print(f"    Custom Callbacks: {', '.join(enabled_callbacks)}")
+            else:
+                print(f"    Custom Callbacks: None enabled")
         
         change_callbacks = inquirer.confirm("Change callbacks configuration?", default=False)
         if change_callbacks:
@@ -2738,7 +2875,7 @@ class ModelConfigCLI:
 
     def analyze_custom_preprocessing_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Analyze a Python file to extract custom preprocessing functions.
+        Analyze a Python file to extract custom preprocessing functions (supports wrapper pattern).
 
         Args:
             file_path: Path to the Python file
@@ -2763,7 +2900,7 @@ class ModelConfigCLI:
             
             preprocessing_info = {}
             
-            # Analyze module contents
+            # Analyze module contents for wrapper pattern and traditional pattern
             for name, obj in inspect.getmembers(module):
                 if hf.is_preprocessing_function(obj, name):
                     info = hf.extract_preprocessing_parameters(obj)
@@ -2776,92 +2913,99 @@ class ModelConfigCLI:
             print(f"❌ Error analyzing preprocessing file: {str(e)}")
             return False, {}
 
-    def interactive_custom_preprocessing_selection(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+    def interactive_custom_preprocessing_selection(self, file_path: str) -> Dict[str, Dict[str, Any]]:
         """
-        Interactive selection of custom preprocessing functions from analyzed file.
+        Interactive selection of multiple custom preprocessing functions from analyzed file.
         
         Args:
             file_path: Path to the Python file containing preprocessing functions
             
         Returns:
-            Tuple of (selected_function_name, function_info_with_user_params)
+            Dictionary of {function_name: function_info_with_user_params}
         """
         success, analysis_result = self.analyze_custom_preprocessing_file(file_path)
         
         if not success:
             print("❌ No valid preprocessing functions found in the file")
-            return None, {}
+            return {}
         
         if not analysis_result:
             print("❌ No preprocessing functions found in the file")
-            return None, {}
+            return {}
         
         print(f"\n🔍 Found {len(analysis_result)} preprocessing function(s):")
         for name, info in analysis_result.items():
             print(f"   • {name}: {info.get('description', 'No description')}")
         
-        # Let user select function
-        function_names = list(analysis_result.keys())
-        selected_function = inquirer.list_input(
-            "Select preprocessing function",
-            choices=function_names
+        # Allow user to select multiple functions
+        function_choices = [(f"{name} - {info.get('description', 'Custom preprocessing')}", name) 
+                           for name, info in analysis_result.items()]
+        
+        selected_functions = inquirer.checkbox(
+            "Select preprocessing functions to use (use spacebar to select, enter to confirm)",
+            choices=function_choices
         )
         
-        if not selected_function:
-            return None, {}
+        if not selected_functions:
+            return {}
         
-        function_info = analysis_result[selected_function]
-        user_parameters = {}
+        preprocessing_configs = {}
         
-        # Configure parameters for selected function
-        if function_info.get('parameters'):
-            print(f"\n⚙️  Configuring parameters for {selected_function}:")
+        # Configure parameters for each selected function
+        for function_name in selected_functions:
+            function_info = analysis_result[function_name]
+            user_parameters = {}
             
-            for param_name, param_info in function_info['parameters'].items():
-                param_type = param_info.get('type', 'str')
-                default_val = param_info.get('default')
+            if function_info.get('parameters'):
+                print(f"\n⚙️  Configuring parameters for {function_name}:")
                 
-                if param_type == 'bool':
-                    value = inquirer.confirm(
-                        f"Set {param_name}",
-                        default=bool(default_val) if default_val is not None else False
-                    )
-                else:
-                    prompt_text = f"Enter {param_name}"
-                    if default_val is not None:
-                        prompt_text += f" (default: {default_val})"
+                for param_name, param_info in function_info['parameters'].items():
+                    param_type = param_info.get('type', 'str')
+                    default_val = param_info.get('default')
                     
-                    value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
-                    
-                    # Convert to appropriate type
-                    try:
-                        if param_type == 'int':
-                            value = int(value_str) if value_str else (default_val if default_val is not None else 0)
-                        elif param_type == 'float':
-                            value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
-                        elif param_type == 'list':
-                            if value_str:
-                                # Try to parse as list
-                                try:
-                                    value = ast.literal_eval(value_str)
-                                except:
-                                    value = value_str.split(',') if ',' in value_str else [value_str]
+                    if param_type == 'bool':
+                        value = inquirer.confirm(
+                            f"Set {param_name}",
+                            default=bool(default_val) if default_val is not None else False
+                        )
+                    else:
+                        prompt_text = f"Enter {param_name}"
+                        if default_val is not None:
+                            prompt_text += f" (default: {default_val})"
+                        
+                        value_str = inquirer.text(prompt_text, default=str(default_val) if default_val is not None else "")
+                        
+                        # Convert to appropriate type
+                        try:
+                            if param_type == 'int':
+                                value = int(value_str) if value_str else (default_val if default_val is not None else 0)
+                            elif param_type == 'float':
+                                value = float(value_str) if value_str else (default_val if default_val is not None else 0.0)
+                            elif param_type == 'list':
+                                if value_str:
+                                    # Try to parse as list
+                                    try:
+                                        value = ast.literal_eval(value_str)
+                                    except:
+                                        value = value_str.split(',') if ',' in value_str else [value_str]
+                                else:
+                                    value = default_val if default_val is not None else []
                             else:
-                                value = default_val if default_val is not None else []
-                        else:
-                            value = value_str if value_str else (default_val if default_val is not None else "")
-                    except ValueError:
-                        value = default_val if default_val is not None else ""
-                        print(f"⚠️  Invalid value for {param_name}, using default: {value}")
-                
-                user_parameters[param_name] = value
+                                value = value_str if value_str else (default_val if default_val is not None else "")
+                        except ValueError:
+                            value = default_val if default_val is not None else ""
+                            print(f"⚠️  Invalid value for {param_name}, using default: {value}")
+                    
+                    user_parameters[param_name] = value
+            
+            # Store function info with user parameters
+            result_info = function_info.copy()
+            result_info['user_parameters'] = user_parameters
+            result_info['file_path'] = file_path
+            
+            preprocessing_configs[function_name] = result_info
         
-        # Return function info with user parameters
-        result_info = function_info.copy()
-        result_info['user_parameters'] = user_parameters
-        result_info['file_path'] = file_path
-        
-        return selected_function, result_info
+        return preprocessing_configs
 
     def configure_preprocessing(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -3306,29 +3450,51 @@ class ModelConfigCLI:
         )
         
         if use_custom_preprocessing:
-            custom_preprocessing_path = inquirer.text(
-                "Enter path to Python file containing custom preprocessing functions"
-            )
+            custom_preprocessing_configs = {}
             
-            if custom_preprocessing_path and os.path.exists(custom_preprocessing_path):
-                # Try to analyze and select custom preprocessing
-                selected_function, function_info = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
+            while True:
+                custom_preprocessing_path = inquirer.text(
+                    "Enter path to Python file containing custom preprocessing functions"
+                )
                 
-                if selected_function and function_info:
+                if not custom_preprocessing_path:
+                    break
+                
+                if not os.path.exists(custom_preprocessing_path):
+                    print("❌ Invalid file path for custom preprocessing")
+                    add_another = inquirer.confirm("Try another file?", default=True)
+                    if not add_another:
+                        break
+                    continue
+                
+                # Try to analyze and select custom preprocessing functions
+                selected_functions = self.interactive_custom_preprocessing_selection(custom_preprocessing_path)
+                
+                if selected_functions:
                     # Copy the custom function to custom_modules and get the relative path
                     relative_path = self.copy_custom_function_to_modules(custom_preprocessing_path, "preprocessing")
                     
-                    preprocessing_config["Custom Preprocessing"] = {
-                        "enabled": True,
-                        "function_name": selected_function,
-                        "file_path": relative_path,
-                        "parameters": function_info.get('user_parameters', {})
-                    }
-                    print(f"✅ Custom preprocessing configured: {selected_function}")
+                    # Update each function's file path to the relative path
+                    for func_name, func_info in selected_functions.items():
+                        func_info['file_path'] = relative_path
+                        custom_preprocessing_configs[func_name] = {
+                            "enabled": True,
+                            "function_name": func_name,
+                            "file_path": relative_path,
+                            "parameters": func_info.get('user_parameters', {})
+                        }
+                    
+                    print(f"✅ Custom preprocessing configured: {', '.join(selected_functions.keys())}")
                 else:
-                    print("⚠️  No valid custom preprocessing function selected")
-            else:
-                print("⚠️  Invalid file path for custom preprocessing")
+                    print("⚠️  No valid custom preprocessing functions selected")
+                
+                # Ask if user wants to add more from other files
+                add_more = inquirer.confirm("Add preprocessing functions from another file?", default=False)
+                if not add_more:
+                    break
+            
+            if custom_preprocessing_configs:
+                preprocessing_config["Custom Preprocessing"] = custom_preprocessing_configs
         
         print(f"\n✅ Preprocessing configuration complete!")
         return preprocessing_config
@@ -3416,7 +3582,7 @@ class ModelConfigCLI:
 
     def analyze_custom_augmentation_file(self, file_path: str) -> Tuple[bool, Dict[str, Any]]:
         """
-        Analyze a Python file to extract custom augmentation functions.
+        Analyze a Python file to extract custom augmentation functions (supports wrapper pattern).
 
         Args:
             file_path: Path to the Python file
@@ -3441,7 +3607,7 @@ class ModelConfigCLI:
             
             augmentation_info = {}
             
-            # Analyze module contents
+            # Analyze module contents for wrapper pattern and traditional pattern
             for name, obj in inspect.getmembers(module):
                 if hf.is_augmentation_function(obj, name):
                     info = hf.extract_augmentation_parameters(obj)

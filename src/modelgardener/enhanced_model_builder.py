@@ -406,33 +406,8 @@ class EnhancedModelBuilder:
         selection_config = optimizer_config.get('Optimizer Selection', {})
         selected_optimizer = selection_config.get('selected_optimizer', 'Adam')
         
-        # Check for custom optimizer
-        custom_optimizers = self.custom_functions.get('optimizers', {})
-        
-        # First check if the optimizer is directly in custom functions (without Custom_ prefix)
-        if selected_optimizer in custom_optimizers:
-            optimizer_info = custom_optimizers[selected_optimizer]
-            if isinstance(optimizer_info, dict):
-                optimizer_func = optimizer_info.get('function')
-                if optimizer_func is None:
-                    optimizer_func = optimizer_info.get('loader')  # Alternative naming
-                if optimizer_func:
-                    return optimizer_func()
-            else:
-                return optimizer_info()
-        
-        # Then check with Custom_ prefix for backward compatibility
-        if selected_optimizer.startswith('Custom_'):
-            optimizer_info = custom_optimizers.get(selected_optimizer)
-            if optimizer_info:
-                if isinstance(optimizer_info, dict):
-                    optimizer_func = optimizer_info.get('function')
-                    if optimizer_func is None:
-                        optimizer_func = optimizer_info.get('loader')  # Alternative naming
-                    if optimizer_func:
-                        return optimizer_func()
-                else:
-                    return optimizer_info()
+        # Use built-in optimizers only (no custom optimizer support)
+        # Custom optimizers have been removed to simplify the system
         
         # Built-in optimizers
         training_config = self.config.get('training', {})
