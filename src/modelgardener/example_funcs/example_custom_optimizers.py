@@ -11,10 +11,8 @@ into the ModelGardener application.
 """
 
 import keras
-import tensorflow as tf
-from typing import Union, List, Dict, Any
 
-def adaptive_adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, 
+def example_optimizer(learning_rate=0.001, beta_1=0.9, beta_2=0.999, 
                  epsilon=1e-7, decay_factor=0.99):
     """
     Custom Adam optimizer with adaptive learning rate decay.
