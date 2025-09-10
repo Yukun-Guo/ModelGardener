@@ -2423,7 +2423,7 @@ class ModelConfigCLI:
         
         return config
 
-    def create_template(self, template_path: str, format_type: str = 'yaml'):
+    def create_template(self, template_path: str, format_type: str = 'yaml', verbose: bool = False):
         """Create a configuration template with custom functions and example data."""
         config = self.create_default_config()
         
@@ -2436,15 +2436,16 @@ class ModelConfigCLI:
         config = self._add_custom_functions_to_config(config, project_dir)
         
         # Copy example data to project directory
-        hf.copy_example_data(project_dir)
+        hf.copy_example_data(project_dir, verbose)
         
         # Create the improved template with custom functions and parameters
         # Note: Custom modules and scripts will be generated separately by CLI
         template_config = hf.create_improved_template_config(config, project_dir)
         
         if self.save_config(template_config, template_path, format_type, generate_scripts=False):
-            print(f"✅ Template created at: {template_path}")
-            print(" Sample data copied to: ./data/")
+            if verbose:
+                print(f"✅ Template created at: {template_path}")
+                print(" Sample data copied to: ./data/")
             print("🚀 Ready to train! The template includes working custom functions and sample data")
             print("💡 Run the generated train.py script to start training")
 

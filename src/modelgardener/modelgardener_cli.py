@@ -841,7 +841,7 @@ class ModelGardenerCLI:
 
     def create_project_template(self, project_name: str = None, project_dir: str = ".", 
                                interactive: bool = False, auto_generate_scripts: bool = True,
-                               use_pyproject: bool = True, **kwargs):
+                               use_pyproject: bool = True, verbose: bool = False, **kwargs):
         """Create a new project template with CLI configuration."""
         
         # Create project path - if project_name is provided, create a subfolder
@@ -854,7 +854,8 @@ class ModelGardenerCLI:
             project_name = project_path.name
         
         print(f"🌱 Creating ModelGardener project: {project_name}")
-        print(f"📁 Project directory: {project_path}")
+        if verbose:
+            print(f"📁 Project directory: {project_path}")
 
         # Create project structure
         (project_path / "data" / "train").mkdir(parents=True, exist_ok=True)
@@ -894,10 +895,11 @@ class ModelGardenerCLI:
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
                     if self.config_cli.save_config(config, config_file_relative, 'yaml', generate_scripts=False):
-                        print(f"✅ Configuration saved to {config_file}")
+                        if verbose:
+                            print(f"✅ Configuration saved to {config_file}")
                 else:
                     print("❌ Configuration validation failed, using default template")
-                    self.config_cli.create_template(config_file_relative, 'yaml')
+                    self.config_cli.create_template(config_file_relative, 'yaml', verbose)
             finally:
                 os.chdir(old_cwd)
         else:
@@ -910,21 +912,23 @@ class ModelGardenerCLI:
                 if self.config_cli.validate_config(config):
                     self.config_cli.display_config_summary(config)
                     if self.config_cli.save_config(config, str(config_file), 'yaml', generate_scripts=False):
-                        print(f"✅ Configuration saved to {config_file}")
+                        if verbose:
+                            print(f"✅ Configuration saved to {config_file}")
                     else:
                         print("❌ Failed to save configuration, using default template")
-                        self.config_cli.create_template(str(config_file), 'yaml')
+                        self.config_cli.create_template(str(config_file), 'yaml', verbose)
                 else:
                     print("❌ Configuration validation failed, using default template")
-                    self.config_cli.create_template(str(config_file), 'yaml')
+                    self.config_cli.create_template(str(config_file), 'yaml', verbose)
             else:
                 # No batch args, create default template
                 config_data = None
-                self.config_cli.create_template(str(config_file), 'yaml')
+                self.config_cli.create_template(str(config_file), 'yaml', verbose)
         
         # Generate scripts if requested
         if auto_generate_scripts:
-            print(f"\n📜 Generating training scripts...")
+            if verbose:
+                print(f"\n📜 Generating training scripts...")
             try:
                 from .script_generator import ScriptGenerator
                 
@@ -935,7 +939,8 @@ class ModelGardenerCLI:
                             import yaml
                             config_data = yaml.safe_load(f)
                     except Exception as e:
-                        print(f"⚠️ Could not load config for script generation: {e}")
+                        if verbose:
+                            print(f"⚠️ Could not load config for script generation: {e}")
                         config_data = {}
                 
                 generator = ScriptGenerator()
@@ -944,11 +949,13 @@ class ModelGardenerCLI:
                     output_dir=str(project_path),
                     config_file_name="config.yaml",
                     generate_pyproject=use_pyproject,
-                    generate_requirements=not use_pyproject
+                    generate_requirements=not use_pyproject,
+                    verbose=verbose
                 )
                 
                 if success:
-                    print("✅ Training scripts generated successfully!")
+                    if verbose:
+                        print("✅ Training scripts generated successfully!")
                 else:
                     print("⚠️ Some scripts may not have been generated correctly")
                     
@@ -1079,7 +1086,8 @@ You can customize any aspect of the training pipeline by creating your own Pytho
             f.write(readme_content)
         
         print(f"✅ Project template created successfully!")
-        print(f"📖 See {readme_file} for instructions")
+        if verbose:
+            print(f"📖 See {readme_file} for instructions")
 
     def check_configuration(self, config_file: str, verbose: bool = False) -> bool:
         """Check and validate a configuration file."""
@@ -1663,6 +1671,7 @@ Examples:
     create_parser.add_argument('project_name', nargs='?', default=None, help='Name of the project (optional - uses current directory name if not provided)')
     create_parser.add_argument('--dir', '-d', default='.', help='Directory to create project in (ignored if no project_name provided)')
     create_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive project creation mode')
+    create_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed output during project creation')
     create_parser.add_argument('--script', action='store_true', default=True, help='Enable auto-generation of training scripts (default: True)')
     create_parser.add_argument('--no-script', action='store_false', dest='script', help='Disable auto-generation of training scripts')
     create_parser.add_argument('--use-pyproject', action='store_true', default=True, help='Generate pyproject.toml instead of requirements.txt (default: True)')
@@ -1834,10 +1843,11 @@ def main():
             # Get script generation options
             auto_generate_scripts = getattr(args, 'script', True)
             use_pyproject = getattr(args, 'use_pyproject', True)
+            verbose = getattr(args, 'verbose', False)
             
             cli.create_project_template(
                 args.project_name, args.dir, args.interactive, 
-                auto_generate_scripts, use_pyproject, **kwargs
+                auto_generate_scripts, use_pyproject, verbose, **kwargs
             )
         
         elif args.command == 'check':

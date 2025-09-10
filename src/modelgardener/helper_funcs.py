@@ -1057,7 +1057,7 @@ def generate_python_scripts(config: Dict[str, Any], config_file_path: str):
         print(f"❌ Error generating Python scripts: {str(e)}")
 
 
-def copy_example_data(project_dir: str):
+def copy_example_data(project_dir: str, verbose: bool = False):
     """
     Ensure CIFAR-10 dataset exists and copy it to the project directory.
     Uses caching and automatic generation for robustness.
@@ -1083,7 +1083,7 @@ def copy_example_data(project_dir: str):
             temp_dir=temp_dir,
             target_path=cifar10_dest,
             samples_per_class=500,
-            verbose=True
+            verbose=verbose
         ):
             # Verify the copied dataset
             try:
@@ -1091,10 +1091,12 @@ def copy_example_data(project_dir: str):
                 with np.load(cifar10_dest) as data:
                     x_data = data['x']
                     y_data = data['y']
-                    print(f"✅ CIFAR-10 dataset copied to: {dest_data_dir}")
+                    if verbose:
+                        print(f"✅ CIFAR-10 dataset copied to: {dest_data_dir}")
                     print(f"📊 CIFAR-10 dataset: {len(x_data)} samples, {x_data.shape[1:]} shape, {len(np.unique(y_data))} classes")
             except Exception as e:
-                print(f"📊 CIFAR-10 dataset copied (could not read metadata: {e})")
+                if verbose:
+                    print(f"📊 CIFAR-10 dataset copied (could not read metadata: {e})")
         else:
             print(f"❌ Failed to prepare CIFAR-10 dataset")
             

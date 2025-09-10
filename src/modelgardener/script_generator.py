@@ -26,7 +26,8 @@ class ScriptGenerator:
     def generate_scripts(self, config_data: Dict[str, Any], output_dir: str, 
                         config_file_name: str = "config.yaml",
                         generate_pyproject: bool = True,
-                        generate_requirements: bool = False) -> bool:
+                        generate_requirements: bool = False,
+                        verbose: bool = False) -> bool:
         """
         Generate all Python scripts based on configuration.
         
@@ -47,8 +48,9 @@ class ScriptGenerator:
             config = config_data.get('configuration', config_data)
             
             # Generate custom_modules directory first
-            print("📦 Generating custom modules...")
-            self.generate_custom_modules_templates(output_dir)
+            if verbose:
+                print("📦 Generating custom modules...")
+            self.generate_custom_modules_templates(output_dir, verbose)
             
             # Generate each script
             for script_name, template in self.templates.items():
@@ -62,20 +64,22 @@ class ScriptGenerator:
                 if os.name != 'nt':  # Not Windows
                     os.chmod(script_path, 0o755)
                 
-                print(f"✅ Generated: {script_path}")
+                if verbose:
+                    print(f"✅ Generated: {script_path}")
             
             # Generate pyproject.toml by default
             if generate_pyproject:
-                self._generate_pyproject_toml(config, output_dir)
+                self._generate_pyproject_toml(config, output_dir, verbose)
             
             # Generate requirements.txt if specifically requested
             if generate_requirements:
-                self._generate_requirements_txt(config, output_dir)
+                self._generate_requirements_txt(config, output_dir, verbose)
             
             # Generate README for scripts
-            self._generate_scripts_readme(config, output_dir)
+            self._generate_scripts_readme(config, output_dir, verbose)
             
-            print(f"🎉 All scripts generated successfully in: {output_dir}")
+            if verbose:
+                print(f"🎉 All scripts generated successfully in: {output_dir}")
             return True
             
         except Exception as e:
@@ -84,7 +88,7 @@ class ScriptGenerator:
             traceback.print_exc()
             return False
     
-    def generate_custom_modules_templates(self, output_dir: str) -> bool:
+    def generate_custom_modules_templates(self, output_dir: str, verbose: bool = False) -> bool:
         """
         Generate custom modules templates with one function per file.
         
@@ -100,7 +104,7 @@ class ScriptGenerator:
             os.makedirs(custom_modules_dir, exist_ok=True)
             
             # Generate individual function files based on example_funcs structure
-            self._generate_individual_custom_functions(custom_modules_dir)
+            self._generate_individual_custom_functions(custom_modules_dir, verbose)
             
             # Generate __init__.py file
             init_file_path = os.path.join(custom_modules_dir, '__init__.py')
@@ -108,9 +112,10 @@ class ScriptGenerator:
                 f.write('"""Custom modules for ModelGardener project."""\n')
             
             # Generate README for custom modules
-            self._generate_custom_modules_readme(custom_modules_dir)
+            self._generate_custom_modules_readme(custom_modules_dir, verbose)
             
-            print(f"📦 Custom modules templates created in: {custom_modules_dir}")
+            if verbose:
+                print(f"📦 Custom modules templates created in: {custom_modules_dir}")
             
             return True
             
@@ -118,7 +123,7 @@ class ScriptGenerator:
             print(f"❌ Error generating custom modules templates: {str(e)}")
             return False
 
-    def _generate_individual_custom_functions(self, custom_modules_dir: str):
+    def _generate_individual_custom_functions(self, custom_modules_dir: str, verbose: bool = False):
         """
         Generate individual custom function files based on example_funcs structure.
         Each file will contain only one custom function.
@@ -197,7 +202,8 @@ class ScriptGenerator:
                             
                             with open(output_path, 'w', encoding='utf-8') as f:
                                 f.write(combined_content)
-                            print(f"✅ Generated: {output_path}")
+                            if verbose:
+                                print(f"✅ Generated: {output_path}")
                         
                 except Exception as e:
                     print(f"❌ Error processing {example_file}: {str(e)}")
@@ -2713,7 +2719,7 @@ if __name__ == "__main__":
     main()
 '''
     
-    def _generate_pyproject_toml(self, config: Dict[str, Any], output_dir: str):
+    def _generate_pyproject_toml(self, config: Dict[str, Any], output_dir: str, verbose: bool = False):
         """Generate pyproject.toml file for better project management."""
         
         # Extract project information
@@ -2839,9 +2845,10 @@ ignore_missing_imports = true
         with open(pyproject_path, 'w') as f:
             f.write(pyproject_content)
         
-        print(f"✅ Generated: {pyproject_path}")
+        if verbose:
+            print(f"✅ Generated: {pyproject_path}")
 
-    def _generate_requirements_txt(self, config: Dict[str, Any], output_dir: str):
+    def _generate_requirements_txt(self, config: Dict[str, Any], output_dir: str, verbose: bool = False):
         """Generate requirements.txt file."""
         requirements = [
             "tensorflow>=2.10.0",
@@ -2870,9 +2877,10 @@ ignore_missing_imports = true
             for req in sorted(requirements):
                 f.write(f"{req}\n")
         
-        print(f"✅ Generated: {requirements_path}")
+        if verbose:
+            print(f"✅ Generated: {requirements_path}")
 
-    def _generate_scripts_readme(self, config: Dict[str, Any], output_dir: str):
+    def _generate_scripts_readme(self, config: Dict[str, Any], output_dir: str, verbose: bool = False):
         """Generate README file for the scripts."""
         
         data_config = config.get('data', {})
@@ -3027,9 +3035,10 @@ These scripts are generated automatically by ModelGardener. For issues or custom
         with open(readme_path, 'w') as f:
             f.write(readme_content)
         
-        print(f"✅ Generated: {readme_path}")
+        if verbose:
+            print(f"✅ Generated: {readme_path}")
 
-    def _generate_custom_modules_readme(self, custom_modules_dir: str):
+    def _generate_custom_modules_readme(self, custom_modules_dir: str, verbose: bool = False):
         """Generate README file for custom modules."""
         readme_content = f"""# Custom Modules for ModelGardener
 
@@ -3082,7 +3091,8 @@ Refer to the ModelGardener documentation for more details on custom functions.
         with open(readme_path, 'w') as f:
             f.write(readme_content)
     
-        print(f"✅ Generated: {readme_path}")
+        if verbose:
+            print(f"✅ Generated: {readme_path}")
 
     def _get_custom_models_template(self) -> str:
         """Get the custom models template."""
