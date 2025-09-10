@@ -31,7 +31,7 @@ class ExampleCallbackClass1(keras.callbacks.Callback):
         
     def on_epoch_end(self, epoch, logs=None):
         # Add custom logic to execute at the end of each epoch
-        print(f"Example Callback Class 1: Epoch {epoch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        # print(f"Example Callback Class 1: Epoch {epoch} ended. Param1: {self.param1}, Param2: {self.param2}")
         return super().on_epoch_end(epoch, logs)
     
 class ExampleCallbackClass2(keras.callbacks.Callback):
@@ -54,5 +54,5 @@ class ExampleCallbackClass2(keras.callbacks.Callback):
 
     def on_batch_end(self, batch, logs=None):
         # Add custom logic to execute at the end of each batch
-        print(f"Example Callback Class 2: Batch {batch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        # print(f"Example Callback Class 2: Batch {batch} ended. Param1: {self.param1}, Param2: {self.param2}")
         return super().on_batch_end(batch, logs)

@@ -613,7 +613,7 @@ class ExampleCallbackClass1(keras.callbacks.Callback):
         
     def on_epoch_end(self, epoch, logs=None):
         # Add custom logic to execute at the end of each epoch
-        print(f"Example Callback Class 1: Epoch {epoch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        # print(f"Example Callback Class 1: Epoch {epoch} ended. Param1: {self.param1}, Param2: {self.param2}")
         return super().on_epoch_end(epoch, logs)
     
 class ExampleCallbackClass2(keras.callbacks.Callback):
@@ -636,7 +636,7 @@ class ExampleCallbackClass2(keras.callbacks.Callback):
 
     def on_batch_end(self, batch, logs=None):
         # Add custom logic to execute at the end of each batch
-        print(f"Example Callback Class 2: Batch {batch} ended. Param1: {self.param1}, Param2: {self.param2}")
+        # print(f"Example Callback Class 2: Batch {batch} ended. Param1: {self.param1}, Param2: {self.param2}")
         return super().on_batch_end(batch, logs)
 '''
 
@@ -895,30 +895,36 @@ def example_training_loop(param1=1, param2=1):
             # Handle both full config (with 'configuration' key) and config section directly
             configuration = config.get('configuration', config)
             
-            # Extract preprocessing functions
+            # Extract preprocessing functions from new structure (directly under preprocessing)
             preprocessing = configuration.get('data', {}).get('preprocessing', {})
-            custom_preprocessing = preprocessing.get('Custom Preprocessing', {})
-            if custom_preprocessing and custom_preprocessing.get('enabled'):
-                custom_functions['preprocessing'] = [{
-                    'name': custom_preprocessing.get('function_name'),
-                    'file_path': custom_preprocessing.get('file_path'),
-                    'function_name': custom_preprocessing.get('function_name'),
-                    'type': 'function',
-                    'parameters': custom_preprocessing.get('parameters', {})
-                }]
+            preprocessing_functions = []
+            for key, value in preprocessing.items():
+                if isinstance(value, dict) and 'function_name' in value and 'file_path' in value:
+                    if value.get('enabled', True):  # Default to enabled if not specified
+                        preprocessing_functions.append({
+                            'name': value.get('function_name'),
+                            'file_path': value.get('file_path'),
+                            'function_name': value.get('function_name'),
+                            'type': 'function',
+                            'parameters': value.get('parameters', {})
+                        })
             
-            # Extract augmentation functions
+            if preprocessing_functions:
+                custom_functions['preprocessing'] = preprocessing_functions
+            
+            # Extract augmentation functions from new structure (directly under augmentation)
             augmentation = configuration.get('data', {}).get('augmentation', {})
             augmentations = []
             for key, value in augmentation.items():
-                if ' (custom)' in key and value.get('enabled'):
-                    augmentations.append({
-                        'name': value.get('function_name'),
-                        'file_path': value.get('file_path'),
-                        'function_name': value.get('function_name'),
-                        'type': 'function',
-                        'parameters': value.get('parameters', {})
-                    })
+                if isinstance(value, dict) and 'function_name' in value and 'file_path' in value:
+                    if value.get('enabled', True):  # Default to enabled if not specified
+                        augmentations.append({
+                            'name': value.get('function_name'),
+                            'file_path': value.get('file_path'),
+                            'function_name': value.get('function_name'),
+                            'type': 'function',
+                            'parameters': value.get('parameters', {})
+                        })
             if augmentations:
                 custom_functions['augmentations'] = augmentations
             
@@ -1001,10 +1007,11 @@ def example_training_loop(param1=1, param2=1):
                     imports.append(f"# Custom {func_type}")
                     for func_info in functions:
                         if isinstance(func_info, dict):
-                            file_path = func_info.get('file_path', '')
-                            module_name = file_path.replace('.py', '').replace('./', '')
-                            if module_name:
-                                imports.append(f"# from {module_name} import {func_info.get('function_name', 'custom_function')}")
+                            file_path = func_info.get('file_path')
+                            if file_path and isinstance(file_path, str):
+                                module_name = file_path.replace('.py', '').replace('./', '')
+                                if module_name:
+                                    imports.append(f"# from {module_name} import {func_info.get('function_name', 'custom_function')}")
         
         return '\n'.join(imports) if imports else "# No custom functions"
     
@@ -1086,29 +1093,13 @@ This script uses the same enhanced training pipeline as the CLI train command.
 import os
 import sys
 import yaml
-import tensorflow as tf
-import keras
-import numpy as np
 from pathlib import Path
 
-# Setup paths for ModelGardener imports
+# ModelGardener imports
+from modelgardener import EnhancedTrainer
+
+# Add current directory for custom modules
 current_dir = Path(__file__).parent
-project_root = current_dir
-
-# Try to find ModelGardener installation or source
-modelgardener_paths = [
-    current_dir / "src",  # If in project root
-    current_dir.parent / "src",  # If in subdirectory
-    current_dir / "venv" / "lib" / "python3.10" / "site-packages",  # Virtual env
-    Path.home() / ".local" / "lib" / "python3.10" / "site-packages",  # User install
-]
-
-# Add paths to sys.path
-for path in modelgardener_paths:
-    if path.exists():
-        sys.path.insert(0, str(path))
-
-# Also add current directory for custom modules
 sys.path.insert(0, str(current_dir))
 
 {{CUSTOM_IMPORTS}}
@@ -1207,52 +1198,8 @@ def train_model():
         
         # Use the enhanced trainer approach (same as CLI)
         try:
-            # Try multiple import strategies
-            enhanced_trainer = None
-            
-            # Strategy 1: Direct import from modelgardener package
-            try:
-                from modelgardener.enhanced_trainer import EnhancedTrainer
-                enhanced_trainer = EnhancedTrainer
-                print("✅ Imported EnhancedTrainer from installed package")
-            except ImportError:
-                pass
-            
-            # Strategy 2: Relative import (if running from project structure)
-            if enhanced_trainer is None:
-                try:
-                    from .enhanced_trainer import EnhancedTrainer
-                    enhanced_trainer = EnhancedTrainer
-                    print("✅ Imported EnhancedTrainer with relative import")
-                except ImportError:
-                    pass
-            
-            # Strategy 3: Direct file import (fallback)
-            if enhanced_trainer is None:
-                try:
-                    import importlib.util
-                    trainer_paths = [
-                        current_dir / "src" / "modelgardener" / "enhanced_trainer.py",
-                        current_dir.parent / "src" / "modelgardener" / "enhanced_trainer.py",
-                        current_dir / "enhanced_trainer.py"
-                    ]
-                    
-                    for trainer_path in trainer_paths:
-                        if trainer_path.exists():
-                            spec = importlib.util.spec_from_file_location("enhanced_trainer", trainer_path)
-                            trainer_module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(trainer_module)
-                            enhanced_trainer = trainer_module.EnhancedTrainer
-                            print(f"✅ Imported EnhancedTrainer from {trainer_path}")
-                            break
-                except Exception as e:
-                    print(f"⚠️ Error in direct file import: {e}")
-            
-            if enhanced_trainer is None:
-                raise ImportError("Could not import EnhancedTrainer")
-            
             # Initialize trainer with same approach as CLI
-            trainer = enhanced_trainer(
+            trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=custom_functions_data
             )
@@ -1270,81 +1217,25 @@ def train_model():
                 print("❌ Training failed")
                 return False
             
-        except ImportError as e:
-            print(f"⚠️ Enhanced trainer not available ({e}), falling back to basic training...")
-            return _fallback_training(main_config, custom_functions_data)
-            
+        except Exception as e:
+            print(f"❌ Error during training: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
     except Exception as e:
         print(f"❌ Error during training: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
 
-def _fallback_training(config, custom_functions):
-    """Fallback training method if enhanced trainer is not available."""
-    try:
-        # Try the same import strategies for fallback
-        enhanced_trainer = None
-        
-        try:
-            from modelgardener.enhanced_trainer import EnhancedTrainer
-            enhanced_trainer = EnhancedTrainer
-        except ImportError:
-            try:
-                from .enhanced_trainer import EnhancedTrainer
-                enhanced_trainer = EnhancedTrainer
-            except ImportError:
-                # Try direct import from source files
-                import importlib.util
-                trainer_paths = [
-                    Path(__file__).parent / "src" / "modelgardener" / "enhanced_trainer.py",
-                    Path(__file__).parent.parent / "src" / "modelgardener" / "enhanced_trainer.py",
-                    Path(__file__).parent / "enhanced_trainer.py"
-                ]
-                
-                for trainer_path in trainer_paths:
-                    if trainer_path.exists():
-                        spec = importlib.util.spec_from_file_location("enhanced_trainer", trainer_path)
-                        trainer_module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(trainer_module)
-                        enhanced_trainer = trainer_module.EnhancedTrainer
-                        break
-        
-        if enhanced_trainer is None:
-            print("❌ Cannot import trainer modules from any source")
-            print("💡 Make sure ModelGardener is properly installed or run from the project directory")
-            return False
-        
-        # Initialize trainer
-        trainer = enhanced_trainer(
-            config=config,
-            custom_functions=custom_functions
-        )
-        
-        print("✅ Fallback trainer initialized")
-        
-        # Run training
-        print("🏃 Starting fallback training...")
-        success = trainer.train()
-        
-        if success:
-            print("✅ Training completed successfully!")
-            return True
-        else:
-            print("❌ Training failed")
-            return False
             
-    except Exception as e:
-        print(f"❌ Error in fallback training: {str(e)}")
-        print("💡 Please ensure ModelGardener is properly installed")
-        return False
 if __name__ == "__main__":
     success = train_model()
     if success:
         print("🎉 Training script completed successfully!")
         sys.exit(0)
     else:
-        print("💥 Training script failed!")
+        print("❌ Training script failed!")
         sys.exit(1)
 '''
     

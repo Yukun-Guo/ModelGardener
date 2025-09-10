@@ -220,9 +220,19 @@ def is_improved_template_config( config: Dict[str, Any]) -> bool:
         data_config = config.get('configuration', {}).get('data', {})
         model_config = config.get('configuration', {}).get('model', {})
         
-        has_custom_aug = 'Custom Augmentation' in data_config.get('augmentation', {})
-        has_custom_prep = 'Custom Preprocessing' in data_config.get('preprocessing', {})
-        has_custom_callback = 'Custom Callback' in model_config.get('callbacks', {})
+        # Check for custom functions by looking for entries with function_name and file_path
+        has_custom_aug = any(
+            isinstance(v, dict) and 'function_name' in v and 'file_path' in v 
+            for v in data_config.get('augmentation', {}).values()
+        )
+        has_custom_prep = any(
+            isinstance(v, dict) and 'function_name' in v and 'file_path' in v 
+            for v in data_config.get('preprocessing', {}).values()
+        )
+        has_custom_callback = any(
+            isinstance(v, dict) and 'function_name' in v and 'file_path' in v 
+            for v in model_config.get('callbacks', {}).values()
+        )
         
         return has_custom_aug or has_custom_prep or has_custom_callback
     except:
@@ -1105,44 +1115,53 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
     # Start with the base configuration
     improved_config = config.copy()
     
+    # Clean up file_path entries from configuration sections (they should only be in metadata)
+    def remove_file_path_from_config_sections(config_dict):
+        """Recursively remove file_path entries from configuration sections."""
+        if isinstance(config_dict, dict):
+            for key, value in config_dict.items():
+                if isinstance(value, dict):
+                    # Remove file_path if it exists and this is not a metadata section
+                    if 'file_path' in value and key != 'metadata':
+                        value.pop('file_path', None)
+                    # Recursively process nested dictionaries
+                    remove_file_path_from_config_sections(value)
+    
+    # Apply cleanup to configuration section only (preserve metadata)
+    if 'configuration' in improved_config:
+        remove_file_path_from_config_sections(improved_config['configuration'])
+    
     # Add all available custom augmentation functions
     if 'data' in improved_config['configuration'] and 'augmentation' in improved_config['configuration']['data']:
         augmentation_functions = discover_custom_functions('./example_funcs/example_custom_augmentations.py')
         for func_name, func_info in augmentation_functions.items():
-            # Use interactive mode format: function_name (custom)
-            display_name = f"{func_name} (custom)"
             augmentation_config = {
-                'enabled': False,  # Disabled by default in template
+                'enabled': True,  # Enabled in template
                 'function_name': func_name, 
-                'file_path': './custom_modules/custom_augmentations.py',
                 'probability': 0.5  # Add probability parameter for augmentations
             }
             # Add function-specific parameters
             params = func_info.get('parameters', {})
             if params:
                 augmentation_config['parameters'] = params
-            improved_config['configuration']['data']['augmentation'][display_name] = augmentation_config
+            # Place functions directly under augmentation (no suffix)
+            improved_config['configuration']['data']['augmentation'][func_name] = augmentation_config
     
-    # Add all available custom preprocessing functions using interactive mode format
+    # Add all available custom preprocessing functions using direct placement format
     if 'data' in improved_config['configuration'] and 'preprocessing' in improved_config['configuration']['data']:
         preprocessing_functions = discover_custom_functions('./example_funcs/example_custom_preprocessing.py')
-        if preprocessing_functions:
-            # Use the first preprocessing function as an example, disabled by default
-            first_func_name = list(preprocessing_functions.keys())[0]
-            first_func_info = preprocessing_functions[first_func_name]
-            
+        for func_name, func_info in preprocessing_functions.items():
             preprocessing_config = {
-                'enabled': False,  # Disabled by default in template
-                'function_name': first_func_name,
-                'file_path': './custom_modules/custom_preprocessing.py'
+                'enabled': True,  # Enabled in template like augmentations
+                'function_name': func_name
             }
             # Add function-specific parameters
-            params = first_func_info.get('parameters', {})
+            params = func_info.get('parameters', {})
             if params:
                 preprocessing_config['parameters'] = params
             
-            # Use interactive mode format: "Custom Preprocessing"
-            improved_config['configuration']['data']['preprocessing']['Custom Preprocessing'] = preprocessing_config
+            # Place functions directly under preprocessing (consistent with augmentation)
+            improved_config['configuration']['data']['preprocessing'][func_name] = preprocessing_config
     
     # Remove custom optimizer from metadata (if present) since it's rarely used
     if 'metadata' in improved_config and 'custom_functions' in improved_config['metadata']:
@@ -1158,94 +1177,81 @@ def create_improved_template_config(config: Dict[str, Any], project_dir: str = '
         from .script_generator import ScriptGenerator
         generator = ScriptGenerator()
         
-        # These are the functions we know exist based on generated modules with their parameters
+        # These are the functions we know exist based on generated modules (parameters removed - they exist in configuration section)
         known_functions = {
             'models': [{
                 'name': 'example_model',
                 'file_path': './custom_modules/custom_models.py', 
                 'function_name': 'example_model',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_model', './custom_modules/custom_models.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'data_loaders': [{
                 'name': 'example_data_loader',
                 'file_path': './custom_modules/custom_data_loaders.py',
                 'function_name': 'example_data_loader', 
-                'type': 'function',
-                'parameters': extract_function_parameters('example_data_loader', './custom_modules/custom_data_loaders.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'loss_functions': [{
                 'name': 'example_loss_1',
                 'file_path': './custom_modules/custom_loss_functions.py',
                 'function_name': 'example_loss_1',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_loss_1', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
+                'type': 'function'
             },{
                 'name': 'example_loss_2',
                 'file_path': './custom_modules/custom_loss_functions.py',
                 'function_name': 'example_loss_2',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_loss_2', './custom_modules/custom_loss_functions.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'metrics': [{
                 'name': 'example_metric_1',
                 'file_path': './custom_modules/custom_metrics.py',
                 'function_name': 'example_metric_1',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_metric_1', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
+                'type': 'function'
             },
             {
                 'name': 'example_metric_2',
                 'file_path': './custom_modules/custom_metrics.py',
                 'function_name': 'example_metric_2',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_metric_2', './custom_modules/custom_metrics.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'callbacks': [{
                 'name': 'ExampleCallbackClass1',
                 'file_path': './custom_modules/custom_callbacks.py',
                 'function_name': 'ExampleCallbackClass1',
-                'type': 'class',
-                'parameters': extract_function_parameters('ExampleCallbackClass1', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
+                'type': 'class'
             },{
                 'name': 'ExampleCallbackClass2',
                 'file_path': './custom_modules/custom_callbacks.py',
                 'function_name': 'ExampleCallbackClass2',
-                'type': 'class',
-                'parameters': extract_function_parameters('ExampleCallbackClass2', './custom_modules/custom_callbacks.py', project_dir, show_warnings=False)
+                'type': 'class'
             }],
             'augmentations': [{
                 'name': 'example_augmentation_1',
                 'file_path': './custom_modules/custom_augmentations.py',
                 'function_name': 'example_augmentation_1',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_augmentation_1', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
+                'type': 'function'
             },{
                 'name': 'example_augmentation_2',
                 'file_path': './custom_modules/custom_augmentations.py',
                 'function_name': 'example_augmentation_2',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_augmentation_2', './custom_modules/custom_augmentations.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'preprocessing': [{
                 'name': 'example_preprocessing_1',
                 'file_path': './custom_modules/custom_preprocessing.py',
                 'function_name': 'example_preprocessing_1',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_preprocessing_1', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
+                'type': 'function'
             },{
                 'name': 'example_preprocessing_2',
                 'file_path': './custom_modules/custom_preprocessing.py',
                 'function_name': 'example_preprocessing_2',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_preprocessing_2', './custom_modules/custom_preprocessing.py', project_dir, show_warnings=False)
+                'type': 'function'
             }],
             'training_loops': [{
                 'name': 'example_training_loop',
                 'file_path': './custom_modules/custom_training_loops.py',
                 'function_name': 'example_training_loop',
-                'type': 'function',
-                'parameters': extract_function_parameters('example_training_loop', './custom_modules/custom_training_loops.py', project_dir, show_warnings=False)
+                'type': 'function'
             }]
         }
         
@@ -1506,44 +1512,35 @@ def generate_improved_yaml(config: Dict[str, Any]) -> str:
     preprocessing = data_config.get('preprocessing', {})
     yaml_lines.append("    preprocessing:")
     
-    # Standard preprocessing options (non-custom)
-    for key, value in preprocessing.items():
-        if not key.endswith('(custom)'):
-            yaml_lines.append(f"      {key}:")
-            add_nested_yaml(yaml_lines, value, 8)
-    
-    # Add custom preprocessing functions
+    # Add both built-in and custom preprocessing functions
     custom_preprocessing_found = False
     for key, value in preprocessing.items():
-        if key.endswith('(custom)'):
+        if isinstance(value, dict) and 'function_name' in value and 'file_path' in value:
+            # This is a custom function - add comment if first one
             if not custom_preprocessing_found:
                 yaml_lines.append("      # Custom preprocessing functions")
                 custom_preprocessing_found = True
-            yaml_lines.append(f"      {key}:")
-            for sub_key, sub_value in value.items():
-                yaml_lines.append(f"        {sub_key}: {sub_value}")
+        else:
+            # This is a built-in preprocessing option
+            pass
+        yaml_lines.append(f"      {key}:")
+        add_nested_yaml(yaml_lines, value, 8)
             
     # Augmentation section with custom options
     augmentation = data_config.get('augmentation', {})
     yaml_lines.append("    augmentation:")
     yaml_lines.append("      # Built-in augmentation options")
     
-    # Standard augmentation options (non-custom)
-    for key, value in augmentation.items():
-        if not key.endswith('(custom)'):
-            yaml_lines.append(f"      {key}:")
-            add_nested_yaml(yaml_lines, value, 8)
-    
-    # Add custom augmentation functions
+    # Add both built-in and custom augmentation functions  
     custom_augmentation_found = False
     for key, value in augmentation.items():
-        if key.endswith('(custom)'):
+        if isinstance(value, dict) and 'function_name' in value and 'file_path' in value:
+            # This is a custom function - add comment if first one
             if not custom_augmentation_found:
                 yaml_lines.append("      # Custom augmentation functions")
                 custom_augmentation_found = True
-            yaml_lines.append(f"      {key}:")
-            for sub_key, sub_value in value.items():
-                yaml_lines.append(f"        {sub_key}: {sub_value}")
+        yaml_lines.append(f"      {key}:")
+        add_nested_yaml(yaml_lines, value, 8)
             
     # Model section
     model_config = configuration.get('model', {})

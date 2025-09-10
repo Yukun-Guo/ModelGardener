@@ -1296,7 +1296,6 @@ class ModelConfigCLI:
                     "val_dir": "./data",
                     "data_loader": {
                         "selected_data_loader": "example_data_loader",
-                        "file_path": "./custom_modules/custom_data_loaders.py",
                         "use_for_train": True,
                         "use_for_val": True,
                         "parameters": {
@@ -1328,24 +1327,20 @@ class ModelConfigCLI:
                             "axis": -1,
                             "epsilon": 1e-07
                         },
-                        "Custom Preprocessing": {
-                            "example_preprocessing_1": {
-                                "enabled": True,
-                                "function_name": "example_preprocessing_1",
-                                "file_path": "./custom_modules/custom_preprocessing.py",
-                                "parameters": {
-                                    "param1": 1,
-                                    "param2": 1
-                                }
-                            },
-                            "example_preprocessing_2": {
-                                "enabled": True,
-                                "function_name": "example_preprocessing_2",
-                                "file_path": "./custom_modules/custom_preprocessing.py",
-                                "parameters": {
-                                    "param1": 1,
-                                    "param2": 1
-                                }
+                        "example_preprocessing_1": {
+                            "enabled": True,
+                            "function_name": "example_preprocessing_1",
+                            "parameters": {
+                                "param1": 1,
+                                "param2": 1
+                            }
+                        },
+                        "example_preprocessing_2": {
+                            "enabled": True,
+                            "function_name": "example_preprocessing_2",
+                            "parameters": {
+                                "param1": 1,
+                                "param2": 1
                             }
                         }
                     },
@@ -1378,20 +1373,24 @@ class ModelConfigCLI:
                             "factor_range": [0.8, 1.2],
                             "probability": 0.5
                         },
-                        # Custom augmentation functions (disabled by default)
-                        "example_augmentation_1 (custom)": {
+                        # Custom augmentation functions
+                        "example_augmentation_1": {
                             "enabled": True,
                             "function_name": "example_augmentation_1",
-                            "file_path": "./custom_modules/custom_augmentations.py",
                             "probability": 0.5,
-                            "parameters": {"param1": 1, "param2": 2}
+                            "parameters": {
+                                "param1": 1,
+                                "param2": 2
+                            }
                         },
-                        "example_augmentation_2 (custom)": {
+                        "example_augmentation_2": {
                             "enabled": True,
                             "function_name": "example_augmentation_2",
-                            "file_path": "./custom_modules/custom_augmentations.py",
                             "probability": 0.5,
-                            "parameters": {"param1": 1, "param2": 2}
+                            "parameters": {
+                                "param1": 1,
+                                "param2": 2
+                            }
                         },
                     }
                 },
@@ -1407,7 +1406,6 @@ class ModelConfigCLI:
                         "classifier_activation": "",
                         "kwargs": {},
                         "custom_info": {
-                            "file_path": "./custom_modules/custom_models.py",
                             "type": "function",
                             "function_name": "example_model",
                             "description": "Example custom model architecture."
@@ -1431,7 +1429,6 @@ class ModelConfigCLI:
                         },
                         "Loss Selection": {
                             "selected_loss": "example_loss_1",
-                            "custom_loss_path": "./custom_modules/custom_loss_functions.py",
                             "parameters": {
                                 "param1": 1.0,
                                 "param2": 0.5
@@ -1448,11 +1445,9 @@ class ModelConfigCLI:
                             "selected_metrics": "Accuracy,example_metric_1,example_metric_2",
                             "custom_metrics_configs": {
                                 "example_metric_1": {
-                                    "custom_metrics_path": "./custom_modules/custom_metrics.py",
                                     "parameters": {}
                                 },
                                 "example_metric_2": {
-                                    "custom_metrics_path": "./custom_modules/custom_metrics.py",
                                     "parameters": {}
                                 }
                             }
@@ -1502,7 +1497,6 @@ class ModelConfigCLI:
                             "ExampleCallbackClass1": {
                                 "enabled": True,
                                 "function_name": "ExampleCallbackClass1",
-                                "file_path": "./custom_modules/custom_callbacks.py",
                                 "type": "class",
                                 "parameters": {
                                     "param1": 1,
@@ -1513,7 +1507,6 @@ class ModelConfigCLI:
                             "ExampleCallbackClass2": {
                                 "enabled": True,
                                 "function_name": "ExampleCallbackClass2",
-                                "file_path": "./custom_modules/custom_callbacks.py",
                                 "type": "class",
                                 "parameters": {
                                     "param1": "default",
@@ -3494,7 +3487,8 @@ class ModelConfigCLI:
                     break
             
             if custom_preprocessing_configs:
-                preprocessing_config["Custom Preprocessing"] = custom_preprocessing_configs
+                # Place custom preprocessing functions directly under preprocessing
+                preprocessing_config.update(custom_preprocessing_configs)
         
         print(f"\n✅ Preprocessing configuration complete!")
         return preprocessing_config
