@@ -9,6 +9,9 @@ This module provides the main training orchestrator that coordinates all compone
 """
 
 import os
+import re
+import glob
+import shutil
 import tensorflow as tf
 import keras
 from typing import Dict, Any, Tuple, Optional
@@ -71,6 +74,101 @@ class EnhancedTrainer:
         self.model = None
         self.train_dataset = None
         self.val_dataset = None
+        
+        # Setup versioned logging directory
+        self.versioned_log_dir = self._setup_versioned_log_directory()
+        
+        # Store original config file path for copying
+        self.config_file_path = None
+    
+    def _setup_versioned_log_directory(self) -> str:
+        """
+        Create a versioned log directory with format {model_family}_{model_name}_version_xx.
+        
+        Returns:
+            str: Path to the versioned log directory
+        """
+        try:
+            # Get model information from config
+            model_config = self.config.get('model', {})
+            model_family = model_config.get('model_family', 'unknown_family')
+            model_name = model_config.get('model_name', 'unknown_model')
+            
+            # Get base log directory
+            base_log_dir = self.config.get('runtime', {}).get('model_dir', './logs')
+            
+            # Generate versioned folder name
+            folder_pattern = f"{model_family}_{model_name}_version_"
+            next_version = self._get_next_version_number(base_log_dir, folder_pattern)
+            versioned_folder = f"{folder_pattern}{next_version:02d}"
+            
+            # Create full path
+            versioned_log_dir = os.path.join(base_log_dir, versioned_folder)
+            os.makedirs(versioned_log_dir, exist_ok=True)
+            
+            print(f"📁 Created versioned log directory: {versioned_log_dir}")
+            
+            # Update config to use versioned directory
+            if 'runtime' not in self.config:
+                self.config['runtime'] = {}
+            self.config['runtime']['model_dir'] = versioned_log_dir
+            
+            return versioned_log_dir
+            
+        except Exception as e:
+            print(f"⚠️  Error setting up versioned log directory: {str(e)}")
+            # Fallback to original behavior
+            base_log_dir = self.config.get('runtime', {}).get('model_dir', './logs')
+            os.makedirs(base_log_dir, exist_ok=True)
+            return base_log_dir
+    
+    def _get_next_version_number(self, base_log_dir: str, folder_pattern: str) -> int:
+        """
+        Find the next version number by scanning existing folders.
+        
+        Args:
+            base_log_dir: Base directory to scan
+            folder_pattern: Pattern to match (e.g., "custom_model_example_model_version_")
+            
+        Returns:
+            int: Next version number
+        """
+        try:
+            if not os.path.exists(base_log_dir):
+                return 1
+                
+            # Find all matching directories
+            search_pattern = os.path.join(base_log_dir, f"{folder_pattern}*")
+            existing_dirs = glob.glob(search_pattern)
+            
+            if not existing_dirs:
+                return 1
+            
+            # Extract version numbers
+            version_numbers = []
+            version_regex = re.compile(rf"{re.escape(folder_pattern)}(\d+)$")
+            
+            for dir_path in existing_dirs:
+                dir_name = os.path.basename(dir_path)
+                match = version_regex.match(dir_name)
+                if match:
+                    version_numbers.append(int(match.group(1)))
+            
+            # Return next version number
+            return max(version_numbers) + 1 if version_numbers else 1
+            
+        except Exception as e:
+            print(f"⚠️  Error determining version number: {str(e)}")
+            return 1
+    
+    def set_config_file_path(self, config_file_path: str):
+        """
+        Set the path to the config file for copying to the versioned directory.
+        
+        Args:
+            config_file_path: Path to the original config.yaml file
+        """
+        self.config_file_path = config_file_path
     
     def train(self) -> bool:
         """
@@ -442,8 +540,8 @@ class EnhancedTrainer:
             # Estimate total steps for progress tracking
             total_steps = self.components_builder.estimate_total_steps(self.train_dataset, epochs)
             
-            # Setup callbacks
-            callbacks = self.components_builder.setup_training_callbacks(total_steps)
+            # Setup callbacks (including hidden config copy callback)
+            callbacks = self.components_builder.setup_training_callbacks(total_steps, self.config_file_path)
             
             # Determine training strategy
             if self.components_builder.should_use_cross_validation():

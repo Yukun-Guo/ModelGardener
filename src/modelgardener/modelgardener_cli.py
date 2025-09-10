@@ -232,6 +232,9 @@ class ModelGardenerCLI:
                 custom_functions=custom_functions
             )
             
+            # Set the config file path for copying to versioned directory
+            trainer.set_config_file_path(os.path.abspath(config_file))
+            
             # Run training
             return trainer.train()
                 
@@ -306,6 +309,9 @@ class ModelGardenerCLI:
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
+            
+            # Set the config file path for consistency (though not used in evaluation)
+            trainer.set_config_file_path(os.path.abspath(config_file))
             
             # Load model if not already loaded
             if not trainer.model:
@@ -401,6 +407,9 @@ class ModelGardenerCLI:
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
             
+            # Set the config file path for consistency (though not used in prediction)
+            trainer.set_config_file_path(os.path.abspath(config_file))
+            
             # Load model if not already loaded
             if not trainer.model:
                 print("🔄 Loading model for prediction...")
@@ -491,6 +500,9 @@ class ModelGardenerCLI:
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
+            
+            # Set the config file path for consistency (though not used in deployment)
+            trainer.set_config_file_path(os.path.abspath(config_file))
             
             # Load model if not already loaded
             if not trainer.model:

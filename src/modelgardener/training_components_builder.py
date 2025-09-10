@@ -6,11 +6,47 @@ including callbacks, cross-validation, and training execution strategies.
 """
 
 import os
+import shutil
 import tensorflow as tf
 import keras
 import numpy as np
 from typing import Dict, Any, List, Tuple, Optional
 from sklearn.model_selection import KFold, StratifiedKFold
+
+
+class CopyConfigYamlCallback(keras.callbacks.Callback):
+    """
+    Hidden callback that copies the config.yaml file to the versioned log directory
+    at the beginning of training.
+    """
+    
+    def __init__(self, config_file_path: str, target_dir: str):
+        """
+        Initialize the config copy callback.
+        
+        Args:
+            config_file_path: Path to the original config.yaml file
+            target_dir: Directory where to copy the config file
+        """
+        super().__init__()
+        self.config_file_path = config_file_path
+        self.target_dir = target_dir
+    
+    def on_train_begin(self, logs=None):
+        """Copy the config file at the beginning of training."""
+        try:
+            if self.config_file_path and os.path.exists(self.config_file_path):
+                # Ensure target directory exists
+                os.makedirs(self.target_dir, exist_ok=True)
+                
+                # Copy config file
+                target_path = os.path.join(self.target_dir, 'config.yaml')
+                shutil.copy2(self.config_file_path, target_path)
+                print(f"📋 Config file copied to: {target_path}")
+            else:
+                print("⚠️  Config file path not set or file doesn't exist")
+        except Exception as e:
+            print(f"⚠️  Error copying config file: {str(e)}")
 
 
 class TrainingComponentsBuilder:
@@ -23,12 +59,13 @@ class TrainingComponentsBuilder:
         self.training_config = config.get('training', {})
         self.runtime_config = config.get('runtime', {})
     
-    def setup_training_callbacks(self, total_steps: Optional[int] = None) -> List[keras.callbacks.Callback]:
+    def setup_training_callbacks(self, total_steps: Optional[int] = None, config_file_path: Optional[str] = None) -> List[keras.callbacks.Callback]:
         """
         Setup all training callbacks.
         
         Args:
             total_steps: Total number of training steps for progress tracking
+            config_file_path: Path to the config file for copying to versioned directory
             
         Returns:
             List[keras.callbacks.Callback]: List of configured callbacks
@@ -37,6 +74,13 @@ class TrainingComponentsBuilder:
             print("=== Setting up Training Callbacks ===")
             
             callbacks = []
+            
+            # Add hidden config copy callback first (if config file path is provided)
+            if config_file_path:
+                model_dir = self.runtime_config.get('model_dir', './logs')
+                config_copy_callback = CopyConfigYamlCallback(config_file_path, model_dir)
+                callbacks.append(config_copy_callback)
+                print("Added hidden CopyConfigYaml callback")
             
             # Setup standard callbacks (no CLI bridge callback needed)
             callbacks.extend(self._setup_standard_callbacks())
@@ -79,7 +123,17 @@ class TrainingComponentsBuilder:
             
             # Ensure the filepath is relative to model_dir if it's not an absolute path
             if not os.path.isabs(filepath):
-                filepath = os.path.join(model_dir, os.path.basename(filepath))
+                # If it's a relative path starting with './logs', replace with model_dir
+                if filepath.startswith('./logs/'):
+                    relative_path = filepath[7:]  # Remove './logs/' prefix
+                    filepath = os.path.join(model_dir, relative_path)
+                elif filepath.startswith('./'):
+                    # Remove './' and join with model_dir
+                    relative_path = filepath[2:]
+                    filepath = os.path.join(model_dir, relative_path)
+                else:
+                    # Just join with model_dir
+                    filepath = os.path.join(model_dir, filepath)
             
             # Ensure checkpoint directory exists
             checkpoint_dir = os.path.dirname(filepath)
@@ -103,8 +157,18 @@ class TrainingComponentsBuilder:
             log_dir = tensorboard_config.get('log_dir', './logs/tensorboard')
             
             # Make path relative to model_dir if not absolute
-            if not os.path.isabs(log_dir) and not log_dir.startswith('./'):
-                log_dir = os.path.join(model_dir, log_dir)
+            if not os.path.isabs(log_dir):
+                # If it's a relative path starting with './logs', replace with model_dir
+                if log_dir.startswith('./logs/'):
+                    relative_path = log_dir[7:]  # Remove './logs/' prefix
+                    log_dir = os.path.join(model_dir, relative_path)
+                elif log_dir.startswith('./'):
+                    # Remove './' and join with model_dir
+                    relative_path = log_dir[2:]
+                    log_dir = os.path.join(model_dir, relative_path)
+                else:
+                    # Just join with model_dir
+                    log_dir = os.path.join(model_dir, log_dir)
             
             os.makedirs(log_dir, exist_ok=True)
             
@@ -125,7 +189,17 @@ class TrainingComponentsBuilder:
             
             # Ensure the filename is relative to model_dir if it's not an absolute path
             if not os.path.isabs(filename):
-                filename = os.path.join(model_dir, os.path.basename(filename))
+                # If it's a relative path starting with './logs', replace with model_dir
+                if filename.startswith('./logs/'):
+                    relative_path = filename[7:]  # Remove './logs/' prefix
+                    filename = os.path.join(model_dir, relative_path)
+                elif filename.startswith('./'):
+                    # Remove './' and join with model_dir
+                    relative_path = filename[2:]
+                    filename = os.path.join(model_dir, relative_path)
+                else:
+                    # Just join with model_dir
+                    filename = os.path.join(model_dir, filename)
             
             # Ensure log directory exists
             log_dir = os.path.dirname(filename)
