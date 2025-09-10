@@ -6,11 +6,41 @@ A modular ML framework that auto-generates Python scripts from YAML configuratio
 
 - **Configuration-Driven**: Define your entire ML pipeline through YAML configuration
 - **Auto-Generated Scripts**: Automatically generates `train.py`, `evaluation.py`, `prediction.py`, and `deploy.py`
+- **Enhanced CLI with Auto-Discovery**: Intelligent file discovery eliminates need for repetitive parameter specification
 - **Custom Function Support**: Extend functionality with custom models, loss functions, data loaders, and more
-- **Multi-Format Deployment**: Deploy models in ONNX, TFLite, TF.js, and Keras formats
+- **Multi-Format Deployment**: Deploy models in ONNX, TFLite, TF.js, and Keras formats with quantization support
 - **Interactive CLI**: Guided project creation and configuration management
 - **Data Visualization**: Preview and visualize your data with preprocessing and augmentation
 - **Flexible Architecture**: Supports 2D/3D data, multi-input/output models, and various task types
+- **Comprehensive Reporting**: Auto-generated evaluation and prediction reports with metadata
+
+## Enhanced CLI Features
+
+### 🔍 Intelligent Auto-Discovery
+ModelGardener's CLI automatically discovers project files to minimize manual configuration:
+
+- **Config Discovery**: Finds `config.yaml` in current directory when not specified
+- **Model Discovery**: Locates the latest trained model in `logs/` directory structure
+- **Data Discovery**: Identifies test datasets in common directories (`test/`, `val/`, `data/test/`, etc.)
+- **Smart Fallbacks**: Graceful degradation with helpful error messages when files aren't found
+
+### ⚡ Short Parameter Support
+All major commands support intuitive short parameters:
+- `-c` for `--config`
+- `-m` for `--model-path`  
+- `-i` for `--input`
+- `-o` for `--output`
+- `-f` for `--formats`
+- `-q` for `--quantize`
+- `-e` for `--encrypt`
+- `-d` for `--data-path`
+
+### 📊 Enhanced Reporting
+Automatic generation of comprehensive reports:
+- **Evaluation Reports**: JSON/YAML formats with metadata and metrics in `evaluation/` folder
+- **Prediction Reports**: JSON format with CSV summaries in `predictions/` folder  
+- **Timestamped Files**: All reports include timestamps for version tracking
+- **Flexible Output**: Control saving behavior with `--no-save` options
 
 ## Installation
 
@@ -65,7 +95,6 @@ mg config config.yaml --model-family resnet --num-classes 10
 
 **Options:**
 - `--interactive`: Interactive configuration modification mode
-- `--format {json,yaml}`: Output format (inferred from file extension if not specified)
 - All the same configuration options as `mg create`
 
 #### `mg check` - Validate Configuration
@@ -76,7 +105,7 @@ Check and validate configuration files for errors and completeness.
 mg check config.yaml
 
 # Detailed validation with verbose output
-mg check config.json --verbose
+mg check config.yaml --verbose
 ```
 
 **Options:**
@@ -128,81 +157,129 @@ mg train --config config.yaml --resume --checkpoint path/to/checkpoint.ckpt
 - `--checkpoint`: Specific checkpoint file to resume from
 
 #### `mg evaluate` - Evaluate Model
-Evaluate a trained model on test/validation data.
+Evaluate a trained model on test/validation data with enhanced auto-discovery and reporting.
 
 ```bash
-# Basic evaluation
-mg evaluate --config config.yaml
+# Auto-discovery evaluation (uses config.yaml and latest model in logs/)
+mg evaluate
 
-# Evaluate with specific model and data paths
-mg evaluate --config config.yaml --model-path logs/final_model.keras --data-path ./test_data
+# Specific configuration file
+mg evaluate -c config.yaml
 
-# Save results in different formats
-mg evaluate --config config.yaml --output-format json
-mg evaluate --config config.yaml --output-format yaml
+# Specific model with auto-discovered config
+mg evaluate -m logs/final_model.keras
 
-# Evaluate without saving results
-mg evaluate --config config.yaml --no-save
+# Specific evaluation data with auto-discovery
+mg evaluate -d ./test_data
+
+# Combination of specific parameters
+mg evaluate -c config.yaml -m logs/model.keras -d ./custom_test_data
+
+# Control output format and saving
+mg evaluate -c config.yaml --output-format json
+mg evaluate -c config.yaml --no-save  # Don't save to evaluation/ folder
 ```
 
+**Auto-Discovery Features:**
+- **Config Discovery**: Automatically finds `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory structure
+- **Latest Model Priority**: Looks for `final_model.keras`, `model.keras`, or `best_model.keras`
+- **Report Generation**: Creates timestamped evaluation reports in `evaluation/` folder with JSON and YAML formats
+
 **Options:**
-- `--config`: Configuration file (required)
-- `--model-path`: Path to trained model
-- `--data-path`: Path to evaluation data
-- `--output-format {yaml,json}`: Output format for results
-- `--no-save`: Do not save evaluation results
+- `--config, -c`: Configuration file (optional - auto-discovers config.yaml)
+- `--model-path, -m`: Path to trained model (optional - auto-discovers latest)
+- `--data-path, -d`: Path to evaluation data directory (optional - uses config)
+- `--output-format`: Report format (yaml or json, default: yaml)
+- `--no-save`: Do not save evaluation results to evaluation/ folder
 
 #### `mg predict` - Run Predictions
-Run inference on new data using a trained model.
+Run inference on new data using a trained model with intelligent auto-discovery.
 
 ```bash
-# Single image prediction
-mg predict --config config.yaml --input image.jpg
+# Full auto-discovery (config, model, and input data)
+mg predict
 
-# Batch prediction on directory
-mg predict --config config.yaml --input ./images/ --output results.json
+# Auto-discovery with specific input
+mg predict -i ./test_images/
 
-# Custom model path and top-k predictions
-mg predict --config config.yaml --input image.jpg --model-path custom_model.keras --top-k 5
+# Auto-discovery with custom output format
+mg predict --top-k 3 --no-save
 
-# Batch processing with custom batch size
-mg predict --config config.yaml --input ./large_dataset/ --batch-size 16 --output predictions.yaml
+# Specific configuration and model
+mg predict -c config.yaml -m logs/model.keras -i image.jpg
+
+# Batch prediction with custom settings
+mg predict -i ./images/ -o results.json --top-k 5 --batch-size 16
+
+# Custom output directory
+mg predict -i ./test_data/ -o my_predictions.json
 ```
 
+**Auto-Discovery Features:**
+- **Config Discovery**: Automatically finds `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory
+- **Input Discovery**: Searches for common test directories (`test/`, `test_data/`, `test_images/`, `val/`, `data/test/`, `data/val/`) or image files
+- **Report Generation**: Creates timestamped prediction reports in `predictions/` folder with JSON and CSV formats
+
 **Options:**
-- `--config`: Configuration file (required)
-- `--input`: Input image file or directory (required)
-- `--model-path`: Path to trained model
-- `--output`: Output file for results (JSON/YAML)
-- `--top-k`: Number of top predictions to show
-- `--batch-size`: Batch size for processing
+- `--config, -c`: Configuration file (optional - auto-discovers config.yaml)
+- `--input, -i`: Input image file or directory (optional - auto-discovers test data)
+- `--model-path, -m`: Path to trained model (optional - auto-discovers latest)
+- `--output, -o`: Output file for results (JSON format)
+- `--top-k`: Number of top predictions to show (default: 5)
+- `--batch-size`: Batch size for processing (default: 32)
+- `--no-save`: Do not save prediction results to predictions/ folder
 
 ### Model Deployment
 
 #### `mg deploy` - Deploy Model
-Deploy models in multiple formats with optional optimization and security features.
+Deploy models in multiple formats with enhanced auto-discovery, short parameters, and optimization features.
 
 ```bash
-# Deploy in multiple formats
-mg deploy --config config.yaml --formats onnx tflite tfjs
+# Full auto-discovery deployment (config, model, default formats)
+mg deploy
 
-# Deploy with quantization
-mg deploy --config config.yaml --formats onnx tflite --quantize
+# Auto-discovery with specific formats using short parameters
+mg deploy -f keras tflite
+mg deploy -f onnx -q  # With quantization
 
-# Deploy with encryption
-mg deploy --config config.yaml --formats onnx --encrypt --encryption-key mykey
+# Custom output directory
+mg deploy -f keras onnx -o my_deployed_models
 
-# Custom model path
-mg deploy --config config.yaml --model-path custom_model.keras --formats keras onnx
+# Deploy with quantization and encryption
+mg deploy -f tflite -q -e -k myencryptionkey
+
+# Explicit parameters with short options
+mg deploy -c config.yaml -m logs/model.keras -f onnx tflite -o production_models
+
+# Combination of auto-discovery and custom settings
+mg deploy -f keras tfjs -o web_deployment
 ```
 
+**Auto-Discovery Features:**
+- **Config Discovery**: Automatically finds `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory
+- **Default Formats**: Uses ONNX and TFLite formats if none specified
+- **Organized Output**: Creates timestamped deployment directories
+
+**Short Parameters:**
+- `-c`: Configuration file (same as `--config`)
+- `-m`: Model path (same as `--model-path`)
+- `-f`: Output formats (same as `--formats`)
+- `-q`: Apply quantization (same as `--quantize`)
+- `-e`: Encrypt models (same as `--encrypt`)
+- `-k`: Encryption key (same as `--encryption-key`)
+- `-o`: Output directory (same as `--output-dir`)
+
 **Options:**
-- `--config`: Configuration file (required)
-- `--model-path`: Path to trained model
-- `--formats {onnx,tflite,tfjs,keras}`: Output formats (can specify multiple)
-- `--quantize`: Apply quantization (ONNX/TFLite)
-- `--encrypt`: Encrypt model files
-- `--encryption-key`: Encryption key for model files
+- `--config, -c`: Configuration file (optional - auto-discovers config.yaml)
+- `--model-path, -m`: Path to trained model (optional - auto-discovers latest)
+- `--formats, -f {onnx,tflite,tfjs,keras}`: Output formats (can specify multiple, default: onnx tflite)
+- `--quantize, -q`: Apply quantization for ONNX/TFLite formats
+- `--encrypt, -e`: Encrypt model files for security
+- `--encryption-key, -k`: Encryption key for model files
+- `--output-dir, -o`: Output directory for deployed models (default: deployed_models)
 
 #### `mg models` - List Available Models
 List all available built-in model architectures.
@@ -273,28 +350,43 @@ mg train --config config.yaml
 ```
 
 ### 7. Evaluate Your Model
-Evaluate the trained model:
+Evaluate the trained model with auto-discovery:
 
 ```bash
-mg evaluate --config config.yaml --output-format json
+# Auto-discovery evaluation (uses config.yaml and latest model)
+mg evaluate
+
+# Or with specific parameters and output control
+mg evaluate -c config.yaml -m logs/final_model.keras --output-format json
+mg evaluate --no-save  # Quick evaluation without saving reports
 ```
 
 ### 8. Make Predictions
-Run predictions on new data:
+Run predictions on new data with intelligent auto-discovery:
 
 ```bash
-# Single image
-mg predict --config config.yaml --input path/to/image.jpg --top-k 3
+# Full auto-discovery (finds config, model, and test data automatically)
+mg predict
 
-# Batch prediction
-mg predict --config config.yaml --input path/to/images/ --output results.json
+# Auto-discovery with specific input
+mg predict -i path/to/image.jpg --top-k 3
+
+# Batch prediction with custom output
+mg predict -i path/to/images/ -o my_results.json --batch-size 16
 ```
 
 ### 9. Deploy Your Model
-Deploy in multiple formats:
+Deploy in multiple formats with auto-discovery and short parameters:
 
 ```bash
-mg deploy --config config.yaml --formats onnx tflite --quantize
+# Auto-discovery deployment with default formats
+mg deploy
+
+# Custom formats with short parameters
+mg deploy -f onnx tflite -q -o production_models
+
+# Full deployment with encryption
+mg deploy -f keras onnx tflite -q -e -k mykey -o secure_deployment
 ```
 
 ## Project Structure
@@ -307,6 +399,9 @@ my_project/
 │   ├── train/          # Training data
 │   └── val/            # Validation data
 ├── logs/               # Training logs and saved models
+├── evaluation/         # Auto-generated evaluation reports (JSON/YAML)
+├── predictions/        # Auto-generated prediction results (JSON/CSV)
+├── deployed_models/    # Auto-generated model deployments
 ├── custom_modules/     # Custom functions (optional)
 │   ├── custom_models.py
 │   ├── custom_data_loaders.py
@@ -323,6 +418,11 @@ my_project/
 ├── pyproject.toml     # Python dependencies (auto-generated)
 └── README.md          # Project-specific README
 ```
+
+**Generated Output Directories:**
+- `evaluation/`: Contains timestamped evaluation reports with metrics and metadata
+- `predictions/`: Contains prediction results in JSON format with optional CSV summaries
+- `deployed_models/`: Contains models converted to various formats (ONNX, TFLite, TF.js, Keras)
 
 ## Configuration Options
 
@@ -507,7 +607,7 @@ mg preview --config config.yaml --num-samples 12 --save
 mg train --config config.yaml
 
 # Evaluate and deploy
-mg evaluate --config config.yaml --output-format json
+mg evaluate --config config.yaml
 mg deploy --config config.yaml --formats onnx tflite --quantize
 ```
 
@@ -527,17 +627,7 @@ mg train --config config.yaml
 ### Batch Prediction Pipeline
 ```bash
 # Set up prediction pipeline
-mg predict --config config.yaml --input ./test_images/ --batch-size 32 --output predictions.json
-
-# Process results
-python -c "
-import json
-with open('predictions.json', 'r') as f:
-    results = json.load(f)
-    for item in results:
-        print(f'{item[\"filename\"]}: {item[\"predictions\"][0][\"class\"]} ({item[\"predictions\"][0][\"confidence\"]:.2f})')
-"
-```
+mg predict --config config.yaml --input ./test_images/ --batch-size 32 --output predictions.yaml
 
 ## Troubleshooting
 

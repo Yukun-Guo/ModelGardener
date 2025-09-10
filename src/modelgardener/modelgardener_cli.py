@@ -7,12 +7,14 @@ Provides command-line access to ModelGardener functionality without the GUI.
 import argparse
 import sys
 import os
+import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import yaml
 import json
 import numpy as np
 from PIL import Image
+import tensorflow as tf
 
 # Add the current directory to Python path for imports
 current_dir = Path(__file__).parent
@@ -35,6 +37,180 @@ class ModelGardenerCLI:
     def __init__(self):
         self.config_cli = ModelConfigCLI()
         self.config_manager = ConfigManager()
+    
+    def _find_default_config(self) -> Optional[str]:
+        """Find default configuration file in current directory."""
+        current_dir = Path(".")
+        config_files = ["config.yaml", "config.yml", "model_config.yaml", "model_config.yml"]
+        
+        for config_file in config_files:
+            config_path = current_dir / config_file
+            if config_path.exists():
+                return str(config_path)
+        return None
+    
+    def _find_latest_model(self) -> Optional[str]:
+        """Find the latest model in logs/ directory structure."""
+        logs_dir = Path("logs")
+        
+        if not logs_dir.exists():
+            return None
+        
+        # Look for subdirectories in logs/
+        subdirs = [d for d in logs_dir.iterdir() if d.is_dir()]
+        
+        if not subdirs:
+            return None
+        
+        # Sort subdirectories by modification time (latest first)
+        subdirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        # Look for final_model.keras in each subdirectory
+        for subdir in subdirs:
+            model_files = ["final_model.keras", "model.keras", "best_model.keras"]
+            for model_file in model_files:
+                model_path = subdir / model_file
+                if model_path.exists():
+                    return str(model_path)
+        
+        return None
+    
+    def _find_default_input(self) -> Optional[str]:
+        """Find default input directory or file for prediction."""
+        current_dir = Path(".")
+        
+        # Look for common test/prediction directories (expanded list)
+        test_dirs = [
+            "test", "test_data", "test_images", "prediction_data", 
+            "val", "validation", "data/test", "data/val", "data/validation",
+            "data/test_data", "data/test_images", "eval", "evaluate"
+        ]
+        
+        for test_dir in test_dirs:
+            test_path = current_dir / test_dir
+            if test_path.exists() and test_path.is_dir():
+                # Check if directory contains images or is a proper dataset directory
+                image_extensions = ["*.jpg", "*.png", "*.jpeg", "*.bmp", "*.tiff", "*.webp"]
+                image_files = []
+                for ext in image_extensions:
+                    image_files.extend(list(test_path.glob(ext)))
+                    # Also check subdirectories (for class-based organization)
+                    image_files.extend(list(test_path.glob(f"*/{ext}")))
+                
+                if image_files:
+                    return str(test_path)
+                
+                # Check if it contains subdirectories that look like class directories
+                subdirs = [d for d in test_path.iterdir() if d.is_dir()]
+                if subdirs:
+                    # Check if any subdirectory contains images
+                    for subdir in subdirs:
+                        for ext in image_extensions:
+                            if list(subdir.glob(ext)):
+                                return str(test_path)
+        
+        # Look for single image files in current directory
+        for ext in ["*.jpg", "*.png", "*.jpeg", "*.bmp", "*.tiff", "*.webp"]:
+            image_files = list(current_dir.glob(ext))
+            if image_files:
+                # Return the first image file found
+                return str(image_files[0])
+        
+        return None
+
+    def _generate_prediction_output_path(self, input_path: str) -> str:
+        """Generate automatic output path for predictions."""
+        if os.path.isfile(input_path):
+            # Single file prediction
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            output_dir = "predictions"
+        else:
+            # Directory prediction
+            base_name = os.path.basename(input_path.rstrip('/'))
+            output_dir = "predictions"
+        
+        # Create predictions directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate timestamped filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"{base_name}_predictions_{timestamp}.json"
+        
+        return os.path.join(output_dir, output_file)
+
+    def _save_prediction_report(self, results: list, config_file: str, model_path: str, 
+                               input_path: str, output_path: str):
+        """Save comprehensive prediction report with metadata."""
+        try:
+            # Create predictions directory if it doesn't exist
+            os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else "predictions", exist_ok=True)
+            
+            # Build comprehensive report
+            report = {
+                "metadata": {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "config_file": os.path.abspath(config_file),
+                    "model_path": os.path.abspath(model_path),
+                    "input_path": os.path.abspath(input_path),
+                    "total_predictions": len(results)
+                },
+                "predictions": results,
+                "summary": {
+                    "processed_files": len(results),
+                    "successful_predictions": len([r for r in results if 'predictions' in r]),
+                    "failed_predictions": len([r for r in results if 'error' in r])
+                }
+            }
+            
+            # Save as JSON
+            with open(output_path, 'w') as f:
+                json.dump(report, f, indent=2, default=str)
+            
+            print(f"📊 Comprehensive prediction report saved to: {output_path}")
+            
+            # Also save simplified CSV if there are multiple predictions
+            if len(results) > 1:
+                csv_path = output_path.replace('.json', '.csv')
+                self._save_prediction_csv(results, csv_path)
+                print(f"📋 CSV summary saved to: {csv_path}")
+                
+        except Exception as e:
+            print(f"⚠️ Warning: Could not save prediction report: {e}")
+
+    def _save_prediction_csv(self, results: list, csv_path: str):
+        """Save prediction results as CSV for easy analysis."""
+        try:
+            import pandas as pd
+            
+            # Flatten results for CSV
+            csv_data = []
+            for result in results:
+                if 'predictions' in result:
+                    file_path = result.get('file_path', 'unknown')
+                    for i, pred in enumerate(result['predictions']):
+                        csv_data.append({
+                            'file_path': file_path,
+                            'rank': i + 1,
+                            'class': pred.get('class', ''),
+                            'confidence': pred.get('confidence', 0.0)
+                        })
+                elif 'error' in result:
+                    csv_data.append({
+                        'file_path': result.get('file_path', 'unknown'),
+                        'rank': 1,
+                        'class': 'ERROR',
+                        'confidence': 0.0,
+                        'error': result['error']
+                    })
+            
+            if csv_data:
+                df = pd.DataFrame(csv_data)
+                df.to_csv(csv_path, index=False)
+        except ImportError:
+            # pandas not available, skip CSV generation
+            pass
+        except Exception as e:
+            print(f"⚠️ Warning: Could not save CSV: {e}")
 
     def validate_cli_arguments(self, args: argparse.Namespace) -> bool:
         """Validate CLI arguments before processing."""
@@ -245,10 +421,26 @@ class ModelGardenerCLI:
             return False
             return False
 
-    def run_evaluation(self, config_file: str, model_path: str = None, data_path: str = None, 
+    def run_evaluation(self, config_file: str = None, model_path: str = None, data_path: str = None, 
                       output_format: str = "yaml", save_results: bool = True):
         """Run enhanced model evaluation using CLI, preferring generated scripts."""
         print(f"📊 Starting ModelGardener evaluation")
+        
+        # Auto-discover configuration file if not provided
+        if not config_file:
+            config_file = self._find_default_config()
+            if not config_file:
+                print("❌ No configuration file found. Please specify with -c or ensure config.yaml exists in current directory.")
+                return False
+            print(f"🔍 Using auto-discovered config: {config_file}")
+        
+        # Auto-discover model if not provided
+        if not model_path:
+            model_path = self._find_latest_model()
+            if not model_path:
+                print("❌ No model found in logs/ directory. Please specify with -m or train a model first.")
+                return False
+            print(f"🔍 Using auto-discovered model: {model_path}")
         
         # Check for generated evaluation script first
         working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
@@ -274,15 +466,18 @@ class ModelGardenerCLI:
         else:
             print("📄 No generated evaluation script found, using CLI evaluation procedure...")
         
-        # Fallback to original CLI evaluation
+        # Fallback to original CLI evaluation with enhanced features
         print(f"📄 Configuration: {config_file}")
-        if model_path:
-            print(f"🤖 Model path: {model_path}")
+        print(f"🤖 Model path: {model_path}")
         if data_path:
-            print(f"📁 Data path: {data_path}")
+            print(f"📁 Custom data path: {data_path}")
         
         if not os.path.exists(config_file):
             print(f"❌ Configuration file not found: {config_file}")
+            return False
+        
+        if not os.path.exists(model_path):
+            print(f"❌ Model file not found: {model_path}")
             return False
         
         try:
@@ -294,13 +489,23 @@ class ModelGardenerCLI:
             
             main_config = config.get('configuration', {})
             
-            # Use provided model path or default from config
-            if model_path:
-                main_config['runtime']['model_dir'] = model_path
+            # Set the model path
+            main_config['runtime']['model_path'] = model_path
             
-            # Use provided data path for evaluation
+            # Use provided data path for evaluation if specified
             if data_path:
+                if not os.path.exists(data_path):
+                    print(f"❌ Custom data path not found: {data_path}")
+                    return False
                 main_config['data']['test_dir'] = data_path
+                print(f"📁 Using custom evaluation data: {data_path}")
+            else:
+                # Use evaluation dataset from config
+                eval_data_dir = main_config.get('data', {}).get('val_dir', None)
+                if eval_data_dir:
+                    print(f"📁 Using evaluation data from config: {eval_data_dir}")
+                else:
+                    print("⚠️  No evaluation data specified in config or command line")
             
             print("✅ Configuration loaded for evaluation")
             
@@ -310,27 +515,61 @@ class ModelGardenerCLI:
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
             
-            # Set the config file path for consistency (though not used in evaluation)
+            # Set the config file path for consistency
             trainer.set_config_file_path(os.path.abspath(config_file))
             
-            # Load model if not already loaded
+            # Follow the same pipeline as training for data loading
+            print("🔧 Setting up evaluation pipeline...")
+            
+            # Phase 1: Setup runtime (needed for strategy and GPU configuration)
+            success = trainer._setup_runtime()
+            if not success:
+                print("❌ Failed to setup runtime for evaluation")
+                return False
+            
+            # Phase 2: Create data pipeline (this loads the evaluation dataset)
+            success = trainer._create_data_pipeline()
+            if not success:
+                print("❌ Failed to create data pipeline for evaluation")
+                return False
+            
+            # Load the specific model
+            print(f"🔄 Loading model from: {model_path}")
+            if model_path.endswith('.keras'):
+                trainer.model = tf.keras.models.load_model(model_path)
+            else:
+                # Try loading as SavedModel format
+                trainer.model = tf.keras.models.load_model(model_path)
+            
             if not trainer.model:
-                print("🔄 Loading model for evaluation...")
-                trainer._load_saved_model()
+                print("❌ Failed to load model")
+                return False
+            
+            # Use validation dataset for evaluation if no custom data was specified
+            eval_dataset = trainer.val_dataset if not data_path else trainer.val_dataset
+            if eval_dataset is None:
+                print("❌ No evaluation dataset available")
+                print("💡 Hint: Make sure your config has 'val_dir' specified or use -d to specify evaluation data")
+                return False
             
             # Run evaluation
             print("\n📈 Starting evaluation...")
-            results = trainer.evaluate()
+            results = trainer.evaluate(eval_dataset)
             
             if results:
                 print("✅ Evaluation completed successfully!")
-                print("\n📊 Results:")
+                print("\n📊 Evaluation Results:")
+                print("=" * 50)
                 for metric, value in results.items():
-                    print(f"  {metric}: {value:.4f}")
+                    if isinstance(value, float):
+                        print(f"  {metric:.<30} {value:.4f}")
+                    else:
+                        print(f"  {metric:.<30} {value}")
+                print("=" * 50)
                 
                 # Save results if requested
                 if save_results:
-                    self._save_evaluation_results(results, main_config.get('runtime', {}).get('model_dir', './logs'), output_format)
+                    self._save_evaluation_report(results, config_file, model_path, data_path, output_format)
                 
                 return True
             else:
@@ -343,10 +582,34 @@ class ModelGardenerCLI:
             traceback.print_exc()
             return False
 
-    def run_prediction(self, config_file: str, input_path: str, model_path: str = None, 
-                      output_path: str = None, top_k: int = 5, batch_size: int = 32):
+    def run_prediction(self, config_file: str = None, input_path: str = None, model_path: str = None, 
+                      output_path: str = None, top_k: int = 5, batch_size: int = 32, save_results: bool = True):
         """Run prediction using CLI, preferring generated scripts."""
         print(f"🔮 Starting ModelGardener prediction")
+        
+        # Auto-discover configuration file if not provided
+        if not config_file:
+            config_file = self._find_default_config()
+            if not config_file:
+                print("❌ No configuration file found. Please specify with -c or ensure config.yaml exists in current directory.")
+                return False
+            print(f"🔍 Using auto-discovered config: {config_file}")
+        
+        # Auto-discover model if not provided
+        if not model_path:
+            model_path = self._find_latest_model()
+            if not model_path:
+                print("❌ No model found in logs/ directory. Please specify with -m or train a model first.")
+                return False
+            print(f"🔍 Using auto-discovered model: {model_path}")
+        
+        # Auto-discover input if not provided
+        if not input_path:
+            input_path = self._find_default_input()
+            if not input_path:
+                print("❌ No input data found. Please specify with -i or ensure test data exists.")
+                return False
+            print(f"🔍 Using auto-discovered input: {input_path}")
         
         # Check for generated prediction script first
         working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
@@ -366,17 +629,18 @@ class ModelGardenerCLI:
                 args.extend(["--top-k", str(top_k)])
             if batch_size != 32:
                 args.extend(["--batch-size", str(batch_size)])
+            if not save_results:
+                args.append("--no-save")
             
             success = self._run_generated_script(generated_script, args)
             return success
         else:
             print("📄 No generated prediction script found, using CLI prediction procedure...")
         
-        # Fallback to original CLI prediction
+        # Fallback to enhanced CLI prediction
         print(f"📄 Configuration: {config_file}")
         print(f"📁 Input: {input_path}")
-        if model_path:
-            print(f"🤖 Model path: {model_path}")
+        print(f"🤖 Model path: {model_path}")
         
         if not os.path.exists(config_file):
             print(f"❌ Configuration file not found: {config_file}")
@@ -384,6 +648,10 @@ class ModelGardenerCLI:
         
         if not os.path.exists(input_path):
             print(f"❌ Input path not found: {input_path}")
+            return False
+        
+        if not os.path.exists(model_path):
+            print(f"❌ Model file not found: {model_path}")
             return False
         
         try:
@@ -395,25 +663,40 @@ class ModelGardenerCLI:
             
             main_config = config.get('configuration', {})
             
-            # Use provided model path or default from config
-            if model_path:
-                main_config['runtime']['model_dir'] = model_path
+            # Set the model path
+            main_config['runtime']['model_path'] = model_path
             
             print("✅ Configuration loaded for prediction")
             
-            # Use EnhancedTrainer for consistent behavior
+            # Use EnhancedTrainer for consistent behavior (same as evaluation)
             trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
             
-            # Set the config file path for consistency (though not used in prediction)
+            # Set the config file path for consistency
             trainer.set_config_file_path(os.path.abspath(config_file))
             
-            # Load model if not already loaded
+            # Follow the same pipeline as training/evaluation for consistency
+            print("🔧 Setting up prediction pipeline...")
+            
+            # Phase 1: Setup runtime (needed for strategy and GPU configuration)
+            success = trainer._setup_runtime()
+            if not success:
+                print("❌ Failed to setup runtime for prediction")
+                return False
+            
+            # Load the specific model
+            print(f"🔄 Loading model from: {model_path}")
+            if model_path.endswith('.keras'):
+                trainer.model = tf.keras.models.load_model(model_path)
+            else:
+                # Try loading as SavedModel format
+                trainer.model = tf.keras.models.load_model(model_path)
+            
             if not trainer.model:
-                print("🔄 Loading model for prediction...")
-                trainer._load_saved_model()
+                print("❌ Failed to load model")
+                return False
             
             # Run prediction
             print(f"\n🔮 Starting prediction on {input_path}...")
@@ -422,8 +705,14 @@ class ModelGardenerCLI:
             if results:
                 print("✅ Prediction completed successfully!")
                 
-                # Save results if output path specified
-                if output_path:
+                # Save results if requested
+                if save_results:
+                    if not output_path:
+                        # Auto-generate output path
+                        output_path = self._generate_prediction_output_path(input_path)
+                    self._save_prediction_report(results, config_file, model_path, input_path, output_path)
+                elif output_path:
+                    # Save to specific path even if save_results is False (explicit user request)
                     self._save_prediction_results(results, output_path)
                     print(f"💾 Results saved to: {output_path}")
                 
@@ -438,10 +727,30 @@ class ModelGardenerCLI:
             traceback.print_exc()
             return False
 
-    def run_deployment(self, config_file: str, model_path: str = None, output_formats: List[str] = None,
-                      quantize: bool = False, encrypt: bool = False, encryption_key: str = None):
+    def run_deployment(self, config_file: str = None, model_path: str = None, output_formats: List[str] = None,
+                      quantize: bool = False, encrypt: bool = False, encryption_key: str = None, output_dir: str = 'deployed_models'):
         """Run enhanced model deployment with multiple format support, preferring generated scripts."""
         print(f"🚀 Starting ModelGardener deployment")
+        
+        # Auto-discover configuration file if not provided
+        if not config_file:
+            config_file = self._find_default_config()
+            if not config_file:
+                print("❌ No configuration file found. Please specify with -c or ensure config.yaml exists in current directory.")
+                return False
+            print(f"🔍 Using auto-discovered config: {config_file}")
+        
+        # Auto-discover model if not provided
+        if not model_path:
+            model_path = self._find_latest_model()
+            if not model_path:
+                print("❌ No model found in logs/ directory. Please specify with -m or train a model first.")
+                return False
+            print(f"🔍 Using auto-discovered model: {model_path}")
+        
+        # Set default output formats if not provided
+        if not output_formats:
+            output_formats = ['onnx', 'tflite']
         
         # Check for generated deployment script first
         working_dir = Path(config_file).parent if config_file != "config.yaml" else "."
@@ -452,11 +761,21 @@ class ModelGardenerCLI:
             print("📜 Running generated script instead of CLI deployment...")
             
             # Build command line arguments for the generated script
+            # Note: Generated script uses different argument format than CLI
             args = []
-            if model_path:
-                args.extend(["--model-path", model_path])
             if output_formats:
-                args.extend(["--formats"] + output_formats)
+                # Check if conversion is needed
+                if len(output_formats) > 1 or output_formats[0] != 'keras':
+                    args.append("--convert")
+                    args.extend(["--formats"] + output_formats)
+                else:
+                    # Single format deployment
+                    args.extend(["--model-format", output_formats[0]])
+            else:
+                # Default behavior
+                args.append("--convert")
+                args.extend(["--formats", "onnx", "tflite"])
+            
             if quantize:
                 args.append("--quantize")
             if encrypt:
@@ -464,20 +783,26 @@ class ModelGardenerCLI:
             if encryption_key:
                 args.extend(["--encryption-key", encryption_key])
             
+            # Note: Generated script doesn't use --model-path, it finds model automatically
+            # Note: Generated script doesn't use --output-dir, it has its own output logic
+            
             success = self._run_generated_script(generated_script, args)
             return success
         else:
             print("📄 No generated deployment script found, using CLI deployment procedure...")
         
-        # Fallback to original CLI deployment
+        # Fallback to enhanced CLI deployment
         print(f"📄 Configuration: {config_file}")
-        if model_path:
-            print(f"🤖 Model path: {model_path}")
-        if output_formats:
-            print(f"📦 Output formats: {', '.join(output_formats)}")
+        print(f"🤖 Model path: {model_path}")
+        print(f"📦 Output formats: {', '.join(output_formats)}")
+        print(f"� Output directory: {output_dir}")
         
         if not os.path.exists(config_file):
             print(f"❌ Configuration file not found: {config_file}")
+            return False
+        
+        if not os.path.exists(model_path):
+            print(f"❌ Model file not found: {model_path}")
             return False
         
         try:
@@ -489,29 +814,44 @@ class ModelGardenerCLI:
             
             main_config = config.get('configuration', {})
             
-            # Use provided model path or default from config
-            if model_path:
-                main_config['runtime']['model_dir'] = model_path
+            # Set the model path
+            main_config['runtime']['model_path'] = model_path
             
             print("✅ Configuration loaded for deployment")
             
-            # Use EnhancedTrainer for consistent behavior
+            # Use EnhancedTrainer for consistent behavior (same as evaluation/prediction)
             trainer = EnhancedTrainer(
                 config=main_config,
                 custom_functions=config.get('metadata', {}).get('custom_functions', {})
             )
             
-            # Set the config file path for consistency (though not used in deployment)
+            # Set the config file path for consistency
             trainer.set_config_file_path(os.path.abspath(config_file))
             
-            # Load model if not already loaded
+            # Follow the same pipeline as training/evaluation for consistency
+            print("🔧 Setting up deployment pipeline...")
+            
+            # Phase 1: Setup runtime (needed for strategy and GPU configuration)
+            success = trainer._setup_runtime()
+            if not success:
+                print("❌ Failed to setup runtime for deployment")
+                return False
+            
+            # Load the specific model
+            print(f"🔄 Loading model from: {model_path}")
+            if model_path.endswith('.keras'):
+                trainer.model = tf.keras.models.load_model(model_path)
+            else:
+                # Try loading as SavedModel format
+                trainer.model = tf.keras.models.load_model(model_path)
+            
             if not trainer.model:
-                print("🔄 Loading model for deployment...")
-                trainer._load_saved_model()
+                print("❌ Failed to load model")
+                return False
             
             # Run deployment
-            print("\n🚀 Starting model deployment...")
-            success = self._deploy_model_formats(trainer, main_config, output_formats, quantize, encrypt, encryption_key)
+            print(f"\n🚀 Starting model deployment to {output_dir}...")
+            success = self._deploy_model_formats(trainer, main_config, output_formats, quantize, encrypt, encryption_key, output_dir)
             
             if success:
                 print("✅ Deployment completed successfully!")
@@ -526,8 +866,80 @@ class ModelGardenerCLI:
             traceback.print_exc()
             return False
 
+    def _save_evaluation_report(self, results: Dict[str, float], config_file: str, model_path: str, 
+                               data_path: str = None, output_format: str = "yaml"):
+        """Save comprehensive evaluation report to evaluation/ folder."""
+        try:
+            # Create evaluation directory
+            eval_dir = Path("evaluation")
+            eval_dir.mkdir(exist_ok=True)
+            
+            # Create timestamp for unique report
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Prepare comprehensive report
+            report = {
+                "evaluation_summary": {
+                    "timestamp": datetime.now().isoformat(),
+                    "config_file": str(config_file),
+                    "model_path": str(model_path),
+                    "data_path": str(data_path) if data_path else "from_config",
+                    "evaluation_metrics": results
+                },
+                "model_info": {
+                    "model_file": str(Path(model_path).name),
+                    "model_directory": str(Path(model_path).parent),
+                    "model_size_mb": round(Path(model_path).stat().st_size / (1024 * 1024), 2) if Path(model_path).exists() else "unknown"
+                },
+                "detailed_metrics": {}
+            }
+            
+            # Add detailed metrics breakdown
+            for metric, value in results.items():
+                if isinstance(value, (int, float)):
+                    report["detailed_metrics"][metric] = {
+                        "value": float(value),
+                        "formatted": f"{value:.4f}",
+                        "type": "numeric"
+                    }
+                else:
+                    report["detailed_metrics"][metric] = {
+                        "value": str(value),
+                        "type": "text"
+                    }
+            
+            # Save report with timestamp
+            if output_format.lower() == 'json':
+                report_file = eval_dir / f"evaluation_report_{timestamp}.json"
+                with open(report_file, 'w') as f:
+                    json.dump(report, f, indent=2)
+            else:  # yaml
+                report_file = eval_dir / f"evaluation_report_{timestamp}.yaml"
+                with open(report_file, 'w') as f:
+                    yaml.dump(report, f, default_flow_style=False, indent=2)
+            
+            # Also save a "latest" report for easy access
+            latest_file = eval_dir / f"latest_evaluation.{output_format.lower()}"
+            if output_format.lower() == 'json':
+                with open(latest_file, 'w') as f:
+                    json.dump(report, f, indent=2)
+            else:
+                with open(latest_file, 'w') as f:
+                    yaml.dump(report, f, default_flow_style=False, indent=2)
+            
+            print(f"\n💾 Evaluation report saved:")
+            print(f"   📄 Timestamped: {report_file}")
+            print(f"   📄 Latest: {latest_file}")
+            print(f"📁 Reports directory: {eval_dir.absolute()}")
+            
+        except Exception as e:
+            print(f"⚠️ Could not save evaluation report: {str(e)}")
+            # Still print results to console as fallback
+            print("\n💾 Report could not be saved, but results are displayed above.")
+
     def _save_evaluation_results(self, results: Dict[str, float], model_dir: str, output_format: str):
-        """Save evaluation results to file."""
+        """Save evaluation results to file (legacy method)."""
         try:
             os.makedirs(model_dir, exist_ok=True)
             
@@ -658,12 +1070,13 @@ class ModelGardenerCLI:
             print(f"⚠️ Could not save prediction results: {str(e)}")
 
     def _deploy_model_formats(self, trainer, config: Dict[str, Any], output_formats: List[str], 
-                             quantize: bool, encrypt: bool, encryption_key: str) -> bool:
+                             quantize: bool, encrypt: bool, encryption_key: str, output_dir: str = 'deployed_models') -> bool:
         """Deploy model in multiple formats."""
         try:
-            model_dir = config.get('runtime', {}).get('model_dir', './logs')
-            deploy_dir = os.path.join(model_dir, 'deployment')
+            # Use provided output directory instead of config-based directory
+            deploy_dir = os.path.abspath(output_dir)
             os.makedirs(deploy_dir, exist_ok=True)
+            print(f"📁 Creating deployment directory: {deploy_dir}")
             
             success = True
             
@@ -1591,9 +2004,12 @@ Examples:
   # Train a model
   mg train --config config.yaml
   
-  # Evaluate the trained model
-  mg evaluate --config config.yaml --data-path ./test_data
-  mg evaluate --config config.yaml --output-format json
+  # Evaluate the trained model (auto-discovery)
+  mg evaluate  # Uses config.yaml and latest model in logs/
+  mg evaluate -c config.yaml  # Specific config file
+  mg evaluate -m logs/final_model.keras  # Specific model with default config
+  mg evaluate -d ./test_data  # Specific evaluation data
+  mg evaluate -c config.yaml -m logs/model.keras -d ./custom_test_data
   
   # Run predictions
   mg predict --config config.yaml --input image.jpg
@@ -1638,30 +2054,35 @@ Examples:
     
     # Evaluate command
     eval_parser = subparsers.add_parser('evaluate', help='Evaluate a trained model')
-    eval_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
-    eval_parser.add_argument('--model-path', type=str, help='Path to trained model')
-    eval_parser.add_argument('--data-path', type=str, help='Path to evaluation data')
+    eval_parser.add_argument('--config', '-c', type=str, help='Configuration file (optional - defaults to config.yaml in current directory)')
+    eval_parser.add_argument('--model-path', '-m', type=str, help='Path to trained model (e.g., logs/final_model.keras)')
+    eval_parser.add_argument('--data-path', '-d', type=str, help='Path to evaluation data directory')
     eval_parser.add_argument('--output-format', choices=['yaml', 'json'], default='yaml', help='Output format for results')
-    eval_parser.add_argument('--no-save', action='store_true', help='Do not save evaluation results')
+    eval_parser.add_argument('--no-save', action='store_true', help='Do not save evaluation results to evaluation/ folder')
     
     # Predict command
     predict_parser = subparsers.add_parser('predict', help='Run prediction on new data')
-    predict_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
-    predict_parser.add_argument('--input', '-i', type=str, required=True, help='Input image file or directory')
-    predict_parser.add_argument('--model-path', type=str, help='Path to trained model')
+    predict_parser.add_argument('--config', '-c', type=str, help='Configuration file (optional - defaults to config.yaml in current directory)')
+    predict_parser.add_argument('--input', '-i', type=str, help='Input image file or directory (optional - auto-discovers test data)')
+    predict_parser.add_argument('--model-path', '-m', type=str, help='Path to trained model (e.g., logs/final_model.keras)')
     predict_parser.add_argument('--output', '-o', type=str, help='Output file for results (JSON/YAML)')
     predict_parser.add_argument('--top-k', type=int, default=5, help='Number of top predictions to show')
     predict_parser.add_argument('--batch-size', type=int, default=32, help='Batch size for processing')
+    predict_parser.add_argument('--no-save', action='store_true', help='Do not save prediction results to predictions/ folder')
     
     # Deploy command
     deploy_parser = subparsers.add_parser('deploy', help='Deploy model in multiple formats')
-    deploy_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
-    deploy_parser.add_argument('--model-path', type=str, help='Path to trained model')
-    deploy_parser.add_argument('--formats', nargs='+', choices=['onnx', 'tflite', 'tfjs', 'keras'], 
+    deploy_parser.add_argument('--config', '-c', type=str, 
+                              help='Configuration file (optional - defaults to config.yaml in current directory)')
+    deploy_parser.add_argument('--model-path', '-m', type=str, 
+                              help='Path to trained model (optional - auto-discovers latest model)')
+    deploy_parser.add_argument('--formats', '-f', nargs='+', choices=['onnx', 'tflite', 'tfjs', 'keras'], 
                               default=['onnx', 'tflite'], help='Output formats')
-    deploy_parser.add_argument('--quantize', action='store_true', help='Apply quantization (ONNX/TFLite)')
-    deploy_parser.add_argument('--encrypt', action='store_true', help='Encrypt model files')
-    deploy_parser.add_argument('--encryption-key', type=str, help='Encryption key for model files')
+    deploy_parser.add_argument('--quantize', '-q', action='store_true', help='Apply quantization (ONNX/TFLite)')
+    deploy_parser.add_argument('--encrypt', '-e', action='store_true', help='Encrypt model files')
+    deploy_parser.add_argument('--encryption-key', '-k', type=str, help='Encryption key for model files')
+    deploy_parser.add_argument('--output-dir', '-o', type=str, default='deployed_models', 
+                              help='Output directory for deployed models')
     
     # Models command
     models_parser = subparsers.add_parser('models', help='List available models')
@@ -1791,22 +2212,26 @@ def main():
             sys.exit(0 if success else 1)
         
         elif args.command == 'evaluate':
-            # Handle new evaluation parameters
+            # Handle new evaluation parameters with auto-discovery
+            config_file = getattr(args, 'config', None)
+            model_path = getattr(args, 'model_path', None)
             data_path = getattr(args, 'data_path', None)
             output_format = getattr(args, 'output_format', 'yaml')
             save_results = not getattr(args, 'no_save', False)
             
-            success = cli.run_evaluation(args.config, args.model_path, data_path, output_format, save_results)
+            success = cli.run_evaluation(config_file, model_path, data_path, output_format, save_results)
             sys.exit(0 if success else 1)
         
         elif args.command == 'predict':
+            save_results = not getattr(args, 'no_save', False)
             success = cli.run_prediction(args.config, args.input, args.model_path, 
-                                       getattr(args, 'output', None), args.top_k, args.batch_size)
+                                       getattr(args, 'output', None), args.top_k, args.batch_size, save_results)
             sys.exit(0 if success else 1)
         
         elif args.command == 'deploy':
             success = cli.run_deployment(args.config, args.model_path, args.formats,
-                                       args.quantize, args.encrypt, getattr(args, 'encryption_key', None))
+                                       args.quantize, args.encrypt, getattr(args, 'encryption_key', None),
+                                       getattr(args, 'output_dir', 'deployed_models'))
             sys.exit(0 if success else 1)
         
         elif args.command == 'models':

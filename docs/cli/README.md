@@ -1,20 +1,45 @@
 # CLI Reference
 
-ModelGardener provides a comprehensive command-line interface for all machine learning operations. This section documents each CLI command with detailed usage examples and options.
+ModelGardener provides a comprehensive command-line interface with intelligent auto-discovery features for all machine learning operations. This section documents each CLI command with detailed usage examples and options.
+
+## 🌟 Key Features
+
+- **Auto-Discovery**: Intelligent file detection eliminates repetitive parameter specification
+- **Short Parameters**: Intuitive short forms for all major options (`-c`, `-m`, `-i`, `-o`, etc.)
+- **Enhanced Reporting**: Automatic generation of timestamped reports with comprehensive metadata
+- **Flexible Workflows**: Mix auto-discovery with explicit parameters as needed
 
 ## Available Commands
 
-| Command | Purpose | Status |
-|---------|---------|--------|
-| [`config`](config.md) | Modify existing configuration files | ✅ Available |
-| [`create`](create.md) | Create new project templates | ✅ Available |
-| [`train`](train.md) | Train machine learning models | ✅ Available |
-| [`evaluate`](evaluate.md) | Evaluate trained models | ✅ Available |
-| [`predict`](predict.md) | Run predictions on new data | ✅ Available |
-| [`deploy`](deploy.md) | Deploy models in multiple formats | ✅ Available |
-| [`models`](models.md) | List available model architectures | ✅ Available |
-| [`check`](check.md) | Validate configuration files | ✅ Available |
-| [`preview`](preview.md) | Preview data with preprocessing/augmentation | ✅ Available |
+| Command | Purpose | Auto-Discovery | Status |
+|---------|---------|----------------|--------|
+| [`config`](config.md) | Modify existing configuration files | ❌ | ✅ Available |
+| [`create`](create.md) | Create new project templates | ❌ | ✅ Available |
+| [`train`](train.md) | Train machine learning models | ⚡ Config | ✅ Available |
+| [`evaluate`](evaluate.md) | Evaluate trained models | ⚡ Config + Model + Data | ✅ Enhanced |
+| [`predict`](predict.md) | Run predictions on new data | ⚡ Config + Model + Input | ✅ Enhanced |
+| [`deploy`](deploy.md) | Deploy models in multiple formats | ⚡ Config + Model | ✅ Enhanced |
+| [`models`](models.md) | List available model architectures | ❌ | ✅ Available |
+| [`check`](check.md) | Validate configuration files | ⚡ Config | ✅ Available |
+| [`preview`](preview.md) | Preview data with preprocessing/augmentation | ⚡ Config | ✅ Available |
+
+## Auto-Discovery Guide
+
+For comprehensive information about ModelGardener's intelligent auto-discovery features, see the [Auto-Discovery Guide](auto-discovery.md).
+
+### Quick Examples
+
+```bash
+# Full auto-discovery workflows (recommended)
+mg evaluate                    # Finds config.yaml and latest model
+mg predict                     # Finds config, model, and test data
+mg deploy                      # Finds config and model, uses default formats
+
+# Mix auto-discovery with custom parameters
+mg evaluate -d ./custom_test_data     # Auto-discover config+model, specify data
+mg predict -i ./my_images/ -o results.json  # Auto-discover config+model, specify input+output
+mg deploy -f onnx tflite -o production/     # Auto-discover config+model, specify formats+output
+```
 
 ## Quick Start
 
@@ -23,11 +48,11 @@ ModelGardener provides a comprehensive command-line interface for all machine le
 mg --help
 mg <command> --help
 
-# Basic workflow
+# Enhanced workflow with auto-discovery
 mg create my_project --interactive
 cd my_project
-mg preview --config config.yaml  # Preview your data
-mg train --config config.yaml
+mg preview                     # Auto-discovers config.yaml
+mg train                       # Auto-discovers config.yaml
 mg evaluate --config config.yaml
 mg predict --config config.yaml --input test_image.jpg
 mg deploy --config config.yaml --formats onnx tflite

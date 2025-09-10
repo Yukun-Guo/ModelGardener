@@ -1,6 +1,6 @@
 # `predict` Command
 
-Generate predictions on new data using trained models with support for single images, batch processing, and configurable output.
+Generate predictions on new data using trained models with intelligent auto-discovery and comprehensive output management.
 
 ## Synopsis
 
@@ -10,29 +10,45 @@ mg predict [OPTIONS]
 
 ## Description
 
-The `predict` command enables prediction on new data using trained models. It supports:
+The `predict` command enables prediction on new data using trained models with enhanced auto-discovery capabilities. It supports:
 
-- Single image and batch prediction processing
-- Top-k predictions with confidence scores
-- Configurable batch sizes for performance optimization
-- Multiple output formats (JSON/YAML)
-- Custom model and input paths
+- **Auto-Discovery**: Automatically finds config files, models, and input data
+- **Flexible Input**: Single image, batch processing, and directory scanning
+- **Smart Output**: Automatic report generation with JSON and CSV formats
+- **Performance Optimization**: Configurable batch sizes and prediction parameters
+- **Comprehensive Results**: Top-k predictions with confidence scores and metadata
+
+## Auto-Discovery Features
+
+### 🔍 Intelligent File Discovery
+- **Config Discovery**: Automatically locates `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory
+- **Input Discovery**: Searches for common test directories and image files
+  - Test directories: `test/`, `test_data/`, `test_images/`, `val/`, `data/test/`, `data/val/`
+  - Image formats: `.jpg`, `.png`, `.jpeg`, `.bmp`, `.tiff`, `.webp`
+
+### 📊 Enhanced Output Management
+- **Automatic Reports**: Creates timestamped prediction reports in `predictions/` folder
+- **Multiple Formats**: JSON reports with optional CSV summaries for easy analysis
+- **Flexible Saving**: Control report generation with `--no-save` option
+- **Custom Output**: Specify exact output paths when needed
 
 ## Options
 
-### Required Options
-
-| Option | Short | Type | Description | Required |
-|--------|-------|------|-------------|----------|
-| `--config` | `-c` | `str` | Configuration file path | Yes |
-| `--input` | `-i` | `str` | Input image file or directory | Yes |
-
-### Optional Model and Output
+### Core Options (All Optional with Auto-Discovery)
 
 | Option | Short | Type | Description | Default |
 |--------|-------|------|-------------|---------|
-| `--model-path` | | `str` | Path to trained model | From config |
-| `--output` | `-o` | `str` | Output file for results (JSON/YAML) | Console output |
+| `--config` | `-c` | `str` | Configuration file path | Auto-discovered `config.yaml` |
+| `--input` | `-i` | `str` | Input image file or directory | Auto-discovered test data |
+| `--model-path` | `-m` | `str` | Path to trained model | Auto-discovered latest model |
+
+### Output Control Options
+
+| Option | Short | Type | Description | Default |
+|--------|-------|------|-------------|---------|
+| `--output` | `-o` | `str` | Output file for results (JSON) | Auto-generated in predictions/ |
+| `--no-save` | | `flag` | Do not save prediction results | False |
 
 ### Prediction Parameters
 
@@ -40,6 +56,8 @@ The `predict` command enables prediction on new data using trained models. It su
 |--------|------|-------------|---------|
 | `--top-k` | `int` | Number of top predictions to show | 5 |
 | `--batch-size` | `int` | Batch size for processing | 32 |
+
+### Visualization Options
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
@@ -50,85 +68,95 @@ The `predict` command enables prediction on new data using trained models. It su
 
 ## Usage Examples
 
+### Auto-Discovery Prediction (Recommended)
+
+```bash
+# Full auto-discovery - finds config, model, and test data automatically
+mg predict
+
+# Auto-discovery with custom top-k
+mg predict --top-k 3
+
+# Auto-discovery without saving reports
+mg predict --no-save
+
+# Auto-discovery with custom batch size
+mg predict --batch-size 64
+```
+
+### Selective Auto-Discovery
+
+```bash
+# Auto-discover config and model, specify custom input
+mg predict -i ./my_test_images/
+
+# Auto-discover config, specify model and input
+mg predict -m ./models/custom_model.keras -i image.jpg
+
+# Specify config, auto-discover model and input
+mg predict -c ./configs/custom_config.yaml
+
+# Auto-discovery with custom output file
+mg predict -o my_predictions.json --top-k 10
+```
+
 ### Single Image Prediction
 
 ```bash
-# Predict single image
-mg predict --config config.yaml --input image.jpg
+# Auto-discovery with single image
+mg predict -i image.jpg
 
-# Predict with custom model path
-mg predict --config config.yaml --input image.jpg --model-path ./models/my_model.keras
+# Explicit single image prediction
+mg predict -c config.yaml -i image.jpg -m ./models/my_model.keras
 
-# Predict with top-3 results
-mg predict --config config.yaml --input image.jpg --top-k 3
-
-# Save prediction results to file
-mg predict \
-    --config config.yaml \
-    --input image.jpg \
-    --output predictions.json \
-    --top-k 10
+# Single image with custom output and top-k
+mg predict -i image.jpg -o single_result.json --top-k 3
 ```
 
 ### Batch Directory Prediction
 
 ```bash
-# Predict entire directory
-mg predict --config config.yaml --input ./test_images/
+# Auto-discovery batch prediction
+mg predict -i ./test_images/
 
-# Batch prediction with custom batch size
-mg predict \
-    --config config.yaml \
-    --input ./large_dataset/ \
-    --batch-size 64
+# Batch prediction with custom settings
+mg predict -i ./large_dataset/ --batch-size 64 -o batch_results.json
 
-# Batch prediction with output file
-mg predict \
-    --config config.yaml \
-    --input ./images/ \
-    --output batch_predictions.yaml \
-    --batch-size 16
+# Explicit batch prediction
+mg predict -c config.yaml -i ./images/ -m ./models/model.keras --batch-size 16
 ```
 
-### Custom Configuration and Output
+### Output Control Examples
 
 ```bash
-# Predict with YAML output
-mg predict \
-    --config config.yaml \
-    --input image.jpg \
-    --output results.yaml
+# Default auto-saving to predictions/ folder
+mg predict -i ./test_images/
 
-# Predict with JSON output (default)
-mg predict \
-    --config config.yaml \
-    --input image.jpg \
-    --output results.json
+# Custom output file with auto-discovery
+mg predict -i ./test_images/ -o my_custom_results.json
 
-# Console output only (no file save)
-mg predict --config config.yaml --input image.jpg --top-k 5
+# Quick prediction without saving
+mg predict -i image.jpg --no-save --top-k 5
+
+# Console output only with custom parameters
+mg predict -i ./images/ --no-save --batch-size 32
 ```
 
 ### Complete Prediction Workflow
 
 ```bash
-# Train, evaluate, then predict
-mg train --config config.yaml
-mg evaluate --config config.yaml
-mg predict --config config.yaml --input new_image.jpg
+# Train, evaluate, then predict with auto-discovery
+mg train
+mg evaluate
+mg predict
 
-# Predict with different models
-mg predict \
-    --config config.yaml \
-    --input test_image.jpg \
-    --model-path ./models/model_v1.keras \
-    --output v1_predictions.json
+# Multi-model comparison with explicit paths
+mg predict -m ./models/model_v1.keras -i test_image.jpg -o v1_predictions.json
+mg predict -m ./models/model_v2.keras -i test_image.jpg -o v2_predictions.json
 
-mg predict \
-    --config config.yaml \
-    --input test_image.jpg \
-    --model-path ./models/model_v2.keras \
-    --output v2_predictions.json
+# Batch processing pipeline
+mg predict -i ./validation_set/ -o validation_predictions.json
+mg predict -i ./test_set/ -o test_predictions.json
 ```
 
 ## Configuration Requirements

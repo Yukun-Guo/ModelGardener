@@ -29,7 +29,14 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "Flask>=2.2.0",\n    "Pillow>=8.3.0",\n    "PyYAML>=6.0",\n    "matplotlib>=3.5.0",\n    "numpy>=1.21.0",\n    "scikit-learn>=1.0.0",\n    "seaborn>=0.11.0",\n    "tensorflow>=2.10.0"
+    "Flask>=2.2.0", 
+    "Pillow>=8.3.0",
+    "PyYAML>=6.0",
+    "matplotlib>=3.5.0",
+    "numpy>=1.21.0",
+    "scikit-learn>=1.0.0",
+    "seaborn>=0.11.0",
+    "tensorflow>=2.16.0"
 ]
 
 [project.optional-dependencies]

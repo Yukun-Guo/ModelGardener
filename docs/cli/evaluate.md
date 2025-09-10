@@ -1,6 +1,6 @@
 # `evaluate` Command
 
-Evaluate trained machine learning models using test data and generate comprehensive performance metrics.
+Evaluate trained machine learning models using test data with intelligent auto-discovery and comprehensive reporting.
 
 ## Synopsis
 
@@ -10,36 +10,46 @@ mg evaluate [OPTIONS]
 
 ## Description
 
-The `evaluate` command assesses model performance on evaluation data. It provides:
+The `evaluate` command assesses model performance on evaluation data with enhanced auto-discovery capabilities. It provides:
 
-- Model performance metrics calculation
-- Evaluation results in multiple output formats
-- Configurable data paths and model locations
-- Results saving and reporting
+- **Auto-Discovery**: Automatically finds config files, models, and evaluation data
+- **Comprehensive Metrics**: Model performance metrics calculation with detailed analysis
+- **Multiple Output Formats**: Evaluation results in JSON and YAML formats
+- **Timestamped Reports**: Organized results in `evaluation/` folder with metadata
+- **Flexible Configuration**: Override auto-discovery with specific paths when needed
+
+## Auto-Discovery Features
+
+### 🔍 Intelligent File Discovery
+- **Config Discovery**: Automatically locates `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory
+  - Priority order: `final_model.keras` > `model.keras` > `best_model.keras` > latest timestamped model
+- **Data Discovery**: Uses evaluation data path from configuration or specified directory
+
+### 📊 Enhanced Reporting
+- **Automatic Reports**: Creates timestamped evaluation reports in `evaluation/` folder
+- **Multiple Formats**: Saves reports in both JSON and YAML formats
+- **Comprehensive Metadata**: Includes model info, config details, and evaluation parameters
+- **Optional Saving**: Use `--no-save` for quick evaluations without file generation
 
 ## Options
 
-### Required Options
+### Core Options (All Optional with Auto-Discovery)
 
-| Option | Short | Type | Description | Required |
-|--------|-------|------|-------------|----------|
-| `--config` | `-c` | `str` | Configuration file path | Yes |
+| Option | Short | Type | Description | Default |
+|--------|-------|------|-------------|---------|
+| `--config` | `-c` | `str` | Configuration file path | Auto-discovered `config.yaml` |
+| `--model-path` | `-m` | `str` | Path to trained model file | Auto-discovered latest model |
+| `--data-path` | `-d` | `str` | Path to evaluation data | From config or auto-discovered |
 
-### Optional Model and Data
-
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--model-path` | `str` | Path to trained model file | From config |
-| `--data-path` | `str` | Path to evaluation data | From config |
-
-### Output Options
+### Output Control Options
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `--output-format` | `str` | Output format (yaml, json) | `yaml` |
-| `--no-save` | `flag` | Do not save evaluation results | False |
+| `--output-format` | `str` | Primary report format (yaml, json) | `yaml` |
+| `--no-save` | `flag` | Do not save evaluation results to evaluation/ folder | False |
 
-### Visualization Options
+### Advanced Options
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
@@ -49,45 +59,59 @@ The `evaluate` command assesses model performance on evaluation data. It provide
 | `--feature-maps` | `flag` | Visualize feature maps | False |
 ## Usage Examples
 
-### Basic Evaluation
+### Auto-Discovery Evaluation (Recommended)
 
 ```bash
-# Evaluate model with configuration file
-mg evaluate --config config.yaml
+# Full auto-discovery - finds config.yaml and latest model automatically
+mg evaluate
 
-# Evaluate with specific model path
-mg evaluate --config config.yaml --model-path ./models/trained_model.keras
+# Auto-discovery with output format preference
+mg evaluate --output-format json
 
-# Evaluate with custom data path
-mg evaluate --config config.yaml --data-path ./test_data
+# Quick evaluation without saving reports
+mg evaluate --no-save
 ```
 
-### Output Format Options
+### Selective Auto-Discovery
 
 ```bash
-# Save results in YAML format (default)
-mg evaluate --config config.yaml --output-format yaml
+# Auto-discover config and model, specify custom data path
+mg evaluate -d ./custom_test_data
 
-# Save results in JSON format
-mg evaluate --config config.yaml --output-format json
+# Auto-discover config, specify custom model
+mg evaluate -m ./models/specific_model.keras
 
-# Don't save results to file
-mg evaluate --config config.yaml --no-save
+# Specify config, auto-discover model and data
+mg evaluate -c ./configs/custom_config.yaml
+```
+
+### Explicit Configuration
+
+```bash
+# Fully explicit evaluation (overrides all auto-discovery)
+mg evaluate -c config.yaml -m ./models/trained_model.keras -d ./test_data
+
+# Explicit with output control
+mg evaluate -c config.yaml -m ./models/best_model.keras --output-format json
+
+# Explicit evaluation without saving results
+mg evaluate -c config.yaml -m ./models/model.keras --no-save
 ```
 
 ### Complete Evaluation Workflow
 
 ```bash
-# Train, then evaluate
-mg train --config config.yaml
-mg evaluate --config config.yaml
+# Train, then auto-evaluate
+mg train
+mg evaluate
 
-# Evaluate with specific paths
-mg evaluate \
-    --config config.yaml \
-    --model-path ./models/best_model.keras \
-    --data-path ./evaluation_data \
-    --output-format json
+# Train and evaluate with custom settings
+mg train -c config.yaml
+mg evaluate -c config.yaml --output-format json
+
+# Multi-model evaluation
+mg evaluate -m ./models/model_v1.keras -o results_v1.json
+mg evaluate -m ./models/model_v2.keras -o results_v2.json
 ```
 
 ### Evaluation After Training

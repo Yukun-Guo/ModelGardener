@@ -1,6 +1,6 @@
 # `deploy` Command
 
-Deploy trained models to multiple formats and platforms with support for optimization, quantization, encryption, and serving capabilities.
+Deploy trained models to multiple formats with intelligent auto-discovery, optimization features, and enhanced parameter support.
 
 ## Synopsis
 
@@ -10,43 +10,51 @@ mg deploy [OPTIONS]
 
 ## Description
 
-The `deploy` command provides comprehensive model deployment capabilities including:
+The `deploy` command provides comprehensive model deployment capabilities with enhanced auto-discovery:
 
-- Multi-format model conversion (ONNX, TensorFlow Lite, TensorFlow.js)
-- Model optimization and quantization for edge deployment
-- Model encryption and security features
-- REST API server deployment
-- Performance benchmarking and monitoring
-- Docker containerization support
-- Cloud platform integration
+- **Auto-Discovery**: Automatically finds config files and latest trained models
+- **Multi-format Conversion**: Support for ONNX, TensorFlow Lite, TensorFlow.js, and Keras formats
+- **Model Optimization**: Quantization support for edge deployment optimization
+- **Security Features**: Model encryption and key management
+- **Organized Output**: Structured deployment directories with clear naming
+- **Short Parameters**: Intuitive short parameter support for faster workflows
+
+## Auto-Discovery Features
+
+### 🔍 Intelligent File Discovery
+- **Config Discovery**: Automatically locates `config.yaml` in current directory
+- **Model Discovery**: Finds the latest versioned model in `logs/` directory
+  - Priority order: `final_model.keras` > `model.keras` > `best_model.keras` > latest timestamped model
+- **Smart Defaults**: Uses ONNX and TFLite formats when none specified
+
+### 📁 Enhanced Output Management
+- **Organized Structure**: Creates deployment directories with clear format-based organization
+- **Timestamped Results**: Optional timestamping for deployment versioning
+- **Custom Directories**: Flexible output directory specification with `-o` option
 
 ## Options
 
-### Model and Configuration
+### Core Options (All Optional with Auto-Discovery)
 
 | Option | Short | Type | Description | Default |
 |--------|-------|------|-------------|---------|
-| `--config` | `-c` | `str` | Path to YAML configuration file | `config.yaml` |
-| `--model` | `-m` | `str` | Path to trained model file | From config |
-| `--weights` | `-w` | `str` | Path to model weights file | None |
+| `--config` | `-c` | `str` | Configuration file path | Auto-discovered `config.yaml` |
+| `--model-path` | `-m` | `str` | Path to trained model file | Auto-discovered latest model |
+| `--output-dir` | `-o` | `str` | Output directory for deployed models | `deployed_models` |
 
-### Deployment Format
+### Format and Optimization Options
 
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--format` | `str` | Deployment format (onnx, tflite, tfjs, keras, all) | `keras` |
-| `--optimize` | `flag` | Enable model optimization | True |
-| `--quantize` | `str` | Quantization type (int8, fp16, dynamic) | None |
-| `--compress` | `flag` | Enable model compression | False |
+| Option | Short | Type | Description | Default |
+|--------|-------|------|-------------|---------|
+| `--formats` | `-f` | `list` | Output formats (onnx, tflite, tfjs, keras) | `[onnx, tflite]` |
+| `--quantize` | `-q` | `flag` | Apply quantization for ONNX/TFLite | False |
 
 ### Security Options
 
-| Option | Type | Description | Default |
-|--------|------|-------------|---------|
-| `--encrypt` | `flag` | Enable model encryption | False |
-| `--encryption-key` | `str` | Encryption key file path | Auto-generate |
-| `--secure-serving` | `flag` | Enable secure HTTPS serving | False |
-| `--api-key` | `str` | API key for secured endpoints | Auto-generate |
+| Option | Short | Type | Description | Default |
+|--------|-------|------|-------------|---------|
+| `--encrypt` | `-e` | `flag` | Enable model encryption | False |
+| `--encryption-key` | `-k` | `str` | Encryption key for model files | Auto-generate |
 
 ### Serving Options
 
@@ -77,69 +85,96 @@ The `deploy` command provides comprehensive model deployment capabilities includ
 
 ## Usage Examples
 
-### Basic Model Deployment
+### Auto-Discovery Deployment (Recommended)
 
 ```bash
-# Deploy model to ONNX format
-mg deploy --format onnx
+# Full auto-discovery with default formats (onnx, tflite)
+mg deploy
 
-# Deploy with optimization
-mg deploy --format onnx --optimize --quantize int8
+# Auto-discovery with specific formats using short parameters
+mg deploy -f keras tflite
 
-# Deploy to multiple formats
-mg deploy --format all --optimize
+# Auto-discovery with quantization
+mg deploy -f tflite -q
+
+# Auto-discovery with custom output directory
+mg deploy -f onnx tflite -o production_models
 ```
 
-### Edge Deployment
+### Format-Specific Deployment
 
 ```bash
-# Mobile/Edge optimized deployment
-mg deploy \
-    --format tflite \
-    --target-platform mobile \
-    --quantize int8 \
-    --optimize \
-    --compress
+# Single format deployment
+mg deploy -f keras
+mg deploy -f onnx -o onnx_models
+mg deploy -f tflite -q -o mobile_models
 
-# Raspberry Pi deployment
-mg deploy \
-    --format tflite \
-    --target-platform edge \
-    --quantize int8 \
-    --batch-size 1
+# Multiple formats with optimization
+mg deploy -f keras onnx tflite -q -o optimized_models
+
+# Web deployment
+mg deploy -f tfjs -o web_deployment
 ```
 
-### Secure Deployment
+### Security and Optimization
 
 ```bash
-# Encrypted model deployment
-mg deploy \
-    --format onnx \
-    --encrypt \
-    --encryption-key ./keys/model.key
+# Encrypted deployment with auto-discovery
+mg deploy -f onnx -e -k myencryptionkey
 
-# Secure API deployment
-mg deploy \
-    --serve \
-    --secure-serving \
-    --api-key ./keys/api.key \
-    --encrypt
+# Quantized deployment for edge devices
+mg deploy -f tflite -q -o edge_deployment
+
+# Secure multi-format deployment
+mg deploy -f keras onnx -e -q -o secure_models
 ```
 
-### Server Deployment
+### Explicit Configuration
 
 ```bash
-# REST API server
-mg deploy \
-    --serve \
-    --host 0.0.0.0 \
-    --port 8080 \
-    --workers 4
+# Fully explicit deployment (overrides auto-discovery)
+mg deploy -c config.yaml -m ./models/my_model.keras -f onnx -o custom_output
 
-# Production server with security
-mg deploy \
-    --serve \
-    --secure-serving \
+# Explicit with optimization
+mg deploy -c ./configs/prod.yaml -m ./models/final.keras -f tflite -q
+
+# Custom model with multiple formats
+mg deploy -m ./models/custom_model.keras -f keras onnx tflite -o multi_format
+```
+
+### Production Deployment Workflows
+
+```bash
+# Mobile app deployment pipeline
+mg deploy -f tflite -q -o mobile_app/models
+
+# Web deployment pipeline
+mg deploy -f tfjs -o web_app/public/models
+
+# Multi-platform deployment
+mg deploy -f keras onnx tflite tfjs -o cross_platform_models
+
+# Versioned deployment
+mg deploy -f onnx tflite -o models/v1.0 -q -e
+```
+
+### Complete Development Workflow
+
+```bash
+# Train, evaluate, and deploy pipeline
+mg train
+mg evaluate
+mg deploy
+
+# Custom pipeline with specific formats
+mg train -c config.yaml
+mg evaluate -c config.yaml
+mg deploy -c config.yaml -f onnx tflite -q -o production
+
+# Multi-model deployment comparison
+mg deploy -m ./models/model_v1.keras -f onnx -o v1_deployment
+mg deploy -m ./models/model_v2.keras -f onnx -o v2_deployment
+```
     --host 0.0.0.0 \
     --port 443 \
     --workers 8 \
