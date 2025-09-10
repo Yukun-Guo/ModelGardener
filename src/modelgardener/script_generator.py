@@ -23,6 +23,78 @@ class ScriptGenerator:
             'deploy': self._get_deploy_template()
         }
     
+    def _generate_custom_files_map_from_config(self, config_data: Dict[str, Any]) -> str:
+        """
+        Generate custom files mapping dynamically based on configuration.
+        
+        Args:
+            config_data: The configuration data containing custom functions metadata
+            
+        Returns:
+            str: Python code string for the custom_files_map dictionary
+        """
+        try:
+            # Get custom functions info from config metadata
+            custom_functions_info = config_data.get('metadata', {}).get('custom_functions', {})
+            
+            # Default mapping for backward compatibility
+            default_mapping = {
+                'custom_data_loaders.py': 'data_loaders',
+                'custom_models.py': 'models',
+                'custom_loss_functions.py': 'loss_functions',
+                'custom_metrics.py': 'metrics',
+                'custom_callbacks.py': 'callbacks',
+                'custom_augmentations.py': 'augmentations',
+                'custom_preprocessing.py': 'preprocessing',
+                'custom_training_loops.py': 'training_loops'
+            }
+            
+            # If we have custom functions metadata, generate mapping from it
+            if custom_functions_info:
+                custom_mapping = {}
+                
+                for func_type, functions_list in custom_functions_info.items():
+                    if functions_list and isinstance(functions_list, list):
+                        # Extract unique file paths and map them to function types
+                        for func_info in functions_list:
+                            if isinstance(func_info, dict):
+                                file_path = func_info.get('file_path', '')
+                                if file_path:
+                                    # Extract just the filename
+                                    filename = os.path.basename(file_path)
+                                    if filename.endswith('.py'):
+                                        custom_mapping[filename] = func_type
+                
+                # Use custom mapping if available, otherwise use default
+                if custom_mapping:
+                    mapping = custom_mapping
+                else:
+                    mapping = default_mapping
+            else:
+                mapping = default_mapping
+            
+            # Generate the Python dictionary string
+            lines = ["        custom_files_map = {"]
+            for filename, func_type in mapping.items():
+                lines.append(f"            '{filename}': '{func_type}',")
+            lines.append("        }")
+            
+            return '\n'.join(lines)
+            
+        except Exception as e:
+            # Fallback to default mapping if there's any error
+            print(f"Warning: Error generating custom files map from config: {e}")
+            return """        custom_files_map = {
+            'custom_data_loaders.py': 'data_loaders',
+            'custom_models.py': 'models',
+            'custom_loss_functions.py': 'loss_functions',
+            'custom_metrics.py': 'metrics',
+            'custom_callbacks.py': 'callbacks',
+            'custom_augmentations.py': 'augmentations',
+            'custom_preprocessing.py': 'preprocessing',
+            'custom_training_loops.py': 'training_loops'
+        }"""
+    
     def generate_scripts(self, config_data: Dict[str, Any], output_dir: str, 
                         config_file_name: str = "config.yaml",
                         generate_pyproject: bool = True,
@@ -54,7 +126,7 @@ class ScriptGenerator:
             
             # Generate each script
             for script_name, template in self.templates.items():
-                script_content = self._fill_template(template, config, config_file_name)
+                script_content = self._fill_template(template, config, config_file_name, config_data)
                 script_path = os.path.join(output_dir, f"{script_name}.py")
                 
                 with open(script_path, 'w', encoding='utf-8') as f:
@@ -889,7 +961,7 @@ def example_training_loop(param1=1, param2=1):
         return wrapper
 '''
     
-    def _fill_template(self, template: str, config: Dict[str, Any], config_file_name: str) -> str:
+    def _fill_template(self, template: str, config: Dict[str, Any], config_file_name: str, config_data: Dict[str, Any] = None) -> str:
         """Fill template with configuration values."""
         
         # Extract key configuration values
@@ -970,6 +1042,7 @@ def example_training_loop(param1=1, param2=1):
             '{{CUSTOM_LOADER_CALLS}}': self._generate_custom_loader_calls(custom_functions),
             '{{CUSTOM_PREPROCESSING_CALLS}}': self._generate_custom_preprocessing_calls(custom_functions),
             '{{DATA_LOADING_CODE}}': self._generate_data_loading_code(config, custom_functions),
+            '{{CUSTOM_FILES_MAP}}': self._generate_custom_files_map_from_config(config_data or {}),
             '{{GENERATION_DATE}}': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
         
@@ -1222,16 +1295,7 @@ def auto_load_custom_functions():
             return custom_functions
         
         # Map custom module files to function types
-        custom_files_map = {
-            'custom_data_loaders.py': 'data_loaders',
-            'custom_models.py': 'models',
-            'custom_loss_functions.py': 'loss_functions',
-            'custom_metrics.py': 'metrics',
-            'custom_callbacks.py': 'callbacks',
-            'custom_augmentations.py': 'augmentations',
-            'custom_preprocessing.py': 'preprocessing',
-            'custom_training_loops.py': 'training_loops'
-        }
+{{CUSTOM_FILES_MAP}}
         
         for custom_file, func_type in custom_files_map.items():
             custom_file_path = os.path.join(custom_modules_dir, custom_file)

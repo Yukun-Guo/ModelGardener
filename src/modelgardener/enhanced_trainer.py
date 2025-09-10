@@ -247,16 +247,46 @@ class EnhancedTrainer:
             
         return custom_functions
     
-    def _load_from_custom_modules(self, custom_modules_dir: str) -> Dict[str, Any]:
-        """Load custom functions from custom_modules directory."""
-        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
+    def _get_custom_files_map_from_config(self) -> Dict[str, str]:
+        """
+        Get custom files mapping from configuration metadata or use default.
         
+        Returns:
+            Dict mapping custom file names to function types
+        """
         try:
-            import importlib.util
-            import inspect
+            # First, try to read from a config.yaml file in the current directory
+            custom_mapping = {}
             
-            # Map custom module files to function types
-            custom_files_map = {
+            # Try to read config file directly
+            for config_file in ['config.yaml', 'config.yml']:
+                if os.path.exists(config_file):
+                    try:
+                        import yaml
+                        with open(config_file, 'r') as f:
+                            full_config = yaml.safe_load(f)
+                        
+                        custom_functions_info = full_config.get('metadata', {}).get('custom_functions', {})
+                        
+                        if custom_functions_info:
+                            for func_type, functions_list in custom_functions_info.items():
+                                if functions_list and isinstance(functions_list, list):
+                                    # Extract unique file paths and map them to function types
+                                    for func_info in functions_list:
+                                        if isinstance(func_info, dict):
+                                            file_path = func_info.get('file_path', '')
+                                            if file_path:
+                                                # Extract just the filename
+                                                filename = os.path.basename(file_path)
+                                                if filename.endswith('.py'):
+                                                    custom_mapping[filename] = func_type
+                        break
+                    except Exception as e:
+                        print(f"Warning: Error reading {config_file}: {e}")
+                        continue
+            
+            # Default mapping for backward compatibility
+            default_mapping = {
                 'custom_data_loaders.py': 'data_loaders',
                 'custom_models.py': 'models',
                 'custom_model.py': 'models',  # Support both singular and plural
@@ -266,6 +296,41 @@ class EnhancedTrainer:
                 'custom_augmentations.py': 'augmentations',
                 'custom_preprocessing.py': 'preprocessing'
             }
+            
+            # Use custom mapping if available, otherwise use default
+            if custom_mapping:
+                # Add default mappings for any missing standard files
+                for default_file, default_type in default_mapping.items():
+                    if default_file not in custom_mapping:
+                        custom_mapping[default_file] = default_type
+                return custom_mapping
+                        
+            return default_mapping
+            
+        except Exception as e:
+            # Fallback to default mapping if there's any error
+            print(f"Warning: Error getting custom files map from config: {e}")
+            return {
+                'custom_data_loaders.py': 'data_loaders',
+                'custom_models.py': 'models',
+                'custom_model.py': 'models',
+                'custom_loss_functions.py': 'loss_functions',
+                'custom_metrics.py': 'metrics',
+                'custom_callbacks.py': 'callbacks',
+                'custom_augmentations.py': 'augmentations',
+                'custom_preprocessing.py': 'preprocessing'
+            }
+
+    def _load_from_custom_modules(self, custom_modules_dir: str) -> Dict[str, Any]:
+        """Load custom functions from custom_modules directory."""
+        custom_functions = {'data_loaders': {}, 'models': {}, 'loss_functions': {}, 'metrics': {}, 'callbacks': {}, 'optimizers': {}}
+        
+        try:
+            import importlib.util
+            import inspect
+            
+            # Get custom files mapping from config (dynamic) instead of hard-coded
+            custom_files_map = self._get_custom_files_map_from_config()
             
             for custom_file, func_type in custom_files_map.items():
                 custom_file_path = os.path.join(custom_modules_dir, custom_file)
