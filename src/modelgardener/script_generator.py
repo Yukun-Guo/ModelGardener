@@ -643,38 +643,130 @@ class ExampleCallbackClass2(keras.callbacks.Callback):
     def _get_basic_augmentations_template(self) -> str:
         """Get basic augmentations template."""
         return '''"""
-Custom augmentation functions for ModelGardener.
+Enhanced custom augmentation functions for ModelGardener.
 
 All functions follow the nested wrapper pattern where:
 - Outer function: Accepts configuration parameters (will be set in config.yaml)
 - Inner wrapper function: Accepts (data, label) and returns (modified_data, modified_label)
 - Configuration parameters are set at the outer function level
 
+These enhanced functions support both 2D and 3D data and handle label augmentation
+when necessary (e.g., for segmentation tasks).
+
 Example usage pattern:
 def augmentation_name(param1=default1, param2=default2):
     def wrapper(data, label):
-        # Apply augmentation logic here
+        # Apply augmentation logic here with 2D/3D support
         modified_data = apply_augmentation(data, param1, param2)
         modified_label = modify_label_if_needed(label, augmentation_params)
         return modified_data, modified_label
     return wrapper
 """
 
+import tensorflow as tf
 
-def example_augmentation_1(param1=1,param2=2):
+def example_augmentation_1(intensity=0.1, probability=0.5):
+    """
+    Enhanced random brightness augmentation.
+    
+    Supports both 2D and 3D data. Only affects image data, not labels.
+    
+    Args:
+        intensity: Intensity of brightness change (0.0 to 1.0)
+        probability: Probability of applying the augmentation (0.0 to 1.0)
+    """
     def wrapper(data, label):
-        # Apply augmentation logic here
-        modified_data = data  # Replace with actual augmentation logic
-        modified_label = label  # Replace with actual label modification logic if needed
-        return modified_data, modified_label
+        # Apply random brightness change
+        should_apply = tf.random.uniform([]) < probability
+        
+        def apply_brightness():
+            # Detect if data is 2D or 3D based on shape
+            if len(data.shape) == 3:  # 2D: (H, W, C)
+                modified_data = tf.image.random_brightness(data, intensity)
+            elif len(data.shape) == 4:  # 3D: (H, W, D, C) or batched 2D: (B, H, W, C)
+                if data.shape[-1] <= 16:  # Likely 3D with channels
+                    # Apply brightness slice by slice for 3D
+                    depth = tf.shape(data)[2]
+                    slices = []
+                    for i in range(depth):
+                        slice_2d = data[:, :, i, :]
+                        bright_slice = tf.image.random_brightness(slice_2d, intensity)
+                        slices.append(bright_slice)
+                    modified_data = tf.stack(slices, axis=2)
+                else:  # Batched 2D
+                    modified_data = tf.image.random_brightness(data, intensity)
+            else:
+                modified_data = data  # Fallback
+            
+            # Clip to valid range
+            modified_data = tf.clip_by_value(modified_data, 0.0, 1.0)
+            return modified_data, label
+        
+        def no_augmentation():
+            return data, label
+        
+        return tf.cond(should_apply, apply_brightness, no_augmentation)
+    
     return wrapper
 
-def example_augmentation_2(param1=1,param2=2):
+def example_augmentation_2(angle_range=15.0, probability=0.5):
+    """
+    Enhanced random rotation augmentation.
+    
+    Supports both 2D and 3D data with proper label handling for segmentation.
+    
+    Args:
+        angle_range: Maximum rotation angle in degrees
+        probability: Probability of applying the augmentation (0.0 to 1.0)
+    """
     def wrapper(data, label):
-        # Apply augmentation logic here
-        modified_data = data  # Replace with actual augmentation logic
-        modified_label = label  # Replace with actual label modification logic if needed
-        return modified_data, modified_label
+        should_apply = tf.random.uniform([]) < probability
+        
+        def apply_rotation():
+            # Simple 90-degree rotations (TensorFlow limitation)
+            k = tf.random.uniform([], 0, 4, dtype=tf.int32)
+            
+            # Detect data dimension and apply rotation
+            if len(data.shape) == 3:  # 2D: (H, W, C)
+                modified_data = tf.image.rot90(data, k=k)
+                # Apply same rotation to labels if they are spatial (segmentation)
+                if len(label.shape) >= 2:
+                    modified_label = tf.image.rot90(label, k=k)
+                else:
+                    modified_label = label
+            elif len(data.shape) == 4 and data.shape[-1] <= 16:  # 3D: (H, W, D, C)
+                # Apply rotation slice by slice for 3D
+                depth = tf.shape(data)[2]
+                data_slices = []
+                label_slices = []
+                
+                for i in range(depth):
+                    data_slice = data[:, :, i, :]
+                    rotated_data_slice = tf.image.rot90(data_slice, k=k)
+                    data_slices.append(rotated_data_slice)
+                    
+                    # Rotate label slices if spatial
+                    if len(label.shape) >= 3:
+                        label_slice = label[:, :, i, :] if len(label.shape) == 4 else label[:, :, i]
+                        rotated_label_slice = tf.image.rot90(label_slice, k=k)
+                        label_slices.append(rotated_label_slice)
+                
+                modified_data = tf.stack(data_slices, axis=2)
+                if label_slices:
+                    modified_label = tf.stack(label_slices, axis=2)
+                else:
+                    modified_label = label
+            else:
+                modified_data = data
+                modified_label = label
+            
+            return modified_data, modified_label
+        
+        def no_augmentation():
+            return data, label
+        
+        return tf.cond(should_apply, apply_rotation, no_augmentation)
+    
     return wrapper
 '''
 

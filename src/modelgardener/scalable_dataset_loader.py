@@ -408,41 +408,119 @@ class ScalableDatasetLoader:
             """
             Apply data augmentation to images and labels.
             Supports both single tensors and tuples of tensors for multi-input/output models.
+            Handles both 2D and 3D data with proper label augmentation.
             """
-            def augment_single_image(image):
-                """Apply augmentation to a single image tensor."""
+            def augment_single_pair(image, label):
+                """Apply augmentation to a single image-label pair."""
+            def augment_single_pair(image, label):
+                """Apply augmentation to a single image-label pair."""
+                # Detect data dimension
+                from .example_funcs.utils import detect_data_dimension, DataDimension, apply_2d_operation_to_3d, infer_task_type
+                
+                data_dim = detect_data_dimension(image)
+                task_type = infer_task_type(tf.shape(label).numpy() if hasattr(tf.shape(label), 'numpy') else label.shape, label)
+                
+                augmented_image = image
+                augmented_label = label
+                
+                # Geometric augmentations that affect both image and label
+                
                 # Horizontal flip
                 hflip_config = aug_config.get('Horizontal Flip', {})
                 if hflip_config.get('enabled', False):
                     prob = hflip_config.get('probability', 0.5)
-                    image = tf.cond(
-                        tf.random.uniform([]) < prob,
-                        lambda: tf.image.flip_left_right(image),
-                        lambda: image
-                    )
+                    should_flip = tf.random.uniform([]) < prob
+                    
+                    if data_dim == DataDimension.TWO_D:
+                        augmented_image = tf.cond(
+                            should_flip,
+                            lambda: tf.image.flip_left_right(augmented_image),
+                            lambda: augmented_image
+                        )
+                        # Apply same flip to label if it's spatial (segmentation)
+                        if task_type.value == "segmentation" and len(label.shape) >= 2:
+                            augmented_label = tf.cond(
+                                should_flip,
+                                lambda: tf.image.flip_left_right(augmented_label),
+                                lambda: augmented_label
+                            )
+                    else:  # 3D data
+                        def flip_3d_lr(data):
+                            return apply_2d_operation_to_3d(data, tf.image.flip_left_right)
+                        
+                        augmented_image = tf.cond(
+                            should_flip,
+                            lambda: flip_3d_lr(augmented_image),
+                            lambda: augmented_image
+                        )
+                        # Apply same flip to 3D label if it's spatial
+                        if task_type.value == "segmentation" and len(label.shape) >= 3:
+                            augmented_label = tf.cond(
+                                should_flip,
+                                lambda: flip_3d_lr(augmented_label),
+                                lambda: augmented_label
+                            )
                 
                 # Vertical flip
                 vflip_config = aug_config.get('Vertical Flip', {})
                 if vflip_config.get('enabled', False):
                     prob = vflip_config.get('probability', 0.5)
-                    image = tf.cond(
-                        tf.random.uniform([]) < prob,
-                        lambda: tf.image.flip_up_down(image),
-                        lambda: image
-                    )
+                    should_flip = tf.random.uniform([]) < prob
+                    
+                    if data_dim == DataDimension.TWO_D:
+                        augmented_image = tf.cond(
+                            should_flip,
+                            lambda: tf.image.flip_up_down(augmented_image),
+                            lambda: augmented_image
+                        )
+                        # Apply same flip to label if it's spatial
+                        if task_type.value == "segmentation" and len(label.shape) >= 2:
+                            augmented_label = tf.cond(
+                                should_flip,
+                                lambda: tf.image.flip_up_down(augmented_label),
+                                lambda: augmented_label
+                            )
+                    else:  # 3D data
+                        def flip_3d_ud(data):
+                            return apply_2d_operation_to_3d(data, tf.image.flip_up_down)
+                        
+                        augmented_image = tf.cond(
+                            should_flip,
+                            lambda: flip_3d_ud(augmented_image),
+                            lambda: augmented_image
+                        )
+                        # Apply same flip to 3D label if it's spatial
+                        if task_type.value == "segmentation" and len(label.shape) >= 3:
+                            augmented_label = tf.cond(
+                                should_flip,
+                                lambda: flip_3d_ud(augmented_label),
+                                lambda: augmented_label
+                            )
                 
-                # Random rotation
+                # Random rotation (for 2D only, simplified)
                 rotation_config = aug_config.get('Rotation', {})
-                if rotation_config.get('enabled', False):
+                if rotation_config.get('enabled', False) and data_dim == DataDimension.TWO_D:
                     angle_range = rotation_config.get('angle_range', 15.0)
                     prob = rotation_config.get('probability', 0.5)
                     
-                    angle = tf.random.uniform([], -angle_range, angle_range) * (3.14159265359 / 180.0)
-                    image = tf.cond(
-                        tf.random.uniform([]) < prob,
-                        lambda: tf.image.rot90(image, k=tf.cast(angle / (3.14159265359/2), tf.int32)),
-                        lambda: image
+                    # Simple 90-degree rotations (TensorFlow limitation)
+                    k = tf.random.uniform([], 0, 4, dtype=tf.int32)
+                    should_rotate = tf.random.uniform([]) < prob
+                    
+                    augmented_image = tf.cond(
+                        should_rotate,
+                        lambda: tf.image.rot90(augmented_image, k=k),
+                        lambda: augmented_image
                     )
+                    # Apply same rotation to segmentation labels
+                    if task_type.value == "segmentation" and len(label.shape) >= 2:
+                        augmented_label = tf.cond(
+                            should_rotate,
+                            lambda: tf.image.rot90(augmented_label, k=k),
+                            lambda: augmented_label
+                        )
+                
+                # Non-geometric augmentations (image only)
                 
                 # Brightness adjustment
                 brightness_config = aug_config.get('Brightness', {})
@@ -450,11 +528,21 @@ class ScalableDatasetLoader:
                     delta_range = brightness_config.get('delta_range', 0.2)
                     prob = brightness_config.get('probability', 0.5)
                     
-                    image = tf.cond(
-                        tf.random.uniform([]) < prob,
-                        lambda: tf.image.random_brightness(image, delta_range),
-                        lambda: image
-                    )
+                    if data_dim == DataDimension.TWO_D:
+                        augmented_image = tf.cond(
+                            tf.random.uniform([]) < prob,
+                            lambda: tf.image.random_brightness(augmented_image, delta_range),
+                            lambda: augmented_image
+                        )
+                    else:  # 3D data
+                        def brightness_3d(data):
+                            return apply_2d_operation_to_3d(data, lambda x: tf.image.random_brightness(x, delta_range))
+                        
+                        augmented_image = tf.cond(
+                            tf.random.uniform([]) < prob,
+                            lambda: brightness_3d(augmented_image),
+                            lambda: augmented_image
+                        )
                 
                 # Contrast adjustment
                 contrast_config = aug_config.get('Contrast', {})
@@ -462,11 +550,21 @@ class ScalableDatasetLoader:
                     factor_range = contrast_config.get('factor_range', [0.8, 1.2])
                     prob = contrast_config.get('probability', 0.5)
                     
-                    image = tf.cond(
-                        tf.random.uniform([]) < prob,
-                        lambda: tf.image.random_contrast(image, factor_range[0], factor_range[1]),
-                        lambda: image
-                    )
+                    if data_dim == DataDimension.TWO_D:
+                        augmented_image = tf.cond(
+                            tf.random.uniform([]) < prob,
+                            lambda: tf.image.random_contrast(augmented_image, factor_range[0], factor_range[1]),
+                            lambda: augmented_image
+                        )
+                    else:  # 3D data
+                        def contrast_3d(data):
+                            return apply_2d_operation_to_3d(data, lambda x: tf.image.random_contrast(x, factor_range[0], factor_range[1]))
+                        
+                        augmented_image = tf.cond(
+                            tf.random.uniform([]) < prob,
+                            lambda: contrast_3d(augmented_image),
+                            lambda: augmented_image
+                        )
                 
                 # Gaussian noise
                 noise_config = aug_config.get('Gaussian Noise', {})
@@ -474,28 +572,41 @@ class ScalableDatasetLoader:
                     std_dev = noise_config.get('std_dev', 0.1)
                     prob = noise_config.get('probability', 0.5)
                     
-                    noise = tf.random.normal(tf.shape(image), 0.0, std_dev)
-                    image = tf.cond(
+                    noise = tf.random.normal(tf.shape(augmented_image), 0.0, std_dev)
+                    augmented_image = tf.cond(
                         tf.random.uniform([]) < prob,
-                        lambda: tf.clip_by_value(image + noise, 0.0, 1.0),
-                        lambda: image
+                        lambda: tf.clip_by_value(augmented_image + noise, 0.0, 1.0),
+                        lambda: augmented_image
                     )
                 
                 # Apply custom augmentation functions
-                image = self._apply_custom_augmentations(image, aug_config)
+                augmented_image, augmented_label = self._apply_custom_augmentations(augmented_image, augmented_label, aug_config)
                 
                 # Ensure image values are in valid range
-                image = tf.clip_by_value(image, 0.0, 1.0)
-                return image
+                augmented_image = tf.clip_by_value(augmented_image, 0.0, 1.0)
+                return augmented_image, augmented_label
             
-            # Handle multi-input case (tuple of images)
-            if isinstance(images, tuple):
-                augmented_images = tuple(augment_single_image(img) for img in images)
+            # Handle multi-input case (tuple of images) and multi-output labels
+            if isinstance(images, tuple) and isinstance(labels, tuple):
+                # Both images and labels are tuples - process pairs
+                augmented_pairs = [augment_single_pair(img, lbl) for img, lbl in zip(images, labels)]
+                augmented_images = tuple(pair[0] for pair in augmented_pairs)
+                augmented_labels = tuple(pair[1] for pair in augmented_pairs)
+            elif isinstance(images, tuple):
+                # Multiple images, single label set
+                augmented_images = tuple(augment_single_pair(img, labels)[0] for img in images)
+                augmented_labels = labels  # Keep original label structure
+            elif isinstance(labels, tuple):
+                # Single image, multiple label sets  
+                augmented_image, _ = augment_single_pair(images, labels[0])  # Use first label for geometric transforms
+                # Apply same geometric transforms to all labels
+                augmented_labels = tuple(augment_single_pair(images, lbl)[1] for lbl in labels)
+                augmented_images = augmented_image
             else:
-                augmented_images = augment_single_image(images)
+                # Single image, single label
+                augmented_images, augmented_labels = augment_single_pair(images, labels)
             
-            # Labels typically don't need augmentation, but we maintain the structure
-            return augmented_images, labels
+            return augmented_images, augmented_labels
         
         if aug_config:
             dataset = dataset.map(augment_fn, num_parallel_calls=tf.data.AUTOTUNE)
@@ -503,8 +614,8 @@ class ScalableDatasetLoader:
         
         return dataset
     
-    def _apply_custom_augmentations(self, image: tf.Tensor, aug_config: Dict[str, Any]) -> tf.Tensor:
-        """Apply custom augmentation functions to an image."""
+    def _apply_custom_augmentations(self, image: tf.Tensor, label: tf.Tensor, aug_config: Dict[str, Any]) -> Tuple[tf.Tensor, tf.Tensor]:
+        """Apply custom augmentation functions to an image-label pair."""
         
         # Get custom augmentation functions
         custom_augmentations = self.custom_functions.get('augmentations', {})
@@ -513,7 +624,7 @@ class ScalableDatasetLoader:
             custom_augmentations = self.custom_functions.get('augmentation_functions', {})
         
         if not custom_augmentations:
-            return image
+            return image, label
         
         # Apply each enabled custom augmentation function
         for func_name, func_info in custom_augmentations.items():
@@ -549,12 +660,20 @@ class ScalableDatasetLoader:
                 
                 # Apply the custom function conditionally
                 def apply_custom_aug():
+                    # Custom augmentation functions follow wrapper pattern:
+                    # func(param1=val1, param2=val2) returns wrapper(data, label)
                     if func_params:
-                        return func(image, **func_params)
+                        wrapper_func = func(**func_params)
                     else:
-                        return func(image)
+                        wrapper_func = func()
+                    
+                    # Apply the wrapper function to data and label
+                    return wrapper_func(image, label)
                 
-                image = tf.cond(should_apply, apply_custom_aug, lambda: image)
+                def no_aug():
+                    return image, label
+                
+                image, label = tf.cond(should_apply, apply_custom_aug, no_aug)
                 
                 BRIDGE.log(f"Applied custom augmentation: {func_name}")
                 
@@ -563,7 +682,7 @@ class ScalableDatasetLoader:
                 # Continue with other augmentation steps
                 continue
         
-        return image
+        return image, label
     
     def _apply_performance_optimizations(self, dataset: tf.data.Dataset, split: str) -> tf.data.Dataset:
         """Apply performance optimizations to the dataset."""

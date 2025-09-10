@@ -111,16 +111,19 @@ mg preview --config config.yaml --split train --num-samples 12 --save
 Train a model using the specified configuration.
 
 ```bash
-# Basic training
+# Basic training (automatically uses config.yaml in current directory)
+mg train
+
+# Basic training with specific config file
 mg train --config config.yaml
 
 # Resume training from checkpoint
-mg train --config config.yaml --resume
+mg train --resume
 mg train --config config.yaml --resume --checkpoint path/to/checkpoint.ckpt
 ```
 
 **Options:**
-- `--config`: Configuration file (required)
+- `--config`: Configuration file (optional - searches for config.yaml in current directory if not provided)
 - `--resume`: Resume training from checkpoint
 - `--checkpoint`: Specific checkpoint file to resume from
 

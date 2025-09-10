@@ -1624,7 +1624,7 @@ Examples:
     
     # Train command
     train_parser = subparsers.add_parser('train', help='Train a model')
-    train_parser.add_argument('--config', '-c', type=str, required=True, help='Configuration file')
+    train_parser.add_argument('--config', '-c', type=str, required=False, help='Configuration file (optional - will search for config.yaml in current directory if not provided)')
     train_parser.add_argument('--resume', action='store_true', help='Resume training from checkpoint')
     train_parser.add_argument('--checkpoint', type=str, help='Checkpoint file to resume from')
     
@@ -1762,7 +1762,23 @@ def main():
                 sys.exit(1)
         
         elif args.command == 'train':
-            success = cli.run_training(args.config)
+            # Handle config file - if not specified, search current directory for config.yaml
+            config_file = args.config
+            
+            if not config_file:
+                # Try to find config.yaml specifically in current directory
+                if os.path.exists("config.yaml"):
+                    config_file = "config.yaml"
+                    print(f"🔍 Found config.yaml in current directory, using: {config_file}")
+                else:
+                    print("❌ No config.yaml found in current directory")
+                    print("💡 Either:")
+                    print("   • Create a config.yaml file in the current directory")
+                    print("   • Specify a config file: mg train --config path/to/config.yaml")
+                    print("   • Use 'mg create' to create a new project with configuration")
+                    sys.exit(1)
+            
+            success = cli.run_training(config_file)
             sys.exit(0 if success else 1)
         
         elif args.command == 'evaluate':

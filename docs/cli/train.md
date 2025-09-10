@@ -19,11 +19,11 @@ The `train` command executes the training pipeline based on a configuration file
 
 ## Options
 
-### Required Options
+### Configuration Options
 
 | Option | Short | Type | Description | Required |
 |--------|-------|------|-------------|----------|
-| `--config` | `-c` | `str` | Configuration file path | Yes |
+| `--config` | `-c` | `str` | Configuration file path | No (searches for `config.yaml` in current directory if not provided) |
 
 ### Optional Training Control
 
@@ -52,7 +52,10 @@ The `train` command executes the training pipeline based on a configuration file
 ### Basic Training
 
 ```bash
-# Train with configuration file
+# Train with automatic config detection (looks for config.yaml in current directory)
+mg train
+
+# Train with specific configuration file
 mg train --config config.yaml
 
 # Train with different configuration file
@@ -62,7 +65,10 @@ mg train --config my_training_config.yaml
 ### Resume Training
 
 ```bash
-# Resume training from checkpoint
+# Resume training from checkpoint (with auto config detection)
+mg train --resume
+
+# Resume training from checkpoint with specific config
 mg train --config config.yaml --resume
 
 # Resume from specific checkpoint file
@@ -76,10 +82,10 @@ mg train --config config.yaml --resume --checkpoint path/to/checkpoint.keras
 mg create my_project
 cd my_project
 mg config config.yaml --epochs 100 --batch-size 32
-mg train --config config.yaml
+mg train  # Uses config.yaml automatically
 
 # Resume training after interruption
-mg train --config config.yaml --resume
+mg train --resume
 
 # Train multiple configurations
 mg train --config config_v1.yaml
