@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modelgardener"
-version = "2.0.0"
+version = "0.0.2"
 description = "A command-line interface for deep learning model training with TensorFlow/Keras"
 readme = "README.md"
 requires-python = ">=3.8"
