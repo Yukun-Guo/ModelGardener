@@ -99,9 +99,10 @@ class ScriptGenerator:
                         config_file_name: str = "config.yaml",
                         generate_pyproject: bool = True,
                         generate_requirements: bool = False,
+                        enable_main_scripts: bool = True,
                         verbose: bool = False) -> bool:
         """
-        Generate all Python scripts based on configuration.
+        Generate Python scripts based on configuration.
         
         Args:
             config_data: The configuration dictionary
@@ -109,9 +110,14 @@ class ScriptGenerator:
             config_file_name: Name of the configuration file
             generate_pyproject: Whether to generate pyproject.toml (default: True)
             generate_requirements: Whether to generate requirements.txt (default: False)
+            enable_main_scripts: Whether to generate main scripts (train.py, predict.py, etc.) (default: True)
+            verbose: Whether to show detailed output
             
         Returns:
             bool: True if all scripts generated successfully
+            
+        Note:
+            Custom modules are always generated regardless of enable_main_scripts setting.
         """
         try:
             os.makedirs(output_dir, exist_ok=True)
@@ -119,39 +125,45 @@ class ScriptGenerator:
             # Extract configuration for script generation
             config = config_data.get('configuration', config_data)
             
-            # Generate custom_modules directory first
+            # Always generate custom_modules directory first
             if verbose:
                 print("📦 Generating custom modules...")
             self.generate_custom_modules_templates(output_dir, verbose)
             
-            # Generate each script
-            for script_name, template in self.templates.items():
-                script_content = self._fill_template(template, config, config_file_name, config_data)
-                script_path = os.path.join(output_dir, f"{script_name}.py")
+            # Generate main scripts only if enabled
+            if enable_main_scripts:
+                # Generate each script
+                for script_name, template in self.templates.items():
+                    script_content = self._fill_template(template, config, config_file_name, config_data)
+                    script_path = os.path.join(output_dir, f"{script_name}.py")
+                    
+                    with open(script_path, 'w', encoding='utf-8') as f:
+                        f.write(script_content)
+                    
+                    # Make script executable on Unix systems
+                    if os.name != 'nt':  # Not Windows
+                        os.chmod(script_path, 0o755)
+                    
+                    if verbose:
+                        print(f"✅ Generated: {script_path}")
                 
-                with open(script_path, 'w', encoding='utf-8') as f:
-                    f.write(script_content)
+                # Generate pyproject.toml by default
+                if generate_pyproject:
+                    self._generate_pyproject_toml(config, output_dir, verbose)
                 
-                # Make script executable on Unix systems
-                if os.name != 'nt':  # Not Windows
-                    os.chmod(script_path, 0o755)
+                # Generate requirements.txt if specifically requested
+                if generate_requirements:
+                    self._generate_requirements_txt(config, output_dir, verbose)
+                
+                # Generate README for scripts
+                self._generate_scripts_readme(config, output_dir, verbose)
                 
                 if verbose:
-                    print(f"✅ Generated: {script_path}")
+                    print(f"🎉 All scripts generated successfully in: {output_dir}")
+            else:
+                if verbose:
+                    print("📦 Main scripts generation disabled, only custom modules generated")
             
-            # Generate pyproject.toml by default
-            if generate_pyproject:
-                self._generate_pyproject_toml(config, output_dir, verbose)
-            
-            # Generate requirements.txt if specifically requested
-            if generate_requirements:
-                self._generate_requirements_txt(config, output_dir, verbose)
-            
-            # Generate README for scripts
-            self._generate_scripts_readme(config, output_dir, verbose)
-            
-            if verbose:
-                print(f"🎉 All scripts generated successfully in: {output_dir}")
             return True
             
         except Exception as e:

@@ -1338,31 +1338,39 @@ class ModelGardenerCLI:
                 config_data = None
                 self.config_cli.create_template(str(config_file), 'yaml', verbose)
         
-        # Generate scripts if requested
-        if auto_generate_scripts:
-            if verbose:
-                print(f"\n📜 Generating training scripts...")
-            try:
-                from .script_generator import ScriptGenerator
-                
-                # Load config data if available
-                if config_data is None and config_file.exists():
-                    try:
-                        with open(config_file, 'r') as f:
-                            import yaml
-                            config_data = yaml.safe_load(f)
-                    except Exception as e:
-                        if verbose:
-                            print(f"⚠️ Could not load config for script generation: {e}")
-                        config_data = {}
-                
-                generator = ScriptGenerator()
+        # Always generate custom modules, regardless of script flag
+        if verbose:
+            print(f"\n� Generating custom modules...")
+        try:
+            from .script_generator import ScriptGenerator
+            
+            # Load config data if available
+            if config_data is None and config_file.exists():
+                try:
+                    with open(config_file, 'r') as f:
+                        import yaml
+                        config_data = yaml.safe_load(f)
+                except Exception as e:
+                    if verbose:
+                        print(f"⚠️ Could not load config for script generation: {e}")
+                    config_data = {}
+            
+            generator = ScriptGenerator()
+            
+            # Always generate custom modules
+            generator.generate_custom_modules_templates(str(project_path), verbose)
+            
+            # Generate main scripts only if requested
+            if auto_generate_scripts:
+                if verbose:
+                    print(f"\n📜 Generating main training scripts...")
                 success = generator.generate_scripts(
                     config_data=config_data or {},
                     output_dir=str(project_path),
                     config_file_name="config.yaml",
                     generate_pyproject=use_pyproject,
                     generate_requirements=not use_pyproject,
+                    enable_main_scripts=auto_generate_scripts,
                     verbose=verbose
                 )
                 
@@ -1371,15 +1379,25 @@ class ModelGardenerCLI:
                         print("✅ Training scripts generated successfully!")
                 else:
                     print("⚠️ Some scripts may not have been generated correctly")
+            else:
+                # Still need to generate pyproject/requirements even without main scripts
+                if use_pyproject:
+                    generator._generate_pyproject_toml(config_data.get('configuration', config_data) if config_data else {}, str(project_path), verbose)
+                else:
+                    generator._generate_requirements_txt(config_data.get('configuration', config_data) if config_data else {}, str(project_path), verbose)
+                
+                if verbose:
+                    print("✅ Custom modules generated successfully! (Main scripts disabled)")
                     
-            except ImportError as e:
-                print(f"⚠️ Script generator not available: {e}")
-            except Exception as e:
-                print(f"⚠️ Error generating scripts: {e}")
+        except ImportError as e:
+            print(f"⚠️ Script generator not available: {e}")
+        except Exception as e:
+            print(f"⚠️ Error generating scripts: {e}")
         
         # Update README content based on what was actually generated
         package_file = "pyproject.toml" if use_pyproject else "requirements.txt"
-        scripts_note = "auto-generated" if auto_generate_scripts else "can be generated with --script"
+        main_scripts_note = "auto-generated" if auto_generate_scripts else "can be generated with --script"
+        custom_modules_note = "always auto-generated"
         
         # Create README
         readme_content = f"""# {project_name} - ModelGardener Project
@@ -1391,13 +1409,13 @@ class ModelGardenerCLI:
 │   ├── train/          # Training data
 │   └── val/            # Validation data
 ├── logs/               # Training logs and models
-├── custom_modules/     # Custom functions (models, losses, etc.)
+├── custom_modules/     # Custom functions ({custom_modules_note})
 ├── config.yaml         # Model configuration
-├── train.py           # Training script ({scripts_note})
-├── evaluation.py      # Evaluation script ({scripts_note})
-├── prediction.py      # Prediction script ({scripts_note})
-├── deploy.py          # Deployment script ({scripts_note})
-├── {package_file}      # Python dependencies ({scripts_note})
+├── train.py           # Training script ({main_scripts_note})
+├── evaluation.py      # Evaluation script ({main_scripts_note})
+├── prediction.py      # Prediction script ({main_scripts_note})
+├── deploy.py          # Deployment script ({main_scripts_note})
+├── {package_file}      # Python dependencies
 └── README.md          # This file
 ```
 
@@ -2093,8 +2111,8 @@ Examples:
     create_parser.add_argument('--dir', '-d', default='.', help='Directory to create project in (ignored if no project_name provided)')
     create_parser.add_argument('--interactive', '-i', action='store_true', help='Interactive project creation mode')
     create_parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed output during project creation')
-    create_parser.add_argument('--script', action='store_true', default=True, help='Enable auto-generation of training scripts (default: True)')
-    create_parser.add_argument('--no-script', action='store_false', dest='script', help='Disable auto-generation of training scripts')
+    create_parser.add_argument('--script', action='store_true', default=True, help='Enable auto-generation of main training scripts (train.py, predict.py, evaluation.py, deploy.py) (default: True)')
+    create_parser.add_argument('--no-script', action='store_false', dest='script', help='Disable auto-generation of main training scripts (custom_modules/ are always generated)')
     create_parser.add_argument('--use-pyproject', action='store_true', default=True, help='Generate pyproject.toml instead of requirements.txt (default: True)')
     create_parser.add_argument('--use-requirements', action='store_false', dest='use_pyproject', help='Generate requirements.txt instead of pyproject.toml')
     # Add configuration arguments for batch mode (same as config)
