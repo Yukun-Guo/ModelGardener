@@ -3,21 +3,20 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ml-project"
-version = "0.0.1"
-description = "Machine Learning project using ModelGardener - create_simple_cnn"
+name = "modelgardener"
+version = "2.0.0"
+description = "A command-line interface for deep learning model training with TensorFlow/Keras"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
-    {name = "ModelGardener User", email = "user@example.com"},
+    {name = "ModelGardener Team", email = "user@example.com"},
 ]
 keywords = ["machine-learning", "deep-learning", "tensorflow", "keras", "computer-vision"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research", 
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -49,12 +48,15 @@ jupyter = ["jupyter", "ipykernel", "ipywidgets"]
 
 [project.urls]
 "Homepage" = "https://github.com/Yukun-Guo/ModelGardener"
-"Bug Tracker" = "https://github.com/your-username/ml-project/issues"
-"Repository" = "https://github.com/your-username/ml-project"
+"Bug Tracker" = "https://github.com/Yukun-Guo/ModelGardener/issues"
+"Repository" = "https://github.com/Yukun-Guo/ModelGardener"
+
+[project.scripts]
+mg = "modelgardener.cli:run_cli"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["custom_modules*"]
+where = ["src"]
+include = ["modelgardener*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.yml", "*.json", "*.txt", "*.md"]
